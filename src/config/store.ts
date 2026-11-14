@@ -32,7 +32,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { validateDdnsConfig } from '#src/providers/ddns'
 import { targetProblem } from '#src/providers/webhook'
-import { duplicateWebhookIds, serverKindProblems } from '#src/shared/contracts'
+import { duplicateWebhookIds, entryHasJobFields } from '#src/shared/contracts'
 
 export { ConfigError }
 export type { ResolvedServersFile, ResolvedWorkspaceSettings }
@@ -498,14 +498,11 @@ export class WorkspaceStore {
     if (parsed instanceof type.errors)
       throw new ConfigError(`${label}: ${parsed.summary}`)
     const server = { ...parsed, port: parsed.port ?? null }
-    const problems = serverKindProblems({
-      kind: server.kind,
-      schedule: server.schedule,
-      port: server.port,
-      declaredKeys: Object.keys(entry),
-    })
-    if (problems.length > 0)
-      throw new ConfigError(`${label}: ${problems.join('; ')}`)
+    // A write that still names a job field is refused here, at the write, so a caller cannot create an
+    // entry whose `kind` would be silently dropped.
+    const leftover = entryHasJobFields(entry)
+    if (leftover !== null)
+      throw new ConfigError(`${label}: ${leftover}`)
     return server
   }
 

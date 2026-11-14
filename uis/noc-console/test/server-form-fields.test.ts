@@ -64,16 +64,12 @@ describe('the shared server form', () => {
     const labels = Array.from(leading!.querySelectorAll('.field__label')).map(node => node.textContent)
     expect(labels).toEqual([
       'id',
-      // What the entry *is*, and (for a job) when it runs — beside `id` because the choice
-      // changes which of the other groups apply.
-      'entry kind',
       'label',
       'command',
       'args — space separated',
       'cwd',
       'port',
       'bind',
-      'schedule (5-field cron)',
       'autostart with up',
       'persistent',
     ])

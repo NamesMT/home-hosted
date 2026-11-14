@@ -2,9 +2,8 @@ import type { ChildProcess } from 'node:child_process'
 import type { WorkspaceStore } from '#src/config/store'
 import type { EventHub } from '#src/services/events'
 import type { NotificationReason } from '#src/services/notifications'
-import type { Entry, JobOutcome, JobRunResult, ResolvedSpawn, StartResult, SupervisorOptions } from '#src/services/supervisor/entry'
+import type { Entry, ResolvedSpawn, StartResult, SupervisorOptions } from '#src/services/supervisor/entry'
 import type { HealthContext } from '#src/services/supervisor/health'
-import type { JobRunHandle } from '#src/services/supervisor/job-run'
 import type { OpenedOutput } from '#src/services/supervisor/output'
 import type { PersistentContext } from '#src/services/supervisor/persistent'
 import type { PortContext, SupervisedPids } from '#src/services/supervisor/port-preflight'
@@ -35,7 +34,6 @@ import {
   sampleResources,
   shouldForceRestart,
 } from '#src/services/supervisor/health'
-import { describeJobOutcome, spawnJobRun } from '#src/services/supervisor/job-run'
 import { closeOutput, EntryOutput, openOutput, outputFiles, removeOutputFiles } from '#src/services/supervisor/output'
 import { runPendingLoad } from '#src/services/supervisor/pending-load'
 import { PersistentEntries, rememberEchoedLine } from '#src/services/supervisor/persistent'
@@ -529,166 +527,6 @@ export class Supervisor {
       entry.deploying = false
       entry.deployChild = null
     }
-  }
-
-  /**
-   * Runs a job **now**, and resolves when its run has ended.
-   *
-   * The one entry point for "run this job": the scheduler's occurrence, `POST
-   * /api/servers/:id/run` and `home-hosted run` all come through here, so a run started by a person
-   * and one started by the clock are the same run — same spawn resolution, same log lines, same
-   * history event, same notification.
-   *
-   * A job is a run-to-completion process, so there is deliberately no readiness wait, no probe and no
-   * retry: **the exit code is the outcome**. `0` succeeded; anything else failed and notifies like a
-   * crash, because a backup that did not run is the same news to a reader as a service that stopped.
-   *
-   * Two refusals rather than a queue:
-   *  - the entry is not a job (`NOT_A_JOB`) — running a *service* once is what `start` is for, and
-   *    spawning it under this path would make a second unsupervised copy;
-   *  - a run is already in flight (`JOB_RUNNING`) — two copies writing the same files is the failure
-   *    a schedule exists to avoid, and it is the same answer the scheduler gives itself.
-   */
-  async runJob(id: string, options: { actor?: HistoryActor } = {}): Promise<JobRunResult> {
-    const entry = this.entries.get(id)
-    if (!entry)
-      return { ok: false, error: `unknown server "${id}"`, code: 'UNKNOWN_SERVER' }
-    if (entry.config.kind !== 'job')
-      return { ok: false, error: `server "${id}" is a service — \`start\` supervises it, and a job run is for a run-to-completion entry`, code: 'NOT_A_JOB' }
-    if (!entry.config.enabled)
-      return { ok: false, error: `server "${id}" is disabled`, code: 'SERVER_DISABLED' }
-    if (entry.job !== null)
-      return { ok: false, error: `server "${id}" is already running`, code: 'JOB_RUNNING' }
-
-    const run = this.beginJobRun(entry, { actor: options.actor ?? 'policy', why: 'run' })
-    if ('error' in run)
-      return { ok: false, error: run.error, code: 'JOB_START_FAILED' }
-    return { ok: true, outcome: await run.outcome }
-  }
-
-  /** Whether a job has a run in flight right now — what the scheduler's overlap rule asks. */
-  isJobRunning(id: string): boolean {
-    const entry = this.entries.get(id)
-    return entry !== undefined && entry.job !== null
-  }
-
-  /** A scheduled run that was skipped because the previous one is still going: logged and recorded. */
-  noteJobOverlap(id: string, occurrence: number): void {
-    const entry = this.entries.get(id)
-    if (!entry)
-      return
-    entry.jobLastOverlapAt = Date.now()
-    this.log(entry, 'system', 'skipped a scheduled run: the previous one is still going')
-    this.options.history.record(entry.config.id, {
-      type: 'job-run',
-      detail: `overlap: the run due at ${new Date(occurrence).toLocaleString()} was skipped because the previous one was still going`,
-      outcome: 'overlap',
-    })
-    this.publishServer(entry)
-  }
-
-  /**
-   * Records that a run has **started**, durably.
-   *
-   * The completion event alone left a hole: a panel restarted during a run found no `job-run` record
-   * for that occurrence, so its boot catch-up concluded the run was missed and started a second copy
-   * while the first was still going. Two copies writing the same files is the failure the overlap
-   * rule exists to prevent, so the claim has to be durable and has to come first.
-   */
-  private recordJobStart(entry: Entry, occurrence: number): void {
-    this.options.history.record(entry.config.id, {
-      type: 'job-run',
-      detail: `run started (due ${new Date(occurrence).toLocaleString()})`,
-      outcome: 'running',
-    })
-  }
-
-  /**
-   * The spawn half of a job run, shared by `runJob` and the scheduler's occurrence.
-   *
-   * Split out because the scheduler starts a run from inside its own tick and cannot await it: it
-   * needs the handle (so a second occurrence sees `entry.job !== null`) plus a promise it can leave
-   * alone. Everything observable — the log line, the history event, the notification, the view's
-   * fields — happens here, so neither caller can drift.
-   */
-  private beginJobRun(entry: Entry, options: { actor: HistoryActor, why: 'run' | 'schedule', occurrence?: number }): { outcome: Promise<JobOutcome> } | { error: string } {
-    const resolved = resolveSpawn(this.ctx, entry)
-    let handle: JobRunHandle
-    try {
-      handle = spawnJobRun(resolved, {
-        log: (stream, text) => this.log(entry, stream, text),
-        cancelled: () => entry.job?.cancelled === true,
-      })
-    }
-    catch (error) {
-      // `spawn` throws synchronously for an unusable command or cwd: a failed run, not a panel crash.
-      // No claim is written, because **nothing ran** — a claim here would tell the boot catch-up this
-      // occurrence was covered, and a job with a typo'd command would never be retried.
-      const message = (error as Error).message
-      return { error: message }
-    }
-
-    /**
-     * The durable claim, written once the process **exists** and before it can finish.
-     *
-     * That window is exactly what the boot catch-up needs: a panel restarted while a run is going
-     * must find it on record rather than conclude the occurrence was missed and start a second copy.
-     * Writing it before the spawn was a hole — a spawn that threw left a claim with no outcome, and
-     * the catch-up treated the occurrence as covered for ever.
-     */
-    this.recordJobStart(entry, options.occurrence ?? Date.now())
-
-    const startedAt = handle.startedAt
-    entry.actor = options.actor
-    entry.status = 'running'
-    entry.pid = handle.pid
-    entry.startedAt = startedAt
-    entry.lastError = null
-    entry.exitCode = null
-    entry.exitSignal = null
-    // Health describes a service's process; a job has none, and the view must not claim otherwise.
-    resetHealth(entry)
-    this.log(entry, 'system', `run: ${resolved.command} ${resolved.loggedArgs.join(' ')}`.trim())
-    this.options.history.record(entry.config.id, { type: 'start', detail: options.why === 'schedule' ? 'a scheduled run' : 'run now', actor: options.actor })
-    this.publishServer(entry)
-
-    const outcome = handle.done.then((result) => {
-      const durationMs = Date.now() - startedAt
-      const cancelled = entry.job?.cancelled === true
-      entry.job = null
-      endProcessReadings(entry)
-      entry.status = cancelled ? 'stopped' : 'crashed'
-      entry.exitCode = result.exitCode
-      entry.exitSignal = result.signal
-      entry.lastError = cancelled || result.exitCode === 0 ? null : (this.jobFailureDetail(result.exitCode, result.signal))
-      // `0` is success and nothing else is, which is the whole contract of a job.
-      const failed = !cancelled && result.exitCode !== 0
-      entry.jobLastExitCode = result.exitCode
-      entry.jobLastRunAt = Date.now()
-      this.log(entry, 'system', describeJobOutcome(result.exitCode, result.signal, durationMs, cancelled))
-      this.options.history.record(entry.config.id, {
-        type: 'job-run',
-        detail: describeJobOutcome(result.exitCode, result.signal, durationMs, cancelled),
-        runtimeMs: durationMs,
-        outcome: cancelled ? 'cancelled' : failed ? 'failed' : 'ok',
-        actor: options.actor,
-      })
-      if (failed)
-        this.notify(entry, 'job-failed', entry.lastError ?? 'the run failed')
-      this.publishServer(entry)
-      this.publishState()
-      return { exitCode: result.exitCode, signal: result.signal, durationMs, cancelled }
-    })
-    // A running job is visible on the view, and `entry.job` is what every second occurrence tests.
-    entry.job = { child: handle.child, startedAt, pid: handle.pid, cancelled: false, done: outcome }
-    return { outcome }
-  }
-
-  /** What a failed run reads as on the card, in the terms a person acts on. */
-  private jobFailureDetail(exitCode: number | null, signal: string | null): string {
-    if (signal !== null)
-      return `killed by ${signal}`
-    return exitCode === null ? 'the run failed to start' : `exited with code ${exitCode}`
   }
 
   async freePort(id: string): Promise<FreePortResult & { error?: string }> {
@@ -1444,7 +1282,6 @@ export class Supervisor {
             return entry.config.secretEnv.filter(name => stored[name] !== undefined)
           })(),
       // The scheduler owns "when does this next come due"; the view only reports it.
-      this.options.nextRunAt,
     )
   }
 

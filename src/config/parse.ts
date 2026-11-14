@@ -19,7 +19,7 @@ import {
   WORKSPACE_SETTINGS_KEYS,
 } from '#src/config/schema'
 import { appVersion } from '#src/helpers/version'
-import { serverKindProblems } from '#src/shared/contracts'
+import { entryHasJobFields } from '#src/shared/contracts'
 import { isRecord } from '#src/shared/shape'
 
 export interface ConfigParse<T> {
@@ -286,18 +286,16 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
       errors.push(`${label}: duplicate id "${server.id}"`)
       return
     }
-    // A `kind`/`schedule` pair the schema cannot judge (a job with a port, a service with a cron
-    // expression, a schedule that does not parse). Refused here rather than warned: a job whose
-    // expression is nonsense would either never run or run at a time nobody chose, and `up` refusing
-    // with the sentence is how a person finds out before the schedule silently does nothing.
-    const kindProblems = serverKindProblems({
-      kind: server.kind,
-      schedule: server.schedule,
-      port: server.port,
-      declaredKeys: isRecord(entry) ? Object.keys(entry) : [],
-    })
-    if (kindProblems.length > 0) {
-      errors.push(`${label} ("${server.id}"): ${kindProblems.join('; ')}`)
+    /**
+     * A servers file that still declares a job is **refused**, with the move it needs.
+     *
+     * `kind` and `schedule` left this schema when jobs became their own domain, so a 0.15 entry that
+     * carries them would otherwise be read as a service with two unknown keys — a job that quietly
+     * stops running. The migration is `home-hosted migrate`, and the message names it.
+     */
+    const leftover = entryHasJobFields(entry)
+    if (leftover !== null) {
+      errors.push(`${label} ("${server.id}"): ${leftover}`)
       return
     }
     seen.add(server.id)

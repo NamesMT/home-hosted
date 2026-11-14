@@ -162,27 +162,20 @@ export function createControlRoute(deps: AppDeps) {
       async (c) => {
         assertLocalCall(c, 'run a job')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.runJob(c.req.valid('param').id, { actor: 'user' })
-        if (!result.ok) {
-          const status = result.code === 'UNKNOWN_SERVER' ? 404 : result.code === 'JOB_START_FAILED' ? 400 : 409
-          throw new DetailedError(result.error, { statusCode: status, code: result.code })
-        }
-        const { outcome } = result
-        const body = {
-          ok: !outcome.cancelled && outcome.exitCode === 0,
-          exitCode: outcome.exitCode,
-          signal: outcome.signal,
-          durationMs: outcome.durationMs,
-          cancelled: outcome.cancelled,
-        }
-        if (body.ok)
-          return c.json(body)
-        throw new DetailedError(
-          outcome.cancelled
-            ? `the run was stopped after ${Math.round(outcome.durationMs / 1000)}s`
-            : `the run failed (exit code ${outcome.exitCode ?? 'none'})`,
-          { statusCode: 409, code: 'JOB_FAILED', detail: [{ path: 'exitCode', message: String(outcome.exitCode) }] },
-        )
+        const { id } = c.req.valid('param')
+        if (runtime.jobs.get(id) === null)
+          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+        const record = await runtime.jobs.run(id)
+        if (record === null)
+          throw new DetailedError(`job "${id}" is already running`, { statusCode: 409, code: 'JOB_RUNNING' })
+        // The exit code is the outcome, so a failed run is still an answered run.
+        return c.json({
+          ok: record.exitCode === 0 && !record.cancelled,
+          exitCode: record.exitCode,
+          signal: record.signal,
+          durationMs: record.endedAt === null ? 0 : record.endedAt - record.startedAt,
+          cancelled: record.cancelled,
+        })
       },
     )
 

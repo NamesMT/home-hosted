@@ -3,12 +3,10 @@ import type { HealthConfig, RestartConfig, ServerConfig, StopConfig } from '@sha
 import type { Patch } from '@shared/patch-diff'
 import type { ServerEditForm } from '@shared/server-form'
 import { serverPatchSchema } from '@shared/contracts'
-import { cronProblem } from '@shared/cron'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
-import { fillSnapshot, isBlankInput, liveConfigUpdate, serverEditForm, serverEditPatch, serverEditPayload } from '@shared/server-form'
+import { fillSnapshot, liveConfigUpdate, serverEditForm, serverEditPatch, serverEditPayload } from '@shared/server-form'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
-import { jobScheduleText } from '@/components/server/jobSchedule'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import SecretEnvBlock from '@/components/server/SecretEnvBlock.vue'
 import { cloneHealth } from '@/components/settings/settingsForm'
@@ -58,48 +56,6 @@ const restart = ref<RestartConfig>({ ...props.config.restart })
 // A shallow copy would still alias the live `health.http`, which the frame guard compares against.
 const health = ref<HealthConfig>(cloneHealth(props.config.health))
 const stop = ref<StopConfig>({ ...props.config.stop })
-
-/**
- * The schedule in words, or why it cannot be used — the preview under the box.
- *
- * The words come from **this** catalog, not from the panel: `src/shared/cron.ts` returns a descriptor
- * (`daily {hour, minute}`, `weekly {days,…}`, …) precisely so each language can word it itself. A
- * panel-formatted English sentence would be one a UI could not translate.
- */
-const schedulePreview = computed((): { kind: 'empty' } | { kind: 'problem', text: string } | { kind: 'ok', text: string } => {
-  const raw = form.schedule.trim()
-  if (raw.length === 0)
-    return { kind: 'empty' }
-  const problem = cronProblem(raw)
-  if (problem !== null)
-    return { kind: 'problem', text: problem }
-  // One wording for the preview and the card: `jobScheduleText` reads the same descriptor and the
-  // same catalog, so the two surfaces cannot drift into two phrasings of one schedule.
-  return { kind: 'ok', text: jobScheduleText(raw) }
-})
-
-/**
- * What a job may not declare, said where the person is editing it.
- *
- * The panel refuses these (`serverKindProblems`), so this is the same rule stated before a save rather
- * than after a refusal. It reads the *form's* values, so it clears as the fields are cleared.
- */
-const jobProblems = computed((): string[] => {
-  if (form.kind !== 'job')
-    return []
-  const problems: string[] = []
-  if (!isBlankInput(form.port))
-    problems.push(t('job.noPort'))
-  // `health`/`restart` are held apart from the flat form (they are group refs, bound by
-  // `LifecycleFields`), so they are read from those, not from `form`.
-  if (health.value.enabled)
-    problems.push(t('job.noHealth'))
-  if (restart.value.enabled)
-    problems.push(t('job.noRestart'))
-  if (form.persistent)
-    problems.push(t('job.noPersistent'))
-  return problems
-})
 
 /** The config the form was last filled from: what a cleared box falls back to, and what Save diffs against. */
 const filled = ref<ServerConfig>(fillSnapshot(props.config))
@@ -242,35 +198,6 @@ async function save(): Promise<void> {
         :description="t('editor.processDescription')"
         :columns="2"
       >
-        <!-- What this entry *is*: a supervised service, or a job that runs to completion on a
-             schedule. It sits beside `label` because the choice changes which other groups apply,
-             and the two job-only fields follow it immediately. -->
-        <SelectField
-          v-model="form.kind"
-          :label="t('job.kind')"
-          :hint="t('job.kindHint')"
-          :options="[
-            { value: 'service', label: t('job.kindService') },
-            { value: 'job', label: t('job.kindJob') },
-          ]"
-        />
-        <div v-if="form.kind === 'job'" class="flex flex-col gap-1">
-          <TextField v-model="form.schedule" :label="t('job.schedule')" placeholder="0 3 * * *" :hint="t('job.scheduleHint')" class="font-mono text-xs" />
-          <!-- The preview is the point of the field: a cron expression is not readable, and a person
-               needs to see "every day at 03:00" before they save it. A broken one says what is wrong
-               in the same place, rather than only after the panel refuses it. -->
-          <p v-if="schedulePreview.kind === 'ok'" class="text-2xs leading-4 text-muted">
-            {{ schedulePreview.text }}
-          </p>
-          <p v-else-if="schedulePreview.kind === 'problem'" class="text-2xs leading-4 text-danger">
-            {{ schedulePreview.text }}
-          </p>
-          <ul v-if="jobProblems.length > 0" class="flex flex-col gap-0.5 text-2xs leading-4 text-warn">
-            <li v-for="problem in jobProblems" :key="problem">
-              {{ problem }}
-            </li>
-          </ul>
-        </div>
         <TextField v-model="form.label" :label="t('common.label')" :placeholder="t('editor.labelPlaceholder')" />
         <TextField v-model="form.command" :label="t('common.command')" placeholder="node" required class="font-mono text-xs" />
         <TextField v-model="form.cwd" :label="t('serverForm.workingDirectory')" placeholder="." :hint="t('serverForm.cwdHint')" class="font-mono text-xs" />

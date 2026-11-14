@@ -15,6 +15,7 @@ import { createControlRoute } from '#src/api/control'
 import { createDdnsRoute } from '#src/api/ddns'
 import { createEventsRoute } from '#src/api/events'
 import { createHealthRoute } from '#src/api/health'
+import { createJobsRoute } from '#src/api/jobs'
 import { createLogsRoute } from '#src/api/logs'
 import { createMetricsRoute } from '#src/api/metrics'
 import { createNotificationsRoute } from '#src/api/notifications'
@@ -106,6 +107,8 @@ export function createRootApp(deps: AppDeps) {
     .route('/api', createBackupsRoute(deps))
     .route('/api/workspaces', createWorkspacesRoute(deps))
     .route('/api/servers', createServersRoute(deps))
+    // Jobs are their own domain: their own file, their own routes.
+    .route('/api', createJobsRoute(deps))
 
     .route('/', createHealthRoute(deps))
 

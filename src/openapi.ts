@@ -164,10 +164,11 @@ export function setupOpenAPI(app: Parameters<typeof generateSpecs>[0]) {
             tags: [
               { name: 'panel', description: 'Snapshot, health and the local shutdown channel' },
               { name: 'servers', description: 'The processes being supervised' },
+              { name: 'jobs', description: 'Short-lived commands on cron schedules — their own file, store and runs' },
               { name: 'logs', description: 'Live and persisted logs' },
               { name: 'workspaces', description: 'The ownership boundary: one scope per setup' },
               { name: 'backups', description: 'Archives of config, secrets, TLS and data paths' },
-              { name: 'auth', description: 'Sessions and the panel password' },
+              { name: 'auth', description: 'Sessions and the panel accounts' },
               { name: 'notifications', description: 'Telegram delivery and webhook destinations' },
               { name: 'ddns', description: 'Dynamic DNS accounts and hostnames' },
               { name: 'proxy', description: 'The reverse proxy: engine, routes and certificates' },

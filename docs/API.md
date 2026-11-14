@@ -122,6 +122,11 @@ arrives with.
 | `LOGIN_FAILED` | 401 | a sign-in failed: wrong password (401), no password set (409), or too many attempts (429) |
 | `SESSION_REQUIRED` | 403 | this operation needs a signed-in session, not an API token |
 | `TOKEN_SCOPE` | 403 | the API token's scopes do not cover this route, or its workspace limit excludes it — `detail` names what it needed and what it holds |
+| `UNKNOWN_JOB` | 404 | no job has that id in this workspace |
+| `JOB_EXISTS` | 409 | a job with that id already exists |
+| `JOB_RUNNING` | 409 | that job is already running |
+| `INVALID_JOB` | 400 | the job would not be runnable |
+| `INVALID_CONFIG` | 400 | the jobs file could not be read, and was left untouched |
 | `NO_DEPLOY` | 400 | the server has no `deploy` steps to run |
 | `DEPLOY_RUNNING` | 409 | a deploy is already running for that server |
 | `DEPLOY_FAILED` | 409 | a deploy step failed — the previous process is still running |

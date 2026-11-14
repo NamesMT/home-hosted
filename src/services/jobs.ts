@@ -35,6 +35,14 @@ export interface JobRunRecord {
 /** What the jobs service needs from the panel; nothing wider. */
 export interface JobsServiceOptions {
   workspaceId: string
+  /**
+   * Where the jobs file is. Omitted, the panel's own path graph resolves it.
+   *
+   * A caller that already knows its root (the API test fixture, a project with its own home) passes it
+   * rather than setting `HHOSTED_HOME`: `dataRoot` is a module-level constant, so an env var set after
+   * import would resolve to the default home — which is somebody's real one.
+   */
+  file?: string
   /** Notified when a job's state changes, so the panel publishes a frame. */
   onStateChange?: () => void
   /** A run finished: the caller records it in the workspace history and notifies on failure. */
@@ -56,7 +64,7 @@ export class JobsService {
   private disposed = false
 
   constructor(private readonly options: JobsServiceOptions) {
-    this.store = new JobStore(workspaceJobsPath(options.workspaceId))
+    this.store = new JobStore(options.file ?? workspaceJobsPath(options.workspaceId))
     this.scheduler = new JobScheduler({
       // Every job in the file, whether enabled or not: the scheduler skips a disabled one itself, and
       // handing it the whole list keeps "which jobs exist" in one place.
@@ -188,6 +196,19 @@ export class JobsService {
     running.cancelled = true
     await running.stop()
     return true
+  }
+
+  /**
+   * When an expression next comes due, for the servers view and the `ls` column that still reports it.
+   *
+   * The supervisor asks this while describing an entry; with jobs extracted there is nothing for it to
+   * answer, but keeping the seam means the panel does not have to know that — it is `null`, honestly.
+   */
+  nextRunAt(schedule: string | undefined): number | null {
+    if (schedule === undefined)
+      return null
+    const parsed = parseCron(schedule)
+    return parsed.ok ? nextCronRun(parsed.spec, new Date()) : null
   }
 
   /** One scheduler pass — the panel's own 1 Hz tick. */

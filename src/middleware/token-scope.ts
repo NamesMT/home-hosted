@@ -76,7 +76,13 @@ const RULES: Record<string, TokenScopeRule> = {
   // restart, and a deploy hook exists to be given exactly that.
   'POST /api/servers/:id/deploy': { scope: 'lifecycle', workspaceScoped: true },
   // Running a job now is the same act as starting a service: it runs the entry and waits.
-  'POST /api/servers/:id/run': { scope: 'lifecycle', workspaceScoped: true },
+  // Jobs are their own domain. Reading them is `read`; running, creating, editing and removing are
+  // the same kind of act as their server equivalents — a run is lifecycle, the rest config.
+  'GET /api/jobs': { scope: 'read', workspaceScoped: true },
+  'POST /api/jobs': { scope: 'config', workspaceScoped: true },
+  'PATCH /api/jobs/:id': { scope: 'config', workspaceScoped: true },
+  'DELETE /api/jobs/:id': { scope: 'config', workspaceScoped: true },
+  'POST /api/jobs/:id/run': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/:id/clear-logs': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/start-all': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/stop-all': { scope: 'lifecycle', workspaceScoped: true },

@@ -24,6 +24,7 @@ import { EventHub } from '#src/services/events'
 import { checkProxyExposure } from '#src/services/exposure'
 import { HistoryStore } from '#src/services/history'
 import { HostMonitor } from '#src/services/host-monitor'
+import { JobsService } from '#src/services/jobs'
 import { LogFiles } from '#src/services/log-files'
 import { NotificationService as Notifications } from '#src/services/notifications'
 import { ProxyService } from '#src/services/proxy'
@@ -65,7 +66,8 @@ export interface FakeSupervisor {
    * declared entry the way the real supervisor does: a service is `NOT_A_JOB`. The real spawn, exit
    * code, log and history are `test/services/supervisor-job.test.ts`.
    */
-  runJob: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: true, actor?: HistoryActor, outcome: { exitCode: number | null, signal: string | null, durationMs: number, cancelled: boolean } } | { ok: false, error: string, code: 'UNKNOWN_SERVER' | 'NOT_A_JOB' | 'SERVER_DISABLED' | 'JOB_RUNNING' | 'JOB_FAILED' | 'JOB_START_FAILED' }>
+  /** Removed with the embedded job path: jobs have their own service and routes now. */
+  runJob?: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: true, actor?: HistoryActor, outcome: { exitCode: number | null, signal: string | null, durationMs: number, cancelled: boolean } } | { ok: false, error: string, code: 'UNKNOWN_SERVER' | 'NOT_A_JOB' | 'SERVER_DISABLED' | 'JOB_RUNNING' | 'JOB_FAILED' | 'JOB_START_FAILED' }>
   orphans?: () => Array<{ serverId: string, pid: number, startedAt: number | null }>
   stopOrphan?: (id: string) => Promise<{ ok: boolean, error?: string }>
   dispose: () => Promise<void>
@@ -211,16 +213,6 @@ function emptySupervisor(
      * the way the real supervisor does: no `deploy` block is `NO_DEPLOY`, anything else succeeds.
      * The real sequence is `test/services/supervisor-deploy.test.ts`.
      */
-    runJob: async (id: string) => {
-      const views = current()
-      const view = views.find(entry => entry.id === id)
-      if (view === undefined)
-        return { ok: false, error: `unknown server "${id}"`, code: 'UNKNOWN_SERVER' as const }
-      if (view.config.kind !== 'job')
-        return { ok: false, error: `server "${id}" is a service — \`start\` supervises it`, code: 'NOT_A_JOB' as const }
-      // The route's own refusals are the subject here; a real run is the supervisor suites' business.
-      return { ok: true as const, outcome: { exitCode: 0, signal: null, durationMs: 1, cancelled: false } }
-    },
     deploy: async (id: string) => {
       const entry = lookup?.(id)
       if (entry === undefined) {
@@ -350,9 +342,16 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       notifications,
       ddns,
       supervisor: supervisor as unknown as WorkspaceRuntime['supervisor'],
-      // The fixture drives lifecycle calls by hand; a job's schedule is `test/services/scheduler.test.ts`
-      // (pure timing, no child process) and `test/services/supervisor-job.test.ts` (a real run).
-      scheduler: { tick: () => {}, dispose: () => {}, nextRunAt: () => null } as unknown as WorkspaceRuntime['scheduler'],
+      /**
+       * A **real** jobs service, not a fake.
+       *
+       * Unlike the supervisor, a jobs service needs nothing the fixture stubs: its store is one file in
+       * this home and its runs are real child processes. Faking it would only assert the fake, and the
+       * routes that create and run a job would then be untested end to end.
+       */
+      // The file is passed explicitly: this fixture's home is a temp dir it hands to the services, and
+      // `dataRoot` (which the default path reads) is resolved once at import, from the real environment.
+      jobs: new JobsService({ workspaceId: declaration.id, file: path.join(workspaceDir(declaration.id), 'jobs.config.json') }),
       watches: [],
       logsDir: logFiles.directory,
       reportedConfigError: store.configError,

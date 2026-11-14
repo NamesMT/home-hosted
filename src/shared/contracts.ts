@@ -1,5 +1,4 @@
 import { type } from 'arktype'
-import { cronProblem } from './cron'
 import { HOST_ALERT_DEFAULTS, LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
 import { lazy } from './lazy'
 import { integerParam } from './query-params'
@@ -337,19 +336,6 @@ export function duplicateSecretEnvNames(names: readonly string[]): string[] {
 }
 
 /**
- * What an entry is: a long-running **service**, or a run-to-completion **job**.
- *
- * The distinction is not cosmetic — it changes the lifecycle. A service is supervised: health
- * probes, readiness on its port, a restart policy. A job has none of those, because there is nothing
- * to probe and nothing to restart: it starts, it runs, it exits, and **the exit code is its outcome**
- * (`0` succeeded, anything else failed). `schedule` is what makes it recur.
- *
- * Defaulted to `service`, so every config written before this field existed keeps its meaning.
- */
-export const serverKindSchema = lazy(() => type.enumerated('service', 'job'))
-export type ServerKind = typeof serverKindSchema.infer
-
-/**
  * The **shape** of a cron expression: exactly five whitespace-separated fields.
  *
  * A schema can prove this much without a predicate (which `toJsonSchema` cannot render, and every
@@ -362,6 +348,27 @@ export type ServerKind = typeof serverKindSchema.infer
  */
 export const cronExpressionSchema = lazy(() => type(/^\S+(?: +\S+){4}$/)
   .describe('a 5-field cron expression (minute hour day-of-month month day-of-week); no seconds field, no @macros'))
+
+/**
+ * The instruction a **0.15** servers entry gets when it still carries a job field.
+ *
+ * `kind` and `schedule` left `serverSchema` when jobs became their own domain. A file from an earlier
+ * release still has them, and the danger is not an error — it is that the entry would be read as a
+ * service and its schedule silently stop. So both the parser and every write refuse it by name, and
+ * the message says what to run.
+ *
+ * `null` when the entry carries neither.
+ */
+export function entryHasJobFields(entry: Record<string, unknown>): string | null {
+  const hasKind = typeof entry.kind === 'string'
+  const hasSchedule = typeof entry.schedule === 'string'
+  if (!hasKind && !hasSchedule)
+    return null
+  if (entry.kind === 'job') {
+    return 'this entry is a `job`, which now lives in jobs.config.json — run `home-hosted migrate` to move it, then remove `kind`/`schedule` here'
+  }
+  return '`kind` and `schedule` belong to a job now, not a server — remove them (a server is always a supervised service), or run `home-hosted migrate` if this entry is a job'
+}
 
 /**
  * One **job**: a short-lived command on a cron schedule.
@@ -473,22 +480,6 @@ export const serverSchema = lazy(() => type({
   enabled: 'boolean = true',
   autostart: 'boolean = false',
   /**
-   * A supervised **service**, or a run-to-completion **job** whose exit code is its outcome.
-   *
-   * Defaulted, so every entry written before this field existed stays a service. The rules a `job`
-   * must obey (no `port`, no `health`, no `restart`) are cross-field, so they are enforced by
-   * `serverKindProblems()` at the write — a schema `narrow` cannot be rendered to JSON Schema, and
-   * every route's document calls `toJsonSchema()`.
-   */
-  kind: serverKindSchema.default(() => 'service' as const),
-  /**
-   * When a job runs, as a 5-field cron expression in the **host's local timezone**.
-   *
-   * Only a job may carry one: a service is supervised continuously, so a schedule on it would mean
-   * two different lifecycles for one entry. The contents are validated by `cronProblem()`.
-   */
-  schedule: cronExpressionSchema.optional(),
-  /**
    * Handed to a nanny process that owns the pipes, so the entry keeps running when
    * this panel stops, restarts or is killed. `down`/`stop-all` leave it alone and
    * report it; only an explicit stop or restart stops it.
@@ -551,69 +542,6 @@ export const serverSchema = lazy(() => type({
   secretEnv: secretEnvNamesSchema.default(() => []),
 }).onUndeclaredKey('reject'))
 export type ServerConfig = Omit<typeof serverSchema.infer, 'port'> & { port: number | null }
-
-/**
- * What is wrong with an entry's `kind`/`schedule` **as a pair** — a list, empty when the pair is fine.
- *
- * These rules cannot live in the schema: each is about the *relationship* between fields, and an
- * ArkType `narrow` breaks `toJsonSchema`, which every route's OpenAPI document calls.
- *
- *  1. **A job has no lifecycle to supervise.** `port`, `health`, `restart` and `persistent` are
- *     meaningless for a run-to-completion process: a port is something to serve on, a health probe is
- *     for something that stays up, a restart policy would re-run work that already finished, and a
- *     nanny exists to keep a *service* alive. Accepting one would leave a config declaring supervision
- *     that silently does nothing, so each is refused by name — and the name is the fix ("remove
- *     `port`, or make it a service").
- *  2. **Only a job may carry a `schedule`.** A service runs under supervision, so a cron expression on
- *     it would mean two lifecycles for one entry, and the scheduler would either ignore it or fight
- *     the supervisor.
- *  3. **A schedule must actually parse.** The schema proves the field *shape*; `cronProblem` proves
- *     the contents, in the terms the person typed (`minute must be between 0 and 59`).
- *
- * `declaredKeys` is the entry's own keys **before defaults are merged in**, and that distinction is
- * load-bearing: every stored entry carries a resolved `health`/`restart` group and `persistent: false`
- * that nobody wrote, so testing the resolved values would refuse every job ever created. Only a group
- * the person actually names is refused. A caller that has nothing but the stored config (a view, a
- * scheduler pass) omits it, and gets rule 1's cheap half: `port`, and a schedule that does not parse.
- *
- * Called at every write (`WorkspaceStore.validateServer`, which `addServer`/`updateServer`/`putServer`
- * all go through) and on every parse, so a bad pair is refused where it lands.
- */
-export function serverKindProblems(entry: {
-  kind?: ServerKind
-  schedule?: string
-  port?: number | null
-  declaredKeys?: readonly string[]
-}): string[] {
-  const problems: string[] = []
-
-  if (entry.schedule !== undefined) {
-    const problem = cronProblem(entry.schedule)
-    if (problem !== null)
-      problems.push(`schedule: ${problem}`)
-  }
-
-  if (entry.kind !== 'job') {
-    if (entry.schedule !== undefined)
-      problems.push('a `schedule` is only for a job — set `kind: "job"` on a run-to-completion entry, or remove the schedule')
-    return problems
-  }
-
-  if (entry.schedule === undefined)
-    problems.push('a job needs a `schedule` — a run-to-completion entry with no cron expression never runs')
-  if (entry.port !== undefined && entry.port !== null)
-    problems.push('a job has no port — it serves nothing; remove `port`, or make this entry `kind: "service"`')
-
-  const declared = new Set(entry.declaredKeys ?? [])
-  if (declared.has('health'))
-    problems.push('a job has no health check — nothing stays up to probe; remove `health`, or make this entry `kind: "service"`')
-  if (declared.has('restart'))
-    problems.push('a job has no restart policy — a finished run is not retried; remove `restart`, or make this entry `kind: "service"`')
-  if (declared.has('persistent'))
-    problems.push('a job cannot be `persistent` — a nanny keeps a *service* alive, and a job is meant to end')
-
-  return problems
-}
 
 /**
  * Authentication for the control panel itself. The password never lives here —
@@ -1229,17 +1157,6 @@ function editableFields() {
     label: labelOrNullSchema.optional(),
     enabled: 'boolean?',
     autostart: 'boolean?',
-    /**
-     * `service` or `job`. A patch may flip it, and the pair is re-checked after the merge — that is
-     * how an entry becomes a job: send `kind: "job"`, `schedule`, and `port: null` together, or the
-     * merge leaves the old port in place and `serverKindProblems` refuses it.
-     */
-    kind: serverKindSchema.optional(),
-    /**
-     * `null` clears it — the spelling a patch uses for every optional scalar, and the one the form
-     * needs: "no schedule" has to be expressible, and an omitted key cannot say it.
-     */
-    schedule: cronExpressionSchema.or(type('null')).optional(),
     persistent: 'boolean?',
     command: 'string?',
     args: 'string[]?',

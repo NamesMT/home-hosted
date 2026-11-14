@@ -30,8 +30,8 @@ describe('add turns flags into an entry', () => {
 
 describe('ls', () => {
   it('lays out one row per entry, with a dash for what is unknown', () => {
-    const lines = lsLines([{ id: 'web', status: null, port: 4000, command: 'node', args: ['server.js'], autostart: true, persistent: false, enabled: true, kind: 'service', nextRunAt: null }])
-    // A services-only list keeps its four columns: `NEXT RUN` appears only beside a job.
+    const lines = lsLines([{ id: 'web', status: null, port: 4000, command: 'node', args: ['server.js'], autostart: true, persistent: false, enabled: true }])
+    // The table has four columns, always: jobs are `home-hosted job ls` now.
     expect(lines[0]).toMatch(/^ID +STATUS +PORT +COMMAND$/)
     expect(lines[1]).toMatch(/^web +— +4000 +node server\.js {2}\(autostart\)$/)
   })

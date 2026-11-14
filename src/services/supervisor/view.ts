@@ -31,14 +31,6 @@ export function buildView(
   history: HistoryStore,
   /** Which of `config.secretEnv` have a value stored. Names only — the values never leave the store. */
   secretEnvSet: readonly string[] = [],
-  /**
-   * When this job next runs, from the scheduler that owns its clock.
-   *
-   * Passed in rather than computed here: the cron search belongs to the scheduler (one owner for
-   * "when does a schedule next come due"), and the view runs many times per second. A function, so a
-   * caller with no scheduler — a unit harness — simply does not supply one.
-   */
-  nextRunAt: ((schedule: string | undefined) => number | null) | undefined = undefined,
 ): ServerView {
   const config = entry.config
   const restartRequired = needsRestart(config, entry.startedFrom)
@@ -84,25 +76,5 @@ export function buildView(
     // Which declared names are actually set. A name the entry declares but that has no value is
     // simply absent here, which is exactly what the editor needs to show "set" or "not set".
     ...(secretEnvSet.length === 0 ? {} : { secretEnvSet: [...secretEnvSet] }),
-    // A job's schedule and how its runs went — absent on a service, which has nothing to report and
-    // whose lifecycle the rest of the view already describes.
-    ...(config.kind === 'job' ? { job: buildJobView(entry, nextRunAt) } : {}),
-  }
-}
-
-/**
- * The `job` block: when it next runs, how the last run ended, and whether one is in flight.
- *
- * `nextRunAt` is `null` rather than absent when a schedule does not parse — a person editing the
- * expression needs to see "no next run", not a field that vanished. The keys themselves stay optional
- * by contract, because an older panel sends no `job` at all.
- */
-function buildJobView(entry: Entry, nextRunAt: ((schedule: string | undefined) => number | null) | undefined): NonNullable<ServerView['job']> {
-  return {
-    running: entry.job !== null,
-    nextRunAt: nextRunAt === undefined ? null : nextRunAt(entry.config.schedule),
-    lastRunAt: entry.jobLastRunAt,
-    lastExitCode: entry.jobLastExitCode,
-    ...(entry.jobLastOverlapAt === null ? {} : { lastOverlapAt: entry.jobLastOverlapAt }),
   }
 }

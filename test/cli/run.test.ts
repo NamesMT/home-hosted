@@ -87,46 +87,20 @@ describe('run, a job now', () => {
   })
 })
 
-describe('ls, with a job in the workspace', () => {
-  it('adds a NEXT RUN column, and marks the row as a job', () => {
-    // No panel: the file alone. `kind`/`schedule` come from the config, and `nextRunAt` is the honest
-    // `—` a config cannot compute.
+describe('ls lists services, and only services', () => {
+  /**
+   * The table has four columns, always.
+   *
+   * It used to grow a `NEXT RUN` column whenever a job was listed, which meant half the rows carried a
+   * dash for a port they never had. Jobs are `home-hosted job ls` now — the separation is the reason
+   * this table has one shape.
+   */
+  it('has the same four columns whether or not the workspace also has jobs', () => {
     const lines = lsLines([
-      { id: 'nightly', status: null, port: null, command: 'node', args: ['backup.js'], autostart: false, persistent: false, enabled: true, kind: 'job', schedule: '0 3 * * *', nextRunAt: null },
-      { id: 'web', status: null, port: 4000, command: 'node', args: [], autostart: false, persistent: false, enabled: true, kind: 'service', nextRunAt: null },
+      { id: 'web', status: null, port: 4000, command: 'node', args: [], autostart: false, persistent: false, enabled: true },
     ])
-    expect(lines[0]).toMatch(/^ID +STATUS +PORT +COMMAND +NEXT RUN$/)
-    expect(lines[1]).toContain('nightly')
-    expect(lines[1]).toContain('(job)')
-    // A service's cell in a table that has the column is a dash, not a blank.
-    expect(lines[2]).toMatch(/—$/)
-  })
-
-  it('keeps the four columns when the workspace has no job', () => {
-    const lines = lsLines([{ id: 'web', status: null, port: 4000, command: 'node', args: [], autostart: false, persistent: false, enabled: true, kind: 'service', nextRunAt: null }])
     expect(lines[0]).toMatch(/^ID +STATUS +PORT +COMMAND$/)
     expect(lines[0]).not.toContain('NEXT RUN')
-  })
-
-  it('shows the next run as a countdown, and `running` while one is in flight', () => {
-    const now = new Date(2026, 2, 10, 0, 0, 0, 0).getTime()
-    const row = (overrides: Record<string, unknown>) => ({
-      id: 'nightly',
-      status: null,
-      port: null,
-      command: 'node',
-      args: [],
-      autostart: false,
-      persistent: false,
-      enabled: true,
-      kind: 'job' as const,
-      schedule: '0 3 * * *',
-      nextRunAt: null,
-      ...overrides,
-    })
-    expect(lsLines([row({ nextRunAt: now + 3 * 60 * 60_000 })], now)[1]).toContain('in 3h 0m')
-    expect(lsLines([row({ nextRunAt: now + 90_000 })], now)[1]).toContain('in 2m')
-    expect(lsLines([row({ status: 'running', nextRunAt: now + 60_000 })], now)[1]).toContain('running')
-    expect(lsLines([row({ nextRunAt: now - 60_000 })], now)[1]).toContain('due')
+    expect(lines[1]).toContain('web')
   })
 })

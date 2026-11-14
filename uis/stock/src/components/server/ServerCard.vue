@@ -20,7 +20,6 @@ import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
-import { jobScheduleText } from '@/components/server/jobSchedule'
 import KillPortButton from '@/components/server/KillPortButton.vue'
 import MetricSpark from '@/components/telemetry/MetricSpark.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -147,51 +146,11 @@ const meta = computed(() => {
     rows.splice(5, 0, { key: 'crashes', label: t('serverCard.crashes24h'), value: String(server.history.crashes) })
   if (server.history.lastCrashAt !== null)
     rows.push({ key: 'lastcrash', label: t('serverCard.lastCrash'), value: formatAgo(server.history.lastCrashAt, props.now) })
-  /**
-   * A job's two clocks replace the process readings above, which describe a service.
-   *
-   * A job has no PID between runs, no uptime and no probe, so a card that kept `PID —` and
-   * `Probe —` beside `Stopped` said nothing about what a job actually is. `nextRunAt` is `null` on a
-   * panel from before this release (and on a broken expression), which reads as the honest `—`.
-   */
-  if (server.config.kind === 'job') {
-    const schedule = server.config.schedule
-    const nextRunAt = server.job?.nextRunAt ?? null
-    return [
-      { key: 'schedule', label: t('job.schedule'), value: schedule ?? '—', title: schedule === undefined ? undefined : jobScheduleText(schedule) },
-      { key: 'nextrun', label: t('serverCard.nextRun'), value: nextRunAt === null ? '—' : relativeFrom(nextRunAt, props.now) },
-      { key: 'lastrun', label: t('serverCard.lastRun'), value: server.job?.lastRunAt == null ? t('serverCard.neverRan') : formatAgo(server.job.lastRunAt, props.now) },
-      { key: 'lastexit', label: t('serverCard.lastExit'), value: server.job?.lastExitCode == null ? '—' : String(server.job.lastExitCode) },
-    ]
-  }
   return rows
 })
 
 /** Whether this entry has deploy steps, and what the last deploy did. */
 const deploy = computed(() => props.server.deploy)
-
-/** A job's schedule and its last run, from the view the panel builds. */
-const job = computed(() => props.server.job)
-
-/**
- * Runs the job now, and shows the panel's answer where the button is.
- *
- * A job's exit code is its outcome, so a failed run is a sentence a person needs, not a silent
- * no-op: `JOB_FAILED` already carries "exit code 3", and the run's own output is in its log.
- */
-async function runJobNow(): Promise<void> {
-  busy.value = true
-  jobError.value = null
-  try {
-    await control.runJob(props.workspaceId, props.server.id)
-  }
-  catch (caught) {
-    jobError.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    busy.value = false
-  }
-}
 
 /**
  * Runs the deploy and waits: the panel's own answer says which step failed, and the restart that
@@ -433,42 +392,20 @@ function openDetail(): void {
          row: unwrapped they held the card open wider than the screen and pushed the `…`
          menu off the right edge. Wrapping keeps every action reachable. -->
     <div class="mt-auto flex flex-wrap items-center gap-1.5 border-t border-line-soft px-4 py-2.5">
-      <!--
-        A job's primary action is Run now, not Start: it has no long-running process to start, and
-        `start` on a job would mean something the person did not ask for. The stop button doubles as
-        "end the run in flight", which is why it stays.
-      -->
-      <template v-if="config.kind === 'job'">
-        <Tip :label="t('serverCard.runHint')">
-          <AppButton
-            variant="primary"
-            size="xs"
-            :disabled="busy || !config.enabled || job?.running === true"
-            @click="runJobNow"
-          >
-            <Play class="size-3" />{{ job?.running === true ? t('serverCard.running') : t('serverCard.runNow') }}
-          </AppButton>
-        </Tip>
-        <AppButton size="xs" :disabled="busy || job?.running !== true" @click="act('stop')">
-          <Square class="size-3" />{{ t('serverCard.stop') }}
-        </AppButton>
-      </template>
-      <template v-else>
-        <AppButton
-          variant="primary"
-          size="xs"
-          :disabled="busy || !canStart"
-          @click="act('start')"
-        >
-          <Play class="size-3" />{{ t('serverCard.start') }}
-        </AppButton>
-        <AppButton size="xs" :disabled="busy || !canStop" @click="act('stop')">
-          <Square class="size-3" />{{ t('serverCard.stop') }}
-        </AppButton>
-        <AppButton size="xs" :disabled="busy || !config.enabled" @click="act('restart')">
-          <RotateCw class="size-3" />{{ t('serverCard.restart') }}
-        </AppButton>
-      </template>
+      <AppButton
+        variant="primary"
+        size="xs"
+        :disabled="busy || !canStart"
+        @click="act('start')"
+      >
+        <Play class="size-3" />{{ t('serverCard.start') }}
+      </AppButton>
+      <AppButton size="xs" :disabled="busy || !canStop" @click="act('stop')">
+        <Square class="size-3" />{{ t('serverCard.stop') }}
+      </AppButton>
+      <AppButton size="xs" :disabled="busy || !config.enabled" @click="act('restart')">
+        <RotateCw class="size-3" />{{ t('serverCard.restart') }}
+      </AppButton>
       <!--
         Only for an entry that declares deploy steps: a button that always refused would be a
         permanent error sitting next to the two that work.
