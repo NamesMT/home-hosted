@@ -140,30 +140,6 @@ async function clearPasswordValue(): Promise<void> {
   <AccountsSection />
 
   <div class="space-y-2">
-    <!--
-      One note about tokens, and **no controls**: the table above creates, lists and revokes them.
-      This used to carry Generate/Revoke buttons for the pre-0.14 single token, and they became a
-      trap once tokens were named — "Revoke token" called the legacy route, which only ever removes
-      the token whose id is `default`. With a token named anything else on the panel, the button
-      reported success and changed nothing, and there was no way to see or remove the others from
-      that screen.
-    -->
-    <Notice tone="info" :title="t('settings.auth.apiTokenSet')">
-      <TransText k="settings.auth.apiTokenNote">
-        <template #code>
-          <code>Authorization: Bearer …</code>
-        </template>
-      </TransText>
-      <!-- A token outlives a password change: `setMySecret()` drops sessions and never clears any
-           token. The person rotating a password is exactly who needs to know that. -->
-      <p class="mt-1">
-        <TransText k="settings.auth.apiTokenRotation">
-          <template #command>
-            <code>home-hosted token create</code>
-          </template>
-        </TransText>
-      </p>
-    </Notice>
     <Notice v-if="usingDefault" tone="warn" :title="t('settings.auth.defaultPasswordTitle')">
       <TransText k="settings.auth.defaultPasswordText">
         <template #address>

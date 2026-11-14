@@ -95,8 +95,20 @@ function saveFromModal(): void {
 </script>
 
 <template>
-  <div class="min-h-full">
-    <div class="mx-auto w-full max-w-5xl px-4 pb-6 pt-5 sm:px-6">
+  <!--
+    `min-h-full` on a wrapper whose parent is the `<main>` **scroller** made the page exactly one
+    viewport tall: measured, `scrollHeight === clientHeight === 950`, so the content below the fold
+    could not be scrolled to at all and the sticky footer sat on top of it. A flex column that grows
+    past `100%` is what lets the page scroll, and `pb-24` is then what clears the footer.
+  -->
+  <div class="flex min-h-full flex-col">
+    <!--
+      `pb-24` clears the **sticky footer** below. It was `pb-6`, so the last row of a page ran under
+      the bar: measured on Global settings → Accounts, the create form's own Create/Cancel buttons sat
+      behind it and could not be clicked. The padding is the height of the footer plus its margin, not
+      a round number. `grow` is what makes this column fill the scroller.
+    -->
+    <div class="mx-auto w-full max-w-5xl grow px-4 pb-24 pt-5 sm:px-6">
       <slot name="header" />
 
       <div class="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-8">

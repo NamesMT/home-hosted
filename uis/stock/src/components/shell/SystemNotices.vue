@@ -99,7 +99,12 @@ const TONE = {
       <component :is="TONE[notice.tone].icon" class="mt-0.5 size-3.5 shrink-0" />
       <p class="text-2xs leading-4">
         <span class="font-medium">{{ notice.text }}</span>
-        <span v-if="notice.hint" class="opacity-80"> {{ notice.hint }}</span>
+        <!--
+          `ml-1` rather than a space in the markup: the template compiler trims whitespace at a tag
+          boundary, so `> {{ hint }}` rendered as `with.Change` — the two strings ran together with no
+          gap at all. A margin is a layout fact, not copy, so the i18n guard reads it correctly too.
+        -->
+        <span v-if="notice.hint" class="ml-1 opacity-80">{{ notice.hint }}</span>
       </p>
     </div>
   </div>
