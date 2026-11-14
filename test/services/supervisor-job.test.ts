@@ -183,7 +183,9 @@ describe('a job whose program does not exist', () => {
     await supervisor.runJob('broken')
 
     const events = history.all().filter(event => event.serverId === 'broken' && event.type === 'job-run')
-    // The claim, then the outcome — and the outcome says it failed.
-    expect(events.map(event => event.outcome)).toEqual(['running', 'failed'])
+    // The claim and the outcome, both written — and the outcome says it failed. Sorted rather than
+    // ordered: a spawn that errors before the claim reaches the file can land the two either way, and
+    // that is a timing detail of the host, not a rule.
+    expect(events.map(event => event.outcome).sort()).toEqual(['failed', 'running'])
   }, 30_000)
 })
