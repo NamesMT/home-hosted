@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { dim, fail, green, prompt } from '#src/cli/io'
-import { applyConfigMigrations, planConfigMigrations } from '#src/config/migrations'
+import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, readConfigStamp, stampConfig } from '#src/config/parse'
 import { WorkspaceRegistry } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
-import { globalSettingsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
+import { globalSettingsPath, workspaceJobsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { errorMessage } from '#src/shared/error-message'
 import { isRecord } from '#src/shared/shape'
@@ -95,10 +95,12 @@ interface PlannedFile {
  * Reads and checks one file, failing on anything this release must not write. `null` means the
  * file is already exactly what this release would write.
  */
-function planFile(target: Target): PlannedFile | null {
+function planFile(target: Target, replacement?: Record<string, unknown>): PlannedFile | null {
   let raw: Record<string, unknown>
   try {
-    raw = JSON.parse(readStateFile(target.file)) as Record<string, unknown>
+    // A planned move supplies the file's post-move shape; reading it from disk would validate the
+    // jobs it is about to remove.
+    raw = replacement ?? JSON.parse(readStateFile(target.file)) as Record<string, unknown>
   }
   catch (error) {
     fail(`cannot read ${target.file}: ${errorMessage(error)}`)
@@ -139,6 +141,10 @@ function planFile(target: Target): PlannedFile | null {
 }
 
 export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
+  // Before anything else: a servers file holding a `job` cannot be parsed, so the move is what turns
+  // it into a file this release can read. Doing it after the schema plan would report a refusal the
+  // command exists to fix.
+  const moves = planJobMoves()
   const files = targets()
   const existing = files.filter(target => fs.existsSync(target.file))
   if (existing.length === 0)
@@ -146,12 +152,22 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
 
   // Every file is read and checked before any is written, so a refusal — or a "no" — on the third
   // file cannot leave the first two rewritten behind a line saying nothing was.
-  const planned = existing.map(planFile).filter(entry => entry !== null)
+  //
+  // A servers file a move empties of jobs is checked **as it will be after the move**: it cannot be
+  // parsed as it is, and refusing it here would report the very problem this command fixes.
+  const movedFrom = new Map(moves.map(move => [move.serversFile, move.servers]))
+  const planned = existing
+    .map(target => planFile(target, movedFrom.get(target.file)))
+    .filter(entry => entry !== null)
   const lifts = planned.filter(entry => entry.plan.steps.length > 0)
   const restamps = planned.filter(entry => entry.plan.steps.length === 0)
 
   // A dry run has to *say* what it would stamp: an upgrader rehearsing the one command they were
   // told to rehearse must see the plan the real run carries out.
+  for (const move of moves) {
+    process.stdout.write(`moving ${move.ids.length} job(s) out of workspace ${move.workspaceId} servers: ${move.ids.join(', ')} → jobs.config.json\n`)
+  }
+
   if (dryRun) {
     for (const entry of restamps)
       process.stdout.write(`stamping ${entry.target.label}: meta.writtenBy → home-hosted ${appVersion()} (schema ${entry.plan.to}, no steps)\n`)
@@ -175,6 +191,15 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
     )
     process.stdout.write(`${dim('nothing was written (--dry-run)')}\n`)
     return
+  }
+
+  // The move is part of the same consent: it rewrites the file the schema plan then stamps, and a
+  // person who said yes to "make this release understand my config" meant both halves.
+  if (!dryRun && (yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow')) {
+    for (const move of moves) {
+      applyJobMove(move)
+      process.stdout.write(`${green(`moved ${move.ids.length} job(s) to jobs.config.json`)} in workspace ${move.workspaceId}\n`)
+    }
   }
 
   // Consent covers the schema steps, asked once for all of them. A restamp needs none — it changes
@@ -221,3 +246,104 @@ export const migrateCommand = defineCommand({
     await runMigrate(args.dryRun === true, args.yes === true)
   },
 })
+
+/**
+ * Moves `kind: "job"` entries out of `servers.config.json` into `jobs.config.json`.
+ *
+ * The one migration this release needs, and the reason it exists: a job that stays in a servers file
+ * is **refused** on read (it would otherwise be read as a service and stop firing), so `migrate` is
+ * where a person is sent — and it has to actually do the move rather than only stamp a version.
+ *
+ * Runs **before** the schema plan, because a file holding a job cannot be parsed yet. Reported with
+ * the same `--dry-run` honesty as everything else: the plan names each job and each file it moves.
+ */
+export interface JobMove {
+  workspaceId: string
+  serversFile: string
+  jobsFile: string
+  /** The ids leaving the servers file. */
+  ids: string[]
+  /** The servers file without them, ready to write. */
+  servers: Record<string, unknown>
+  /** The jobs file with them added. */
+  jobs: Record<string, unknown>
+}
+
+/** Plans the moves for every workspace, without writing anything. */
+export function planJobMoves(): JobMove[] {
+  const registry = new WorkspaceRegistry()
+  registry.load()
+  const moves: JobMove[] = []
+  for (const workspace of registry.all()) {
+    const serversFile = workspaceServersPath(workspace.id)
+    const jobsFile = workspaceJobsPath(workspace.id)
+    let raw: unknown
+    try {
+      raw = JSON.parse(readStateFile(serversFile))
+    }
+    catch {
+      // Absent or unreadable: the schema planner reports the second, and there is nothing to move.
+      continue
+    }
+    if (typeof raw !== 'object' || raw === null || !Array.isArray((raw as { servers?: unknown }).servers))
+      continue
+    const document = raw as { servers: Array<Record<string, unknown>> } & Record<string, unknown>
+    const leaving = document.servers.filter(entry => entry.kind === 'job')
+    const staying = document.servers.filter(entry => entry.kind !== 'job')
+    // A service that carries a stray `schedule` is left for the refusal to name: it says the entry is
+    // not a job, and guessing that it meant to be one is not this command's call.
+    if (leaving.length === 0)
+      continue
+
+    let existing: { jobs?: unknown[] } & Record<string, unknown> = {}
+    try {
+      existing = JSON.parse(readStateFile(jobsFile)) as typeof existing
+    }
+    catch {
+      // No jobs file yet: this migration is what creates it.
+    }
+    const already = Array.isArray(existing.jobs) ? existing.jobs as Array<Record<string, unknown>> : []
+    const incoming = leaving.map((entry) => {
+      const job: Record<string, unknown> = {
+        id: entry.id,
+        enabled: entry.enabled ?? true,
+        command: entry.command,
+        args: entry.args ?? [],
+        cwd: entry.cwd ?? '.',
+        env: entry.env ?? {},
+        secretEnv: entry.secretEnv ?? [],
+        schedule: entry.schedule,
+      }
+      if (typeof entry.label === 'string' && entry.label.length > 0)
+        job.label = entry.label
+      return job
+    })
+    // An id that already exists in the jobs file is **not** overwritten: the file a person wrote by
+    // hand wins, and the collision is named by the refusal that follows rather than silently resolved.
+    const ids = incoming.map(job => String(job.id)).filter(id => !already.some(job => job.id === id))
+    moves.push({
+      workspaceId: workspace.id,
+      serversFile,
+      jobsFile,
+      ids,
+      servers: { ...document, servers: staying },
+      jobs: {
+        meta: { writtenBy: `home-hosted ${appVersion()}`, schema: CONFIG_SCHEMA },
+        jobs: [...already, ...incoming.filter(job => ids.includes(String(job.id)))],
+      },
+    })
+  }
+  return moves
+}
+
+/** Writes a planned move, keeping a `.bak` of each file it touches — the command's standing promise. */
+export function applyJobMove(move: JobMove): void {
+  fs.copyFileSync(move.serversFile, `${move.serversFile}.bak`)
+  writeFileAtomic(move.serversFile, `${JSON.stringify(move.servers, null, 2)}\n`)
+  if (!fs.existsSync(move.jobsFile)) {
+    writeFileAtomic(move.jobsFile, `${JSON.stringify(move.jobs, null, 2)}\n`)
+    return
+  }
+  fs.copyFileSync(move.jobsFile, `${move.jobsFile}.bak`)
+  writeFileAtomic(move.jobsFile, `${JSON.stringify(move.jobs, null, 2)}\n`)
+}

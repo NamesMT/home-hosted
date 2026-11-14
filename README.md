@@ -21,7 +21,7 @@ stock one) when you want one that fits you exactly.
 [![License](https://img.shields.io/npm/l/home-hosted.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/home-hosted.svg)](https://nodejs.org)
 
-[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-your-own-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🌐 Dynamic DNS](./docs/DDNS.md) · [💾 Backups](#-backups) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🔐 Security](#-security) · [🎨 BYOU](#-bring-your-own-ui-byou) · [❓ FAQ](#-faq)
+[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [⏱ Jobs](./docs/JOBS.md) · [🤖 Agents & API](#-agents-scripts-and-your-own-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🌐 Dynamic DNS](./docs/DDNS.md) · [💾 Backups](#-backups) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🔐 Security](#-security) · [🎨 BYOU](#-bring-your-own-ui-byou) · [❓ FAQ](#-faq)
 
 </div>
 
@@ -227,7 +227,8 @@ Give it four things and it can run your home server without guessing:
 1. an account id and secret (`home-hosted account create agent --scope read`),
 2. `http://127.0.0.1:3999/openapi/spec.json` — the API it may call,
 3. `home-hosted status --json` — where things are,
-4. [SERVERS.md](./docs/SERVERS.md) — how a server is declared.
+4. [SERVERS.md](./docs/SERVERS.md) — how a server is declared,
+5. [JOBS.md](./docs/JOBS.md) — how a scheduled job is declared.
 
 </details>
 

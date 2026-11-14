@@ -114,30 +114,29 @@ It **waits** and exits non-zero on failure: a command that answered "accepted" w
 believing a deploy worked. Through the panel it goes over `/_hh`, so its supervisor owns the sequence
 and the history record; with the panel down it runs the same steps and says nothing was restarted.
 
-## Running a job
+## Jobs
 
-`run` starts a **job** now and waits for its outcome — the same call the schedule makes, so a run
-started by hand and one started by the clock cannot diverge. See
-[SERVERS.md](./SERVERS.md#scheduled-jobs) for what a job is.
+`job` is the terminal's way into a workspace's scheduled commands — its own domain, beside `ls` for
+servers. See [JOBS.md](./JOBS.md) for what a job is and how its schedule behaves.
 
 ```bash
-home-hosted run nightly-backup          # waits; exits 0 when the exit code is 0
-home-hosted run nightly-backup --json   # { server, ok, exitCode, signal, durationMs, cancelled }
+home-hosted job ls                                  # id, expression, and whether it is scheduled, running or disabled
+home-hosted job ls --json                           # { jobs: [{ id, schedule, nextRunAt, lastRunAt, lastExitCode, running }] }
+home-hosted job run nightly-backup                  # waits; exits 0 when the exit code is 0
+home-hosted job run nightly-backup --json           # { job, ok, exitCode, signal, durationMs, cancelled }
 ```
 
-It **waits** and exits non-zero on a failed run: a job's exit code *is* its outcome, and a command
-that answered "accepted" would leave a script believing a backup ran that did not. The run's own
-output goes to the entry's log (`home-hosted logs <id>`), so this prints the outcome.
+`job run` **waits** and exits non-zero on a failed run: a job's exit code *is* its outcome, and a
+command that answered "accepted" would leave a script believing a backup ran that did not. The run's
+own output goes to the panel's log, so this prints the outcome rather than streaming it.
 
-A refusal carries its own code: `NOT_A_JOB` (a service is started with `start`), `JOB_RUNNING` (a run
-is already in flight — the same rule the schedule follows), `SERVER_DISABLED`, and `JOB_FAILED` for a
-run that happened and failed, with `exitCode` in `--json`.
+A refusal carries its own code: `JOB_RUNNING` (a run is already in flight — the same rule the schedule
+follows) and `UNKNOWN_JOB`. There is no offline path: without a panel there is no scheduler, no log
+and no history to record a run against, so it refuses rather than answering with a second,
+unsupervised implementation.
 
-There is no offline path: without a panel there is no supervisor, no log file and no history to record
-a run against, so `run` refuses rather than answering with a second, unsupervised implementation.
-
-`ls` gains a **`NEXT RUN`** column as soon as a workspace declares a job, showing `in 4h 12m`, `due`,
-`running` or `—`. A services-only list keeps the four columns it has always had.
+`ls` lists **services** and only services, always in four columns. The `NEXT RUN` column it used to
+grow is gone with the job entries that filled it — `home-hosted job ls` answers that question now.
 
 ## What `status` tells you
 

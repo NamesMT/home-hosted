@@ -10,6 +10,37 @@ must act on, it needs no section here at all.
 The script reads only the section for the version being released, so a section is deleted once that
 version ships: its text lives on in that GitHub release's body.
 
+## 0.16.0
+
+**A job is no longer a server entry.** `kind` and `schedule` are gone from `servers.config.json`; a
+scheduled job lives in `jobs.config.json`, with its own page, API and command — see
+[JOBS.md](../docs/JOBS.md).
+
+**Run `home-hosted migrate` and your jobs move.** Until you do, a servers file that still declares a
+job is **refused**, with the instruction:
+
+```text
+nightly-backup: this entry is a `job`, which now lives in jobs.config.json — run `home-hosted migrate`
+to move it, then remove `kind`/`schedule` here
+```
+
+That is deliberate. The dangerous outcome is not an error — it is that `kind: "job"` would be read as
+a service and its schedule would silently stop firing. A refusal that names the fix is better than a
+panel that quietly stopped running a backup.
+
+**What was removed:**
+
+- `kind` and `schedule` on a server entry. A server is always a supervised service.
+- `home-hosted run <id>` → `home-hosted job run <id>`, with `home-hosted job ls` beside it.
+- `POST /api/servers/:id/run` → `POST /api/jobs/:id/run`, plus `POST /api/jobs/:id/stop`.
+- The `job` block on a server view, and the `NEXT RUN` column in `home-hosted ls`.
+
+**What you gain:** jobs are no longer explained twice. The Servers page has no `kind` column and no
+schedule field, its table has four columns always, and the rules about what a job may not declare
+(`port`, `health`, `restart`, `persistent`) are gone because those fields no longer exist on a job —
+a better answer than refusing them. Each job also gets its own expression, next run, last run, exit
+code and **Stop** button on a page of its own.
+
 ## 0.15.0
 
 **The password and the API token are one thing now: an account.** Each account has an `id` you type
