@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
-import { Boxes, Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, Waypoints, X } from '@lucide/vue'
+import { Boxes, CalendarClock, Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, Waypoints, X } from '@lucide/vue'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import InstrumentCluster from '@/components/shell/InstrumentCluster.vue'
@@ -31,6 +31,9 @@ const route = useRoute()
 const workspaceItems = computed(() => [
   { to: workspacePath(props.workspaceId, 'overview'), labelKey: 'nav.overview', icon: LayoutDashboard, exact: true, servers: false },
   { to: workspacePath(props.workspaceId, 'servers'), labelKey: 'nav.servers', icon: Server, exact: false, servers: true },
+  // Jobs sits beside Servers because that is the split it replaced: one page of long-running
+  // processes, one of scheduled commands.
+  { to: workspacePath(props.workspaceId, 'jobs'), labelKey: 'nav.jobs', icon: CalendarClock, exact: false, servers: false },
   { to: workspacePath(props.workspaceId, 'logs'), labelKey: 'nav.logs', icon: ScrollText, exact: false, servers: false },
   { to: workspacePath(props.workspaceId, 'settings'), labelKey: 'nav.workspaceSettings', icon: Settings2, exact: false, servers: false },
 ])

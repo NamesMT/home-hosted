@@ -53,6 +53,7 @@ function path(page: WorkspacePage): string {
 }
 
 const serversPath = computed(() => path('servers'))
+const jobsPath = computed(() => path('jobs'))
 const logsPath = computed(() => path('logs'))
 const settingsPath = computed(() => path('settings'))
 
@@ -81,6 +82,7 @@ const GOTO: Record<string, 'overview' | 'global-settings' | 'proxy' | WorkspaceP
   g: 'global-settings',
   p: 'proxy',
   s: 'servers',
+  j: 'jobs',
   l: 'logs',
   t: 'settings',
 }
@@ -223,6 +225,10 @@ onScopeDispose(() => {
       <RouterLink :to="serversPath" class="nav__item" active-class="nav__item--active">
         servers
         <span class="nav__key">g s</span>
+      </RouterLink>
+      <RouterLink :to="jobsPath" class="nav__item" active-class="nav__item--active">
+        jobs
+        <span class="nav__key">g j</span>
       </RouterLink>
       <RouterLink :to="logsPath" class="nav__item" active-class="nav__item--active">
         logs

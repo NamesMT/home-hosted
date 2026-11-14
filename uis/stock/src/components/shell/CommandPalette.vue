@@ -3,6 +3,7 @@ import type { ServerStatus } from '@shared/contracts'
 import type { Component } from 'vue'
 import type { ThemePreference } from '@/composables/useTheme'
 import {
+  CalendarClock,
   ChevronRight,
   Globe,
   Layers,
@@ -62,7 +63,7 @@ function go(to: string): void {
 function switchWorkspace(id: string): void {
   workspace.select(id)
   const name = String(router.currentRoute.value.name ?? '')
-  if (name === 'overview' || name === 'servers' || name === 'logs' || name === 'settings')
+  if (name === 'overview' || name === 'servers' || name === 'jobs' || name === 'logs' || name === 'settings')
     go(workspacePath(id, name))
   else if (name === 'server-detail')
     go(workspacePath(id, 'servers'))
@@ -86,7 +87,7 @@ const commands = computed<PaletteCommand[]>(() => {
     go(to)
   }
   /** The page the palette is open on, for the workspace-scoped "Go to …" entries. */
-  const here = (page: 'overview' | 'servers' | 'logs' | 'settings'): string =>
+  const here = (page: 'overview' | 'servers' | 'jobs' | 'logs' | 'settings'): string =>
     workspacePath(workspace.activeId.value, page)
 
   for (const { workspace: owner, server } of entries) {
@@ -151,6 +152,7 @@ const commands = computed<PaletteCommand[]>(() => {
     { id: 'nav:global-settings', title: t('palette.goGlobalSettings'), group: t('palette.groupNavigate'), icon: SlidersHorizontal, keywords: 'panel listener auth tls backups host', run: () => go('/global/settings') },
     { id: 'nav:proxy', title: t('palette.goProxy'), group: t('palette.groupNavigate'), icon: Waypoints, keywords: 'caddy domain route acme certificate https expose', run: () => go('/proxy') },
     { id: 'nav:servers', title: t('palette.goServers'), group: t('palette.groupNavigate'), icon: Server, keywords: 'processes list workspace', run: () => go(here('servers')) },
+    { id: 'nav:jobs', title: t('palette.goJobs'), group: t('palette.groupNavigate'), icon: CalendarClock, keywords: 'cron schedule tasks run', run: () => go(here('jobs')) },
     { id: 'nav:logs', title: t('palette.goLogs'), group: t('palette.groupNavigate'), icon: ScrollText, keywords: 'output files tail workspace', run: () => go(here('logs')) },
     { id: 'nav:settings', title: t('palette.goWorkspaceSettings'), group: t('palette.groupNavigate'), icon: Settings2, keywords: 'defaults notifications ddns config workspace', run: () => go(here('settings')) },
     { id: 'act:start-all', title: t('palette.startAll'), group: t('palette.groupActions'), icon: Play, keywords: 'boot all workspace', run: () => act(() => void control.startAll(workspace.activeId.value)) },

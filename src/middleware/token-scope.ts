@@ -83,6 +83,7 @@ const RULES: Record<string, TokenScopeRule> = {
   'PATCH /api/jobs/:id': { scope: 'config', workspaceScoped: true },
   'DELETE /api/jobs/:id': { scope: 'config', workspaceScoped: true },
   'POST /api/jobs/:id/run': { scope: 'lifecycle', workspaceScoped: true },
+  'POST /api/jobs/:id/stop': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/:id/clear-logs': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/start-all': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/stop-all': { scope: 'lifecycle', workspaceScoped: true },

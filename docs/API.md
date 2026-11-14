@@ -242,6 +242,8 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `POST`/`DELETE /api/settings/ui`, `POST`/`DELETE /api/settings/tls` | install a UI zip / a PEM pair | |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `POST`/`DELETE /api/auth/password` | the session and the password | |
 | `GET`/`POST /api/auth/accounts`, `PATCH`/`DELETE /api/auth/accounts/:id` | the panel's accounts. Session-only, and a new secret is shown once. Scopes are `read`, `lifecycle`, `config`, `admin` (cumulative); `workspaces` limits one. `DELETE` refuses the account making the request (`CANNOT_REVOKE_SELF`) and the last one that can sign in (`LAST_ACCOUNT`). A route's requirement is published as `x-required-scope` |
+| `GET`/`POST /api/jobs`, `PATCH`/`DELETE /api/jobs/:id` | a workspace's **jobs**: short-lived commands on cron schedules, in their own `jobs.config.json`. A job has no port, health check or restart policy — its exit code is the outcome. `workspaces` scope a job by its workspace rather than by an id |
+| `POST /api/jobs/:id/run`, `POST /api/jobs/:id/stop` | run one now and wait for its exit code (a non-zero exit is `200` with `exitCode`, because the run happened), or end a run in flight. A run already going is `409 JOB_RUNNING` rather than a queue |
 | `POST /api/auth/accounts/me/secret` | change **your own** secret, proving the current one (`CURRENT_PASSWORD_REQUIRED` / `CURRENT_PASSWORD_WRONG`). Keeps the session that made the change |
 | `GET`/`POST`/`DELETE /api/host/temperature` | the WSL2 temperature bridge: whether a helper is installed, install one, remove it (`supported: false` off WSL — hide the control) | |
 | `GET /api/metrics` | Prometheus text | |

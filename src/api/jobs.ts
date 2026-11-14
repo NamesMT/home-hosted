@@ -137,6 +137,32 @@ export function createJobsRoute(deps: AppDeps) {
     )
 
     /**
+     * Stop a run in flight.
+     *
+     * A separate act from removing the job: a person watching a backup go wrong wants to end *this
+     * run*, and a job that is mid-write is not one to delete out from under its process.
+     */
+    .post(
+      '/jobs/:id/stop',
+      describeRoute({
+        tags: ['jobs'],
+        summary: 'Stop a run in flight',
+        responses: { 200: { description: 'Stopped, or nothing was running', content: jsonBody(okResponseSchema) }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      async (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        if (runtime.jobs.get(id) === null)
+          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+        // `false` means nothing was running, which is an answered question rather than an error.
+        await runtime.jobs.stop(id)
+        return c.json({ ok: true })
+      },
+    )
+
+    /**
      * Run one **now**, and wait for the exit code.
      *
      * The whole point of a job is its outcome, so this waits by default; `?wait=false` answers `202`

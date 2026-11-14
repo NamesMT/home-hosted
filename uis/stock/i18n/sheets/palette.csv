@@ -29,3 +29,4 @@ palette.results[one],{count} result,,,,{count} resultado,,{count} результ
 palette.results[few],,,,,,,{count} результата,,
 palette.results[many],,,,,,,{count} результатов,,
 palette.results[other],{count} results,{count} kết quả,{count} 个结果,{count} 件の結果,{count} resultados,결과 {count}개,{count} результата,{count} résultats,{count} Ergebnisse
+palette.goJobs,Go to Jobs,Tới Tác vụ,前往任务,ジョブへ移動,Ir a Tareas,작업으로 이동,Перейти к заданиям,Aller aux tâches,Zu Aufgaben

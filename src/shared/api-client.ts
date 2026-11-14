@@ -806,6 +806,11 @@ export function updateJob(id: string, patch: {
   return request<{ job: JobRow }>(scoped(`/api/jobs/${encodeURIComponent(id)}`, workspace), { method: 'PATCH', body: JSON.stringify(patch) })
 }
 
+/** Ends a run in flight. Its record is marked cancelled, so its non-zero status is not a failure. */
+export function stopJob(id: string, workspace?: string | null): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(scoped(`/api/jobs/${encodeURIComponent(id)}/stop`, workspace), { method: 'POST' })
+}
+
 export function deleteJob(id: string, workspace?: string | null): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(scoped(`/api/jobs/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
 }

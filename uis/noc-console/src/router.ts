@@ -4,6 +4,7 @@ import { useSession } from '@/composables/useSession'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import GlobalOverviewView from '@/views/GlobalOverviewView.vue'
 import GlobalSettingsView from '@/views/GlobalSettingsView.vue'
+import JobsView from '@/views/JobsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import LogsView from '@/views/LogsView.vue'
 import ProxyView from '@/views/ProxyView.vue'
@@ -14,7 +15,7 @@ import SettingsView from '@/views/SettingsView.vue'
 /** Pages that read the workspace in the URL. */
 const WORKSPACE_ROUTES = new Set(['servers', 'server-config', 'logs', 'settings'])
 
-export type WorkspacePage = 'servers' | 'logs' | 'settings'
+export type WorkspacePage = 'servers' | 'jobs' | 'logs' | 'settings'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -22,6 +23,7 @@ export const router = createRouter({
     // The workspace is part of the URL, so any page can be bookmarked or shared.
     { path: '/w/:workspaceId/servers', name: 'servers', component: ServersView },
     { path: '/w/:workspaceId/servers/:id/config', name: 'server-config', component: ServerConfigView, props: true },
+    { path: '/w/:workspaceId/jobs', name: 'jobs', component: JobsView },
     { path: '/w/:workspaceId/logs', name: 'logs', component: LogsView },
     { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsView },
     { path: '/global/overview', name: 'global-overview', component: GlobalOverviewView },

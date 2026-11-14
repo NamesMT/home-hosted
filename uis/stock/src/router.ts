@@ -4,6 +4,7 @@ import { useSession } from '@/composables/useSession'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { loginRedirect } from '@/lib/login-redirect'
 import GlobalOverviewView from '@/views/GlobalOverviewView.vue'
+import JobsView from '@/views/JobsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import OverviewView from '@/views/OverviewView.vue'
 import ServersView from '@/views/ServersView.vue'
@@ -29,6 +30,7 @@ export const router = createRouter({
     { path: '/w/:workspaceId', name: 'overview', component: OverviewView, meta: { titleKey: 'nav.overview' } },
     { path: '/w/:workspaceId/servers', name: 'servers', component: ServersView, meta: { titleKey: 'nav.servers' } },
     { path: '/w/:workspaceId/servers/:id', name: 'server-detail', component: ServerDetailView, meta: { titleKey: 'views.route.server' } },
+    { path: '/w/:workspaceId/jobs', name: 'jobs', component: JobsView, meta: { titleKey: 'nav.jobs' } },
     { path: '/w/:workspaceId/logs', name: 'logs', component: LogsView, meta: { titleKey: 'nav.logs' } },
     { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsView, meta: { titleKey: 'nav.workspaceSettings' } },
     { path: '/global/overview', name: 'global-overview', component: GlobalOverviewView, meta: { titleKey: 'nav.globalOverview' } },
@@ -47,7 +49,7 @@ export const router = createRouter({
  * Where a workspace page lives. One helper, so a link can never point at a
  * version of the page that is not the one the URL says.
  */
-export function workspacePath(workspaceId: string, page: 'overview' | 'servers' | 'logs' | 'settings' = 'overview', serverId?: string): string {
+export function workspacePath(workspaceId: string, page: 'overview' | 'servers' | 'jobs' | 'logs' | 'settings' = 'overview', serverId?: string): string {
   const base = `/w/${encodeURIComponent(workspaceId)}`
   if (page === 'overview')
     return base
