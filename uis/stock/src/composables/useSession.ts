@@ -11,7 +11,7 @@ const error = ref<string | null>(null)
  * the UI back to the login view without every caller knowing about 401s.
  *
  * Everything here is a plain closure rather than a method on the returned
- * object: callers destructure it (`const { setPassword } = useSession()`), and a
+ * object: callers destructure it (`const { setMySecret } = useSession()`), and a
  * `this.refresh()` inside would then be `undefined.refresh()`.
  */
 /**
@@ -41,10 +41,10 @@ export function useSession() {
     }
   }
 
-  async function login(password: string): Promise<boolean> {
+  async function login(id: string, secret: string): Promise<boolean> {
     error.value = null
     try {
-      session.value = await api.login(password)
+      session.value = await api.login(id, secret)
       return true
     }
     catch (caught) {
@@ -77,10 +77,11 @@ export function useSession() {
     }
   }
 
-  async function setPassword(current: string | undefined, next: string): Promise<string | null> {
+  /** Replaces **this** account's secret, proving the current one. */
+  async function setMySecret(current: string | undefined, next: string): Promise<string | null> {
     error.value = null
     try {
-      await api.setPassword(current, next)
+      await api.setMySecret(current, next)
       await refresh()
       return null
     }
@@ -89,10 +90,11 @@ export function useSession() {
     }
   }
 
-  async function clearPassword(): Promise<string | null> {
+  /** Turns the guard off. The accounts stay on disk. */
+  async function disableAuth(): Promise<string | null> {
     error.value = null
     try {
-      await api.clearPassword()
+      await api.disableAuth()
       await refresh()
       return null
     }
@@ -108,7 +110,7 @@ export function useSession() {
     login,
     logout,
     requireLogin,
-    setPassword,
-    clearPassword,
+    setMySecret,
+    disableAuth,
   }
 }

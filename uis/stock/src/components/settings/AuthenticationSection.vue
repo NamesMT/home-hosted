@@ -3,10 +3,10 @@ import type { ControlView } from '@shared/contracts'
 import type { AuthForm } from '@/components/settings/settingsForm'
 import { EXPOSED_PASSWORD_MIN_LENGTH, WEAK_PASSWORD_LENGTH } from '@shared/password-policy'
 import { computed, ref } from 'vue'
+import AccountsSection from '@/components/settings/AccountsSection.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import { numberModel, secondsModel } from '@/components/settings/settingsForm'
-import TokensSection from '@/components/settings/TokensSection.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
@@ -41,7 +41,7 @@ const enabledWithoutPassword = computed(() => auth.value.enabled && !passwordSet
 // The password is a secret with its own endpoints (`POST`/`DELETE /api/auth/password`)
 // rather than part of the settings patch, but it belongs to this section: the
 // policy and the credential are one decision.
-const { setPassword, clearPassword } = useSession()
+const { setMySecret, disableAuth } = useSession()
 const currentPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
@@ -69,7 +69,7 @@ async function submitPassword(): Promise<void> {
   passwordError.value = null
   passwordMessage.value = null
   try {
-    const failure = await setPassword(passwordSet.value ? currentPassword.value : undefined, newPassword.value)
+    const failure = await setMySecret(passwordSet.value ? currentPassword.value : undefined, newPassword.value)
     if (failure !== null) {
       passwordError.value = failure
       return
@@ -88,7 +88,7 @@ async function submitPassword(): Promise<void> {
 async function clearPasswordValue(): Promise<void> {
   passwordError.value = null
   passwordMessage.value = null
-  const failure = await clearPassword()
+  const failure = await disableAuth()
   if (failure !== null)
     passwordError.value = failure
   else passwordMessage.value = t('settings.auth.passwordCleared')
@@ -137,7 +137,7 @@ async function clearPasswordValue(): Promise<void> {
     <NumberField v-model="lockout" :label="t('settings.auth.lockout')" :min="1" />
   </FieldGroup>
 
-  <TokensSection />
+  <AccountsSection />
 
   <div class="space-y-2">
     <!--
@@ -154,7 +154,7 @@ async function clearPasswordValue(): Promise<void> {
           <code>Authorization: Bearer …</code>
         </template>
       </TransText>
-      <!-- A token outlives a password change: `setPassword()` drops sessions and never clears any
+      <!-- A token outlives a password change: `setMySecret()` drops sessions and never clears any
            token. The person rotating a password is exactly who needs to know that. -->
       <p class="mt-1">
         <TransText k="settings.auth.apiTokenRotation">

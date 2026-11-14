@@ -18,6 +18,7 @@ const router = useRouter()
 const control = useControlPlane()
 const { session, error, login, refresh } = useSession()
 
+const accountId = ref('')
 const password = ref('')
 const submitting = ref(false)
 const revealed = ref(false)
@@ -59,7 +60,7 @@ const subtitle = computed(() => {
 async function submit(): Promise<void> {
   submitting.value = true
   try {
-    if (await login(password.value)) {
+    if (await login(accountId.value, password.value)) {
       password.value = ''
       const next = typeof route.query.next === 'string' ? route.query.next : '/'
       await router.push(next)
@@ -127,6 +128,25 @@ onMounted(async () => {
         </div>
 
         <form v-if="!authOff" class="mt-5 space-y-3" @submit.prevent="submit">
+          <!--
+            The id and the secret are two halves of one credential, like a username and a password.
+            They are asked for together: the panel refuses a wrong id and a wrong secret identically,
+            so there is nothing to be gained by trying one without the other.
+          -->
+          <div class="flex flex-col gap-1.5">
+            <label for="hh-account" :class="labelClass">{{ t('login.accountId') }}</label>
+            <input
+              id="hh-account"
+              v-model="accountId"
+              type="text"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              autofocus
+              required
+              :class="inputClass"
+            >
+          </div>
           <div class="flex flex-col gap-1.5">
             <label for="hh-password" :class="labelClass">{{ t('login.password') }}</label>
             <div class="relative">

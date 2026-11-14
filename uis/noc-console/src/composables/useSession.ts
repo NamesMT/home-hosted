@@ -42,10 +42,11 @@ export function useSession() {
     error: readonly(error),
     refresh,
 
-    async login(password: string): Promise<boolean> {
+    /** The credential is two halves: an id you type and a secret only you hold. */
+    async login(id: string, secret: string): Promise<boolean> {
       error.value = null
       try {
-        session.value = await api.login(password)
+        session.value = await api.login(id, secret)
         return true
       }
       catch (caught) {
@@ -63,10 +64,11 @@ export function useSession() {
       }
     },
 
-    async setPassword(current: string | undefined, next: string): Promise<string | null> {
+    /** Replaces **this** account's secret, proving the current one. */
+    async setMySecret(current: string | undefined, next: string): Promise<string | null> {
       error.value = null
       try {
-        await api.setPassword(current, next)
+        await api.setMySecret(current, next)
         await refresh()
         return null
       }
@@ -75,10 +77,11 @@ export function useSession() {
       }
     },
 
-    async clearPassword(): Promise<string | null> {
+    /** Turns the guard off. The accounts stay on disk. */
+    async disableAuth(): Promise<string | null> {
       error.value = null
       try {
-        await api.clearPassword()
+        await api.disableAuth()
         await refresh()
         return null
       }

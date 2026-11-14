@@ -7,11 +7,11 @@ import { EXPOSED_PASSWORD_MIN_LENGTH } from '@shared/password-policy'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { msToSeconds, secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
+import AccountsSection from '@/components/AccountsSection.vue'
 import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import RestoreDialog from '@/components/RestoreDialog.vue'
 import ScheduleScope from '@/components/ScheduleScope.vue'
-import TokensSection from '@/components/TokensSection.vue'
 import { useBackupSelection } from '@/composables/useBackupSelection'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { vFocusTrap } from '@/composables/useFocusTrap'
@@ -419,7 +419,7 @@ async function savePassword(): Promise<void> {
 
   passwordSaving.value = true
   try {
-    const failure = await sessionApi.setPassword(passwordSet.value ? currentPassword.value : undefined, newPassword.value)
+    const failure = await sessionApi.setMySecret(passwordSet.value ? currentPassword.value : undefined, newPassword.value)
     if (failure !== null) {
       passwordError.value = failure
       return
@@ -434,10 +434,10 @@ async function savePassword(): Promise<void> {
   }
 }
 
-async function clearPassword(): Promise<void> {
+async function turnAuthOff(): Promise<void> {
   passwordError.value = null
   passwordMessage.value = null
-  const failure = await sessionApi.clearPassword()
+  const failure = await sessionApi.disableAuth()
   if (failure !== null)
     passwordError.value = failure
   else passwordMessage.value = 'password cleared and authentication disabled'
@@ -878,14 +878,14 @@ async function revertUi(): Promise<void> {
                 confirm-label="Confirm clear"
                 tone="danger"
                 :title="exposed ? 'Refused while the panel is reachable beyond loopback' : 'Removes the password and disables auth'"
-                @confirm="clearPassword"
+                @confirm="turnAuthOff"
               />
               <button type="button" class="btn btn--sm btn--primary" :disabled="passwordSaving" @click="savePassword">
                 {{ passwordSet ? 'Update password' : 'Set password and enable auth' }}
               </button>
             </div>
 
-            <TokensSection />
+            <AccountsSection />
 
             <!--
               A note, and **no controls**: the table above creates, lists and revokes tokens. These

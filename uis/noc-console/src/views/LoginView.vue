@@ -9,6 +9,7 @@ const router = useRouter()
 const control = useControlPlane()
 const { session, error, login } = useSession()
 
+const accountId = ref('')
 const password = ref('')
 const submitting = ref(false)
 
@@ -22,7 +23,7 @@ const controlUrl = computed(() => control.control.value?.url ?? '')
 async function submit(): Promise<void> {
   submitting.value = true
   try {
-    if (await login(password.value)) {
+    if (await login(accountId.value, password.value)) {
       password.value = ''
       await control.refresh()
       /*
@@ -70,23 +71,40 @@ async function submit(): Promise<void> {
           {{ blockedReason }}
         </p>
         <p v-else-if="exposed" class="note note--warn">
-          This panel is reachable beyond <code>127.0.0.1</code>. Keep the password strong, or
+          This panel is reachable beyond <code>127.0.0.1</code>. Keep the secret strong, or
           put a TLS-terminating proxy in front of it.
         </p>
 
+        <!--
+          The id and the secret are two halves of one credential, like a username and a password.
+          Asked together, because the panel refuses a wrong id and a wrong secret identically.
+        -->
         <label class="field">
-          <span class="field__label">password</span>
+          <span class="field__label">account id</span>
           <input
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
+            v-model="accountId"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
             autofocus
-            placeholder="panel password"
+            placeholder="admin"
             required
           >
         </label>
 
-        <button type="submit" class="btn btn--primary" :disabled="submitting || password.length === 0">
+        <label class="field">
+          <span class="field__label">secret</span>
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="the account's secret"
+            required
+          >
+        </label>
+
+        <button type="submit" class="btn btn--primary" :disabled="submitting || password.length === 0 || accountId.length === 0">
           {{ submitting ? 'signing in…' : 'sign in' }}
         </button>
 

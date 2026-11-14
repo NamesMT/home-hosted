@@ -21,11 +21,11 @@ vi.mock('../src/lib/api', () => ({
   logout: async (): Promise<void> => {
     calls.push('logout')
   },
-  setPassword: async (): Promise<void> => {
-    calls.push('setPassword')
+  setMySecret: async (): Promise<void> => {
+    calls.push('setMySecret')
   },
-  clearPassword: async (): Promise<void> => {
-    calls.push('clearPassword')
+  disableAuth: async (): Promise<void> => {
+    calls.push('disableAuth')
   },
 }))
 
@@ -43,24 +43,25 @@ beforeEach(() => {
  */
 describe('session composable', () => {
   it('works when destructured, like every caller uses it', async () => {
-    const { setPassword, clearPassword, logout, login } = useSession()
+    const { setMySecret, disableAuth, logout, login } = useSession()
 
-    await expect(setPassword(undefined, 'a-new-password')).resolves.toBeNull()
-    await expect(clearPassword()).resolves.toBeNull()
+    await expect(setMySecret(undefined, 'a-new-password')).resolves.toBeNull()
+    await expect(disableAuth()).resolves.toBeNull()
     await expect(logout()).resolves.toBeUndefined()
-    await expect(login('whatever')).resolves.toBe(true)
+    // The credential is two halves now, so signing in takes both.
+    await expect(login('default', 'whatever')).resolves.toBe(true)
 
-    expect(calls).toEqual(['setPassword', 'fetchSession', 'clearPassword', 'fetchSession', 'logout', 'fetchSession', 'login'])
+    expect(calls).toEqual(['setMySecret', 'fetchSession', 'disableAuth', 'fetchSession', 'logout', 'fetchSession', 'login'])
   })
 
   it('reports a failed password change instead of throwing', async () => {
     const api = await import('../src/lib/api')
-    const original = api.setPassword
-    vi.spyOn(api, 'setPassword').mockRejectedValueOnce(new Error('current password is incorrect'))
+    const original = api.setMySecret
+    vi.spyOn(api, 'setMySecret').mockRejectedValueOnce(new Error('the current secret is incorrect'))
 
-    const { setPassword } = useSession()
-    await expect(setPassword('wrong', 'a-new-password')).resolves.toBe('current password is incorrect')
+    const { setMySecret } = useSession()
+    await expect(setMySecret('wrong', 'a-new-password')).resolves.toBe('the current secret is incorrect')
 
-    vi.mocked(api.setPassword).mockImplementation(original)
+    vi.mocked(api.setMySecret).mockImplementation(original)
   })
 })
