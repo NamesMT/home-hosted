@@ -363,6 +363,110 @@ export type ServerKind = typeof serverKindSchema.infer
 export const cronExpressionSchema = lazy(() => type(/^\S+(?: +\S+){4}$/)
   .describe('a 5-field cron expression (minute hour day-of-month month day-of-week); no seconds field, no @macros'))
 
+/**
+ * One **job**: a short-lived command on a cron schedule.
+ *
+ * Jobs had their own lifecycle bolted onto a server entry (`kind: "job"` plus `schedule`), and it
+ * showed: half the Servers page and half its explanation existed to say "this one is not really a
+ * server". A job is a different thing from a service — it starts, it runs, it exits, and its **exit
+ * code is the outcome** — so it is a different domain with its own file, page, API and command.
+ *
+ * What a job therefore does **not** have, by construction rather than by a rule that refuses it:
+ * no `port` (nothing serves), no `health` (nothing stays up), no `restart` (a finished run is not
+ * retried), no `persistent` (a nanny keeps a *service* alive). Deleting the field is a better answer
+ * than refusing it, because a refusal needs explaining and the Servers page no longer has to.
+ */
+export const jobSchema = lazy(() => type({
+  'id': '/^[a-z0-9][a-z0-9_-]*$/',
+  'label?': labelOrNullSchema,
+  'enabled': 'boolean = true',
+  'command': 'string >= 1',
+  'args': type('string[]').default(() => []),
+  'cwd': 'string = "."',
+  'env': type('Record<string, string>').default(() => ({})),
+  /** The names of secret environment values; only the values live in the workspace secrets file. */
+  'secretEnv': secretEnvNamesSchema.default(() => []),
+  /**
+   * When it runs, as a 5-field cron expression in the host's local timezone. Required: a job with no
+   *  schedule never runs, and there is no other way to start one except asking.
+   */
+  'schedule': cronExpressionSchema,
+  /** How long one run may take before the panel ends it. Bounds a hung script, not a slow backup. */
+  'timeoutMs': 'number >= 1000 = 3600000',
+  /** Kept for the file's own bookkeeping, so an entry can be marked as hand-written. */
+  'description?': 'string',
+}).onUndeclaredKey('reject'))
+export type JobConfig = typeof jobSchema.infer
+
+/**
+ * The jobs file: a workspace's jobs, plus the `meta` stamp every config in this repo carries.
+ *
+ * `jobs: []` is a valid file and the normal state of a workspace with no jobs.
+ */
+export const jobsFileSchema = lazy(() => type({
+  'meta?': type({
+    'writtenBy?': 'string',
+    'schema?': 'number',
+  }),
+  'jobs': jobSchema.array(),
+}).onUndeclaredKey('reject'))
+
+/**
+ * What a job is doing right now, on the jobs view.
+ *
+ * Optional fields throughout, like every response addition: `running` is what a UI needs, and the
+ * `last*` group describes the last **finished** run so a person sees the outcome without a log.
+ */
+export const jobEntryViewSchema = lazy(() => type({
+  'id': 'string',
+  'label?': 'string',
+  'enabled': 'boolean',
+  'command': 'string',
+  'args': 'string[]',
+  'schedule': 'string',
+  /** The next time this will run, epoch ms — `null` for an expression that cannot occur. */
+  'nextRunAt?': 'number | null',
+  'lastRunAt?': 'number',
+  'lastExitCode?': 'number | null',
+  'running': 'boolean',
+  /** Where its output goes: the workspace's job log for this id. */
+  'logPath?': 'string',
+}).onDeepUndeclaredKey('ignore'))
+export type JobEntryView = typeof jobEntryViewSchema.infer
+
+export const jobsListSchema = lazy(() => type({ jobs: jobEntryViewSchema.array() }))
+
+/** Creating a job. Everything the schema defaults is omittable; the schedule is not. */
+export const jobCreateSchema = lazy(() => type({
+  'id': '/^[a-z0-9][a-z0-9_-]*$/',
+  'label?': labelOrNullSchema,
+  'enabled?': 'boolean',
+  'command': 'string >= 1',
+  'args?': 'string[]',
+  'cwd?': 'string',
+  'env?': 'Record<string, string>',
+  'secretEnv?': 'string[]',
+  'schedule': cronExpressionSchema,
+  'timeoutMs?': 'number >= 1000',
+  'description?': 'string',
+}).onUndeclaredKey('reject'))
+export type JobCreate = typeof jobCreateSchema.infer
+
+/** Editing one: every field optional, and a `null` where one can be cleared. */
+export const jobPatchSchema = lazy(() => type({
+  'label?': labelOrNullSchema.or(type('null')),
+  'enabled?': 'boolean',
+  'command?': 'string >= 1',
+  'args?': 'string[]',
+  'cwd?': 'string',
+  'env?': 'Record<string, string>',
+  'secretEnv?': 'string[]',
+  'schedule?': cronExpressionSchema,
+  'timeoutMs?': 'number >= 1000',
+  'description?': 'string',
+}).onUndeclaredKey('reject'))
+export type JobPatch = typeof jobPatchSchema.infer
+
 export const serverSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   label: labelOrNullSchema.optional(),

@@ -132,6 +132,18 @@ export function workspaceServersPath(id: string): string {
   return path.join(workspaceDir(id), 'servers.config.json')
 }
 
+/**
+ * A workspace's **jobs**: short-lived commands on cron schedules.
+ *
+ * A separate file from `servers.config.json` because a job is a different domain — it has no port, no
+ * health check and no restart policy, and it lives on its own page. Keeping it in the servers file is
+ * what forced `kind` onto every entry and half the Servers page to explain that one entry was not
+ * really a server.
+ */
+export function workspaceJobsPath(id: string): string {
+  return path.join(workspaceDir(id), 'jobs.config.json')
+}
+
 /** Workspace secrets: Telegram bot token and DDNS credentials. Mode 0600. */
 export function workspaceSecretsPath(id: string): string {
   return path.join(workspaceDir(id), '.secrets.json')

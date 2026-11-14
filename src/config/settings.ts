@@ -12,7 +12,13 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { globalSettingsPath } from '#src/helpers/paths'
 
-export type ConfigErrorCode = 'UNKNOWN_SERVER' | 'CONFIG_CHANGED_ON_DISK'
+export type ConfigErrorCode
+  = | 'UNKNOWN_SERVER'
+    | 'CONFIG_CHANGED_ON_DISK'
+    /** A jobs file this release cannot use, or one job in it that cannot run. */
+    | 'INVALID_CONFIG'
+    | 'INVALID_JOB'
+    | 'JOB_EXISTS'
 
 export class ConfigError extends Error {
   override name = 'ConfigError'
