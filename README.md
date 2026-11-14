@@ -109,11 +109,11 @@ npx home-hosted secret set web DATABASE_URL             # a secret, prompted wit
 > [!IMPORTANT]
 > **Before you expose it to anything but this machine.** It listens on `127.0.0.1` until you say
 > otherwise, and it refuses to bind further — or to be put behind its own reverse proxy — while it
-> still has its first-run password. So: set your own password (12+ characters) first, *then* bind to `lan` (UI,
-> `settings.json`, or `up --host lan`). And an API token is **full admin**: it can create and start a
-> server entry, and an entry runs any command as the panel's user. Changing the password does **not**
-> revoke a token — rotate it with `set-token --generate`. The whole model, including which actions a
-> token is refused: [SECURITY.md](./docs/SECURITY.md).
+> still has its first-run secret. So: set your own secret (12+ characters) first, *then* bind to `lan` (UI,
+> `settings.json`, or `up --host lan`). And an `admin` account is **everything the panel's user can do**:
+> it can create and start a server entry, and an entry runs any command as that user. Give a script only
+> the scopes it needs — `read` for a monitor, `read,lifecycle` for a deploy hook — and revoke it when it
+> may have leaked. The whole model: [SECURITY.md](./docs/SECURITY.md).
 
 <details>
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
@@ -181,13 +181,13 @@ Everything the panel does goes through one HTTP API — the stock UI is just one
 token, then plain HTTP:
 
 ```bash
-home-hosted set-token --generate        # hh_9uA2… — printed once, only its hash is kept
-                                        #   (or Global settings → Authentication → Generate token)
+home-hosted account create monitor --scope read,lifecycle   # prints the secret once
+                                        #   (or Global settings → Accounts → Create account)
 
-curl -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/state
-curl -H "Authorization: Bearer hh_…" -X POST 'http://127.0.0.1:3999/api/servers/gateway/restart?workspace=default'
-curl -N -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/events            # live SSE
-home-hosted status --json                                                            # where everything is
+curl -H "Authorization: Bearer monitor:hh_…" http://127.0.0.1:3999/api/state
+curl -H "Authorization: Bearer monitor:hh_…" -X POST 'http://127.0.0.1:3999/api/servers/gateway/restart?workspace=default'
+curl -N -H "Authorization: Bearer monitor:hh_…" http://127.0.0.1:3999/api/events      # live SSE
+home-hosted status --json                                                             # where everything is
 ```
 
 Building in TypeScript? `import { createClient } from 'home-hosted/client'` — a ~2 KB gzipped client
@@ -198,8 +198,9 @@ Any other language: `GET /openapi/spec.json` documents every API route and its b
 and is `503` while any server needs attention — point your uptime monitor at it.
 
 > [!WARNING]
-> **A token is full admin.** It can create and start server entries, which run commands as the
-> panel's user. Keep it like a password; rotate with `set-token --generate`.
+> **An `admin` account is everything.** It can create and start server entries, which run commands as
+> the panel's user. Give a script the least it needs (`--scope read`), and revoke it when it may have
+> leaked — a credential cannot create or revoke another, so a stolen one cannot make itself permanent.
 
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>
@@ -223,7 +224,7 @@ Every endpoint, SSE frames, metrics and compatibility rules: **[API.md](./docs/A
 
 Give it four things and it can run your home server without guessing:
 
-1. the token (`home-hosted set-token --generate`),
+1. an account id and secret (`home-hosted account create agent --scope read`),
 2. `http://127.0.0.1:3999/openapi/spec.json` — the API it may call,
 3. `home-hosted status --json` — where things are,
 4. [SERVERS.md](./docs/SERVERS.md) — how a server is declared.
@@ -347,7 +348,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
 | `home-hosted usage` | CPU and memory per server, loudest first, plus starts and crashes over the history window |
 | `home-hosted backup` | `list`, `create`, `restore` — works with the panel stopped |
-| `home-hosted set-password` / `set-token` | credentials, without a browser |
+| `home-hosted account` | `create`, `ls`, `secret`, `revoke`, `reset` — one credential that signs in *and* authenticates the API, without a browser |
 | `home-hosted migrate` | bring configs up to this release's schema (`--dry-run`) |
 | `home-hosted init` | scaffold a self-contained project |
 | `home-hosted ui-switch` / `ui-update` / `ui-revert` | install, update or remove a custom UI |
@@ -382,8 +383,8 @@ backup list       --json
 backup create     (--include <ids> | --all) [--exclude <ids>] --password <text> --confirm --json
 backup restore    (<name> | --from <path>) (--include <ids> | --all) [--exclude <ids>] --password <text> --confirm --json
 init              --dir <dir> --name <name> --pm <pnpm|npm|yarn|bun> --no-install -y/--yes
-set-password      --clear                      (HHOSTED_PASSWORD for a script; --clear locks every sign-in out)
-set-token         --generate --clear           (HHOSTED_TOKEN for a script)
+account create <id> [--scope <scopes>] [-w/--workspace <ids>]   (HHOSTED_SECRET to set your own)
+account ls | secret <id> | revoke <id> | reset [<id>] | disable-auth
 migrate           --dry-run -y/--yes           (HHOSTED_MIGRATE=allow for a script)
 ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|url> [--insecure] --list --token <token> -y/--yes
 ui-update         --check --tag <tag> --asset <name> --old --repo <owner/name> --token <token> -y/--yes
@@ -446,7 +447,7 @@ set your own password of at least 12 characters.
 
 1. **Set your own password (12+ characters) before exposing it**, then bind to `lan` (UI, config, or `up --host lan`).
 2. **Treat an API token as the account it runs as** — changing the password does *not* revoke it.
-3. **Forgot the password?** Run `home-hosted set-password` on the machine to set a new one; no login needed.
+3. **Forgot the secret?** Run `home-hosted account reset` on the machine for a fresh one; no login needed.
 
 </details>
 

@@ -10,6 +10,47 @@ must act on, it needs no section here at all.
 The script reads only the section for the version being released, so a section is deleted once that
 version ships: its text lives on in that GitHub release's body.
 
+## 0.15.0
+
+**The password and the API token are one thing now: an account.** Each account has an `id` you type
+and a `secret` only you hold. The same pair signs in to the panel *and* authenticates the API.
+
+**Your existing credentials keep working — nothing to do.** The upgrade migrates on first read:
+
+| You had | You now have |
+| --- | --- |
+| a panel password | an account `default` whose secret is that password, holding every scope |
+| a 0.14 token named `monitor` | an account `monitor` with the same scopes and the same value |
+| the pre-0.14 single token | an account `default` with that value, holding every scope |
+
+So **the secret you type at the login screen is now paired with an id** — sign in as `default` with
+your old password, or send a token as `Authorization: Bearer monitor:<the old token value>`. The id
+goes in front of a colon; a value with no colon is refused rather than guessed, because there is no
+longer a single-token model to fall back to.
+
+**Why the id is needed at all.** A bare secret would have to be compared against every stored hash to
+find its account, which is slower *and* a timing signal. The id is not secret — it is what a login is
+keyed on and what makes a stolen secrets file unusable without it.
+
+**You can now have more than one person.** `home-hosted account create <id> --scope read,lifecycle`
+(or Global settings → Accounts) makes an account that can look and start things but not change
+config. Accounts can be disabled without being deleted, limited to some workspaces, and revoked — and
+revoking one ends its sessions immediately.
+
+**What was removed:**
+
+- `home-hosted set-password` → `home-hosted account secret <id>`, or `account reset` if you are
+  locked out. `home-hosted set-token` → `home-hosted account create`.
+- `POST /api/auth/password`, `POST`/`DELETE /api/auth/token` and `/api/auth/tokens` →
+  `/api/auth/accounts`, `/api/auth/accounts/:id` and `/api/auth/accounts/me/secret`.
+- `POST /api/auth/login` takes `{ id, secret }`, not `{ password }`.
+- `DELETE /api/auth/password` still exists but now means "turn the guard off", and it **keeps the
+  accounts** — disabling authentication is no longer the same act as destroying your way back in.
+
+**One behaviour changed for the better:** rotating a credential used to sign *everyone* out. Now it
+ends only that account's sessions, because a session belongs to an account. Two people on one panel
+no longer log each other out.
+
 ## 0.14.0
 
 **Exposing the panel beyond loopback now needs a password of at least 12 characters.** A panel bound

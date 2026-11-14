@@ -47,13 +47,14 @@ say "Host A: a blank machine with one stack"
 
 mkdir -p "$HOST_A"
 HHOSTED_HOME="$HOST_A" "${CLI[@]}" up --port "$PANEL_A" --no-autostart >/dev/null
-TOKEN_A="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" set-token --generate | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
+# An account is the credential now, and the bearer value carries its id: `<id>:<secret>`.
+TOKEN_A="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" account create demo --scope read,lifecycle,config,admin | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
 note "panel on :$PANEL_A"
 
 # The entry owns the container, and the hooks reach it by name. That is the shape a real setup has,
 # and it is what makes the dump possible: `mongodump` is run by the entry's own `dump` hook.
 curl -fsS -o /dev/null -X POST \
-  -H "Authorization: Bearer $TOKEN_A" -H 'content-type: application/json' \
+  -H "Authorization: Bearer demo:$TOKEN_A" -H 'content-type: application/json' \
   -d "{
     \"id\": \"blog-db\",
     \"command\": \"docker\",
@@ -77,7 +78,7 @@ note "declared the entry, with dump/load hooks so the database backs itself up"
 # and needs no copy.
 note "dump: mongodump in the container, copied out to the panel's dump directory"
 
-curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $TOKEN_A" \
+curl -fsS -o /dev/null -X POST -H "Authorization: Bearer demo:$TOKEN_A" \
   "http://127.0.0.1:$PANEL_A/api/servers/blog-db/start?workspace=default"
 note "started blog-db"
 
@@ -140,7 +141,7 @@ note "$HOST_B has no .hh at all"
 HHOSTED_HOME="$HOST_B" "${CLI[@]}" up --port "$PANEL_B" --no-autostart >/dev/null
 # A token to authorise the upload. The archive carries host A's `secrets.json`, so this one is
 # replaced by the restore and a fresh one is minted afterwards.
-SETUP_TOKEN="$(HHOSTED_HOME="$HOST_B" "${CLI[@]}" set-token --generate | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
+SETUP_TOKEN="$(HHOSTED_HOME="$HOST_B" "${CLI[@]}" account create demo --scope read,lifecycle,config,admin | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
 note "panel on :$PANEL_B"
 
 # The archive travels as a file, which is the whole point: one artifact to move.
@@ -152,7 +153,7 @@ cp "$HOST_A/.hh/.backups/$ARCHIVE" "$WORK/$ARCHIVE"
 say "Planning the restore (nothing is written yet)"
 HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore --from "$WORK/$ARCHIVE" --all || true
 curl -fsS -o /dev/null -X POST \
-  -H "Authorization: Bearer $SETUP_TOKEN" \
+  -H "Authorization: Bearer demo:$SETUP_TOKEN" \
   -F "file=@$WORK/$ARCHIVE" \
   "http://127.0.0.1:$PANEL_B/api/backups/restore?confirm=true"
 note "uploaded and restored onto the blank host"
@@ -171,7 +172,7 @@ HHOSTED_HOME="$HOST_B" "${CLI[@]}" status
 
 say "Starting the restored entry"
 
-START_ANSWER="$(curl -sS -X POST -H "Authorization: Bearer $TOKEN_B" \
+START_ANSWER="$(curl -sS -X POST -H "Authorization: Bearer demo:$TOKEN_B" \
   "http://127.0.0.1:$PANEL_B/api/servers/blog-db/start?workspace=default")"
 node -e 'const a = JSON.parse(process.argv[1]); if (a.ok !== true) { console.error("  start refused: " + (a.message ?? a.error ?? JSON.stringify(a))); process.exit(1) }' "$START_ANSWER"
 

@@ -10,50 +10,43 @@ desktop app, a script, an AI agent — can do it too. The stock UI is just one c
 
 ## Authenticating
 
+An **account** is one credential. Its `id` and `secret` sign in to the panel *and* authenticate the
+API — there is no separate token model.
+
 | Client | Credential |
 | --- | --- |
-| A browser UI served by the panel | the `hh_session` cookie from `POST /api/auth/login` |
-| Anything else | `Authorization: Bearer <token>` from `home-hosted set-token --generate` |
+| A browser UI served by the panel | the `hh_session` cookie from `POST /api/auth/login` with `{ id, secret }` |
+| Anything else | `Authorization: Bearer <id>:<secret>` |
 
 ```bash
-home-hosted set-token --generate          # printed once; only its hash is stored
-curl -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/state
+home-hosted account create monitor --scope read   # prints the secret once; only a hash is stored
+curl -H "Authorization: Bearer monitor:hh_…" http://127.0.0.1:3999/api/state
 ```
 
-Or, signed in from anywhere: **Global settings → Authentication → Generate token**, which is
-`POST /api/auth/token` (a session is required — a token cannot mint its successor) and returns the
-token once; `DELETE /api/auth/token` revokes it. A `401` with `code: "AUTH_REQUIRED"` means "show
-your login screen". The token never expires.
+The id travels **in** the credential, like a username beside a password: the panel cannot be asked
+"which account is this secret for" without comparing every stored hash, which is slower and a timing
+signal. A value with no `:` is refused rather than guessed.
 
-While no password is in force (authentication off, or on with none set yet), `/api` answers only
-this machine — a loopback request with no forwarding header — or the token. Anything else, including
+Or, signed in from anywhere: **Global settings → Accounts → Create account**, which is
+`POST /api/auth/accounts`. Every account route needs a **session** whose account holds `admin` — a
+credential may not create, edit or revoke one, because it could escalate past its own scopes. A `401`
+with `code: "AUTH_REQUIRED"` means "show your login screen". A session's lifetime is an idle
+timeout; the secret does not expire until it is rotated.
+
+While no account exists (authentication off, or on with none set yet), `/api` answers only this
+machine — a loopback request with no forwarding header — or a credential. Anything else, including
 a request relayed by a proxy on the same host, is `401 AUTH_DISABLED_REMOTE` (auth off) or
-`401 AUTH_UNARMED` (auth on, no password): set a password first. `POST /api/auth/logout` needs no
+`401 AUTH_UNARMED` (auth on, no account): create one first. `POST /api/auth/logout` needs no
 credential, so a browser whose session already expired can still clear its cookie.
 
 > [!WARNING]
-> **A token is full admin.** It can create and start a server entry, and an entry runs any command
-> as the user running the panel. Treat it like that user's password. A few operations are still
-> refused to a token (`403 SESSION_REQUIRED`) — clearing the password, switching authentication off,
-> minting or revoking an API token, setting the *first* password (only this machine may), installing
-> a custom UI, and restoring an archive that carries the panel's own credentials — so a script
-> cannot do those *by accident*, but they are not a security boundary against someone holding the
-> token.
-
-### Hosts and origins
-
-- **`Host` must name this panel.** An IP address, `localhost`, a single-label name (`homeserver`)
-  or a local suffix (`.local`, `.lan`, `.home.arpa`, `.internal`, …) is always accepted. A public
-  name is accepted only when a reverse-proxy route serves the panel on it, or it is listed in
-  `control.allowedHosts` (`"*.example.com"` matches subdomains). Anything else is `421
-  HOST_NOT_ALLOWED`. This is what stops a malicious web page from reaching the panel through DNS
-  rebinding.
-- **A cookie-authenticated write must be same-origin.** A non-GET request carrying a different
-  `Origin` is `403 CROSS_ORIGIN`. A request authenticated with a **bearer token** is exempt — a
-  browser never attaches one by itself, so it cannot be a forged request. That is what lets a
-  desktop app, whose requests carry their own `Origin`, use the API.
-- **No CORS headers are sent.** A web page on another origin cannot read the API; a desktop shell
-  (Tauri, Electron) should call it from its native/main process with a token.
+> **`admin` is everything the panel's user can do.** An entry runs any command as that user, so an
+> admin credential is that user's account on this machine. Give a script only the scopes it needs
+> (`read` for a monitor, `read,lifecycle` for a deploy hook), limit it to its workspaces, and revoke
+> it when it may have leaked. Some operations are refused to a **bearer** credential entirely
+> (`403 SESSION_REQUIRED`) — creating or revoking an account, switching authentication off, installing
+> a custom UI, and restoring an archive that carries the panel's own credentials — so a stolen one
+> cannot make itself permanent. That is not a boundary against someone holding it.
 
 ## Workspaces
 
@@ -243,8 +236,8 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `GET`/`POST /api/backups`, `DELETE /api/backups/:name`, `POST /api/backups/restore`, `GET /api/backups/:name/download` | archives; `GET` is the selection model, fetch it when a dialog opens. `POST /api/backups` creates at once; a restore only plans unless `?confirm=true`. A missing archive is `404 BACKUP_NOT_FOUND` on every one of these | |
 | `POST`/`DELETE /api/settings/ui`, `POST`/`DELETE /api/settings/tls` | install a UI zip / a PEM pair | |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `POST`/`DELETE /api/auth/password` | the session and the password | |
-| `POST`/`DELETE /api/auth/token` | generate (session only, shown once) or revoke the API token — **deprecated**, acts on the token named `default`; prefer `/api/auth/tokens` |
-| `GET`/`POST /api/auth/tokens`, `DELETE /api/auth/tokens/:id` | named, scoped tokens. Session-only, and the value is shown once. Scopes are `read`, `lifecycle`, `config`, `admin` (cumulative); `workspaces` limits one. A route's requirement is published as `x-required-scope` | |
+| `GET`/`POST /api/auth/accounts`, `PATCH`/`DELETE /api/auth/accounts/:id` | the panel's accounts. Session-only, and a new secret is shown once. Scopes are `read`, `lifecycle`, `config`, `admin` (cumulative); `workspaces` limits one. `DELETE` refuses the account making the request (`CANNOT_REVOKE_SELF`) and the last one that can sign in (`LAST_ACCOUNT`). A route's requirement is published as `x-required-scope` |
+| `POST /api/auth/accounts/me/secret` | change **your own** secret, proving the current one (`CURRENT_PASSWORD_REQUIRED` / `CURRENT_PASSWORD_WRONG`). Keeps the session that made the change |
 | `GET`/`POST`/`DELETE /api/host/temperature` | the WSL2 temperature bridge: whether a helper is installed, install one, remove it (`supported: false` off WSL — hide the control) | |
 | `GET /api/metrics` | Prometheus text | |
 | `GET /healthz` | **no credential**: `200`/`503` and uptime; per-server counts with a session, the API token, or the local `run.json` token from this machine; to a caller on this machine, `home` — a fingerprint of the state directory, so the CLI can tell this home's panel from another one sharing the port | |
