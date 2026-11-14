@@ -91,7 +91,7 @@ const SUMMARIES: Record<string, string> = {
   'import': 'bring a pm2 ecosystem or a compose stack in as server entries',
   'token': 'named, scoped API tokens — create, list or revoke',
   'deploy': 'run an entry\'s deploy steps and report the outcome',
-  'run': 'run a job now and report its exit code',
+  'job': 'a workspace\'s jobs: `ls` what is scheduled, `run` one now',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -342,10 +342,11 @@ const DEPLOY_SECTION: OptionSection = {
   ],
 }
 
-const RUN_SECTION: OptionSection = {
-  heading: 'Options for run',
+const JOB_SECTION: OptionSection = {
+  heading: 'Options for job',
   lines: [
-    ['<id>', 'the `kind: "job"` entry to run now (a service is started with `start`)'],
+    ['ls', 'what is scheduled, with each job\'s expression and state'],
+    ['run <id>', 'run it now and wait for its exit code (a failure exits 1)'],
     ['-w, --workspace <id>', 'the workspace that owns it (default: the panel\'s default workspace)'],
     ['--json', 'print one document on stdout'],
   ],
@@ -442,7 +443,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'import': IMPORT_SECTION,
   'token': TOKEN_SECTION,
   'deploy': DEPLOY_SECTION,
-  'run': RUN_SECTION,
+  'job': JOB_SECTION,
 }
 
 /**
@@ -521,7 +522,7 @@ const COMMANDS = {
   'import': () => import('#src/cli/import').then(module => module.importCommand),
   'token': () => import('#src/cli/token').then(module => module.tokenCommand),
   'deploy': () => import('#src/cli/run-deploy').then(module => module.deployCommand),
-  'run': () => import('#src/cli/run-job').then(module => module.runCommand),
+  'job': () => import('#src/cli/job').then(module => module.jobCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

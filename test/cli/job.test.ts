@@ -23,9 +23,9 @@ describe('run, a job now', () => {
     const created = await panel(200, JSON.stringify(SUCCESS))
     writeRuntime(created.url)
 
-    const result = await runCli(['run', 'nightly'])
+    const result = await runCli(['job', 'run', 'nightly'])
     expect(result.status, result.stderr).toBe(0)
-    expect(created.seen.path).toBe('/_hh/servers/nightly/run')
+    expect(created.seen.path).toBe('/_hh/jobs/nightly/run')
     expect(result.stdout).toContain('ran nightly')
     // The outcome line carries the exit code, which is the whole answer for a job.
     expect(result.stdout).toContain('exit code 0')
@@ -35,16 +35,16 @@ describe('run, a job now', () => {
     const created = await panel(200, JSON.stringify(SUCCESS))
     writeRuntime(created.url)
 
-    const result = await runCli(['run', 'nightly', '--workspace', 'staging'])
+    const result = await runCli(['job', 'run', 'nightly', '--workspace', 'staging'])
     expect(result.status, result.stderr).toBe(0)
-    expect(created.seen.path).toBe('/_hh/servers/nightly/run?workspace=staging')
+    expect(created.seen.path).toBe('/_hh/jobs/nightly/run?workspace=staging')
   })
 
   it('exits 1 on a failed run, and keeps the panel\'s sentence', async () => {
     const created = await panel(409, JSON.stringify({ code: 'JOB_FAILED', message: 'the run failed (exit code 3)', exitCode: 3 }))
     writeRuntime(created.url)
 
-    const result = await runCli(['run', 'nightly'])
+    const result = await runCli(['job', 'run', 'nightly'])
     expect(result.status).toBe(1)
     // One refusal, on stderr, and nothing on stdout — the CLI's own rule.
     expect(result.stderr).toContain('exit code 3')
@@ -55,7 +55,7 @@ describe('run, a job now', () => {
     const created = await panel(409, JSON.stringify({ code: 'NOT_A_JOB', message: 'server "web" is a service — `start` supervises it' }))
     writeRuntime(created.url)
 
-    const result = await runCli(['run', 'web'])
+    const result = await runCli(['job', 'run', 'web'])
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('start')
   })
@@ -64,14 +64,14 @@ describe('run, a job now', () => {
     const created = await panel(200, JSON.stringify(SUCCESS))
     writeRuntime(created.url)
 
-    const result = await runCli(['run', 'nightly', '--json'])
+    const result = await runCli(['job', 'run', 'nightly', '--json'])
     expect(result.status, result.stderr).toBe(0)
     const body = JSON.parse(result.stdout.trim()) as Record<string, unknown>
-    expect(body).toMatchObject({ server: 'nightly', ok: true, exitCode: 0, cancelled: false })
+    expect(body).toMatchObject({ job: 'nightly', ok: true, exitCode: 0, cancelled: false })
   })
 
   it('needs an id, and says where to find one', async () => {
-    const result = await runCli(['run'])
+    const result = await runCli(['job', 'run'])
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('needs a job id')
     expect(result.stderr).toContain('ls')
@@ -80,7 +80,7 @@ describe('run, a job now', () => {
   it('refuses without a panel rather than running the job unsupervised', async () => {
     // No run.json: nothing is listening, so there is no supervisor, log file or history to record a
     // run against — and a second implementation would be one a person believed was the panel's.
-    const result = await runCli(['run', 'nightly'])
+    const result = await runCli(['job', 'run', 'nightly'])
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('is not running')
     expect(result.stderr).toContain('up')

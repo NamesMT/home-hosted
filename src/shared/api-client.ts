@@ -759,7 +759,55 @@ export function deployServer(id: string, workspace?: string | null): Promise<{ o
  * `nextRunAt`/`lastRunAt` on the view refresh from the scheduler, so the caller re-reads state after.
  */
 export function runJob(id: string, workspace?: string | null): Promise<JobRunResultBody> {
-  return request<JobRunResultBody>(scoped(`/api/servers/${encodeURIComponent(id)}/run`, workspace), { method: 'POST' })
+  return request<JobRunResultBody>(scoped(`/api/jobs/${encodeURIComponent(id)}/run`, workspace), { method: 'POST' })
+}
+
+/** A row in the Jobs page: the record, plus what it is doing. */
+export interface JobRow {
+  id: string
+  label?: string
+  enabled: boolean
+  command: string
+  args: string[]
+  schedule: string
+  nextRunAt?: number | null
+  lastRunAt?: number
+  lastExitCode?: number | null
+  running: boolean
+}
+
+export function listJobs(workspace?: string | null): Promise<{ jobs: JobRow[] }> {
+  return request<{ jobs: JobRow[] }>(scoped('/api/jobs', workspace))
+}
+
+export function createJob(input: {
+  id: string
+  label?: string | null
+  command: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, string>
+  schedule: string
+  timeoutMs?: number
+}, workspace?: string | null): Promise<{ job: JobRow }> {
+  return request<{ job: JobRow }>(scoped('/api/jobs', workspace), { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateJob(id: string, patch: {
+  label?: string | null
+  enabled?: boolean
+  command?: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, string>
+  schedule?: string
+  timeoutMs?: number
+}, workspace?: string | null): Promise<{ job: JobRow }> {
+  return request<{ job: JobRow }>(scoped(`/api/jobs/${encodeURIComponent(id)}`, workspace), { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+export function deleteJob(id: string, workspace?: string | null): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(scoped(`/api/jobs/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
 }
 
 export async function serverAction(id: string, action: 'start' | 'stop' | 'restart', workspace?: string | null): Promise<ActionResult> {
