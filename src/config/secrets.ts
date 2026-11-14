@@ -78,6 +78,65 @@ export interface NamedApiTokenRecord extends ApiTokenRecord {
 }
 
 /**
+ * One **account**: a credential that signs in to the panel *and* authenticates the API.
+ *
+ * The password and the API token were two credentials with one authority each, so every panel needed
+ * both, every script needed one of them copied somewhere, and there was exactly one human. An account
+ * is the union: an `id` a person types (like a username) plus a `secret`, which opens a session cookie
+ * for the browser and works as `Authorization: Bearer <id>:<secret>` for a script.
+ *
+ * **Two hash algorithms, on purpose.** A secret a person chooses is stretched with scrypt, because it
+ * may be guessable and an attacker with the file would otherwise brute-force it offline; a secret the
+ * panel *generates* is 256 bits of randomness, so scrypt would only add cost to every request for a
+ * search space that cannot be walked. The record says which it is, and verification reads that field —
+ * so an account created by `account create` (generated) and one whose secret a person set are both
+ * handled without guessing.
+ *
+ * `id` is the salt-adjacent half: it is not secret, it is what makes a stolen file's hashes worthless
+ * to replay without the matching id, and it is what a login attempt is rate-limited on.
+ */
+export interface AccountRecord {
+  /** Stable, typable, unique. Lowercase letters, digits and dashes. */
+  id: string
+  /** Shown to a human; defaults to the id. */
+  label: string
+  algo: 'scrypt' | 'sha256'
+  /** Present for `scrypt`. */
+  salt?: string
+  hash: string
+  keylen?: number
+  cost?: ScryptCost
+  scopes: ApiTokenScope[]
+  /** Absent means every workspace. */
+  workspaces?: string[]
+  /** A disabled account cannot sign in and its bearer credential is refused, but it is not deleted. */
+  enabled: boolean
+  /** Set while this account holds the panel's boot-generated first-run secret. */
+  isDefault?: boolean
+  /** The generated first-run secret, kept only while it is still the one in use. */
+  initial?: string
+  /** Below the exposure bar, so `checkExposure` can refuse a non-loopback bind. */
+  short?: boolean
+  createdAt: number
+  updatedAt: number
+  lastUsedAt?: number
+}
+
+/** An account as a listing shows it: metadata only, never the hash. */
+export interface AccountView {
+  id: string
+  label: string
+  scopes: ApiTokenScope[]
+  workspaces?: string[]
+  enabled: boolean
+  isDefault: boolean
+  short: boolean
+  createdAt: number
+  updatedAt: number
+  lastUsedAt?: number
+}
+
+/**
  * A token as a listing shows it: metadata only, never the hash.
  *
  * `createdAt` is the record's `updatedAt` — the moment it was minted, since nothing updates a token
@@ -132,12 +191,20 @@ interface DdnsKdfMeta {
 export type SecretsScope = 'all' | 'global' | 'workspace'
 
 interface SecretsFile {
+  /**
+   * The accounts. This is the credential model now: one record authenticates a browser and a script.
+   *
+   * The three fields below it are what earlier releases wrote, and they are migrated **on read** — a
+   * file from 0.13 or 0.14 must not lock its owner out.
+   */
+  accounts: AccountRecord[]
+  /** Pre-0.15 password, migrated to the `default` account on read. */
   password: PasswordRecord | null
+  /** Pre-0.14 single token, migrated to the `default` account on read. */
   apiToken: ApiTokenRecord | null
   /**
-   * The named tokens. `apiToken` is the pre-0.14 single token, kept only so a file written by an older
-   * release still authenticates: it is migrated into this list on the first write and never written
-   * again.
+   * The named tokens of 0.14. Migrated into `accounts` on read — a token becomes an account with the
+   * same id and scopes, so a script keeps working with the same value.
    */
   apiTokens: NamedApiTokenRecord[]
   /**
@@ -164,7 +231,7 @@ interface SecretsFile {
 }
 
 /** Owned by this release, plus `version`: retired, and dropped on the next write rather than carried. */
-const KNOWN_SECRET_KEYS = new Set(['password', 'apiToken', 'apiTokens', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'version'])
+const KNOWN_SECRET_KEYS = new Set(['accounts', 'password', 'apiToken', 'apiTokens', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'version'])
 
 function unknownTopLevel(parsed: unknown): Record<string, unknown> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
@@ -349,6 +416,186 @@ function readStoredDdns(value: unknown): Record<string, StoredDdnsRecord> {
  * silently remove access an upgrade never announced. The migration happens on read, and the next
  * write persists the list and drops the legacy field — which is why a revoke cannot resurrect it.
  */
+/** An account id: typable, and safe in a URL path and a `Bearer <id>:<secret>` header. */
+const ACCOUNT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/
+
+/** Why this id cannot be an account id, or `null` when it can. */
+export function accountIdProblem(id: string): string | null {
+  if (id.length === 0)
+    return 'an account needs an id'
+  if (!ACCOUNT_ID_PATTERN.test(id))
+    return `an account id is lowercase letters, digits, - and _, starting with a letter or digit, at most 40 characters — "${id}" is not`
+  return null
+}
+
+/** Visible head, so a person can tell a generated secret from one they chose. */
+export const ACCOUNT_SECRET_PREFIX = 'hh_'
+const ACCOUNT_SECRET_BYTES = 32
+
+/** 32 bytes of randomness: the whole point of a generated secret is that nothing needs to stretch it. */
+export function generateAccountSecret(): string {
+  return `${ACCOUNT_SECRET_PREFIX}${crypto.randomBytes(ACCOUNT_SECRET_BYTES).toString('base64url')}`
+}
+
+/**
+ * The hash fields for a secret: **scrypt when a person chose it, sha256 when the panel generated it.**
+ *
+ * The distinction is real, not stylistic. A typed secret may be guessable, so an attacker holding the
+ * file would walk a small space offline — scrypt makes each guess cost. A generated secret is 256 bits
+ * of randomness, where the space is far too large to walk and the only thing scrypt would add is cost
+ * to every authenticated request. `algo` records which, and verification reads it.
+ */
+function credentialFields(secret: string, generated: boolean): Pick<AccountRecord, 'algo' | 'hash' | 'salt' | 'keylen' | 'cost' | 'short'> {
+  if (generated) {
+    return {
+      algo: 'sha256',
+      hash: hashApiToken(secret),
+      ...(passwordLength(secret) < EXPOSED_PASSWORD_MIN_LENGTH ? { short: true } : {}),
+    }
+  }
+  const record = hashPassword(secret)
+  return {
+    algo: 'scrypt',
+    hash: record.hash,
+    salt: record.salt,
+    keylen: record.keylen,
+    cost: record.cost,
+    ...(record.short === true ? { short: true } : {}),
+  }
+}
+
+/**
+ * The accounts, read tolerantly — and **the migration** from both earlier credential models.
+ *
+ * A file written by 0.13 has `password`; one by 0.14 has `password` plus `apiTokens`. Both become
+ * one account with id `default`, carrying **the union of the authorities they had**, so an upgrade
+ * cannot remove access it never announced:
+ *
+ * - the password becomes the account's scrypt record, so the same typed secret still signs in;
+ * - a token with the id `default` *is* that account (a token is a secret the panel generated, so it
+ *   becomes a `sha256` account — verification reads `algo`, so either works);
+ * - any other token becomes its own account with the same id and scopes, and its value keeps working
+ *   as `Bearer <id>:<secret>`.
+ *
+ * Ids must be unique, so a collision on the id keeps the stored account and drops the legacy one: the
+ * file on disk is the more recent statement of intent.
+ */
+function readAccounts(value: unknown): AccountRecord[] {
+  if (!Array.isArray(value))
+    return []
+  const accounts: AccountRecord[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (!isRecord(entry) || typeof entry.id !== 'string' || entry.id.length === 0 || typeof entry.hash !== 'string')
+      continue
+    if (seen.has(entry.id))
+      continue
+    seen.add(entry.id)
+    const scopes = Array.isArray(entry.scopes)
+      ? entry.scopes.filter((scope): scope is ApiTokenScope => typeof scope === 'string' && (API_TOKEN_SCOPES as readonly string[]).includes(scope))
+      : []
+    const workspaces = Array.isArray(entry.workspaces)
+      ? entry.workspaces.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : undefined
+    const algo = entry.algo === 'scrypt' ? 'scrypt' : 'sha256'
+    const createdAt = typeof entry.createdAt === 'number' ? entry.createdAt : (typeof entry.updatedAt === 'number' ? entry.updatedAt : 0)
+    accounts.push({
+      id: entry.id,
+      label: typeof entry.label === 'string' && entry.label.length > 0 ? entry.label : entry.id,
+      algo,
+      hash: entry.hash,
+      ...(algo === 'scrypt' && typeof entry.salt === 'string' ? { salt: entry.salt } : {}),
+      ...(algo === 'scrypt' && typeof entry.keylen === 'number' ? { keylen: entry.keylen } : {}),
+      ...(algo === 'scrypt' && isRecord(entry.cost) ? { cost: { N: Number(entry.cost.N), r: Number(entry.cost.r), p: Number(entry.cost.p) } } : {}),
+      // A record with no scopes is a hand-edit that would authenticate for nothing; `read` is the
+      // least it can mean, and an empty list is never what someone intended.
+      scopes: scopes.length === 0 ? ['read'] : scopes,
+      // Absent means enabled: a pre-0.15 account could not be disabled, so it was.
+      enabled: entry.enabled !== false,
+      ...(workspaces === undefined || workspaces.length === 0 ? {} : { workspaces }),
+      ...(entry.isDefault === true ? { isDefault: true } : {}),
+      ...(typeof entry.initial === 'string' ? { initial: entry.initial } : {}),
+      ...(entry.short === true ? { short: true } : {}),
+      createdAt,
+      updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : createdAt,
+      ...(typeof entry.lastUsedAt === 'number' ? { lastUsedAt: entry.lastUsedAt } : {}),
+    })
+  }
+  return accounts
+}
+
+/**
+ * The accounts a pre-0.15 file implies.
+ *
+ * Ids are unique, so `default` is the one that carries the password; a token already named `default`
+ * is* that account rather than a second one. Everything else becomes its own account with the same id
+ * and scopes, so a script's value keeps working — `Bearer <id>:<secret>` — without anyone re-issuing it.
+ */
+function migrateLegacyAccounts(contents: SecretsFile): AccountRecord[] {
+  const accounts: AccountRecord[] = []
+  const taken = new Set<string>()
+  const createdAt = contents.password?.updatedAt ?? Date.now()
+
+  if (contents.password !== null) {
+    const password = contents.password
+    accounts.push({
+      id: 'default',
+      label: 'default',
+      algo: 'scrypt',
+      hash: password.hash,
+      salt: password.salt,
+      keylen: password.keylen,
+      cost: password.cost,
+      // The password was full admin, so the account it becomes is too.
+      scopes: [...API_TOKEN_SCOPES],
+      enabled: true,
+      ...(password.isDefault === true ? { isDefault: true } : {}),
+      ...(typeof password.initial === 'string' ? { initial: password.initial } : {}),
+      ...(password.short === true ? { short: true } : {}),
+      createdAt,
+      updatedAt: password.updatedAt,
+    })
+    taken.add('default')
+  }
+
+  for (const token of contents.apiTokens) {
+    if (taken.has(token.id)) {
+      // A token whose id collides with the password account: keep the token as the secret, because a
+      // token is what a script is holding, and the account it becomes keeps `admin`.
+      continue
+    }
+    taken.add(token.id)
+    accounts.push({
+      id: token.id,
+      label: token.name,
+      algo: 'sha256',
+      hash: token.hash,
+      scopes: token.scopes.length === 0 ? [...API_TOKEN_SCOPES] : token.scopes,
+      enabled: true,
+      ...(token.workspaces === undefined ? {} : { workspaces: token.workspaces }),
+      createdAt: token.updatedAt,
+      updatedAt: token.updatedAt,
+      ...(token.lastUsedAt === undefined ? {} : { lastUsedAt: token.lastUsedAt }),
+    })
+  }
+
+  // The pre-0.14 single token, when there was no named list.
+  if (contents.apiToken !== null && !taken.has('default')) {
+    accounts.push({
+      id: 'default',
+      label: 'default',
+      algo: 'sha256',
+      hash: contents.apiToken.hash,
+      scopes: [...API_TOKEN_SCOPES],
+      enabled: true,
+      createdAt: contents.apiToken.updatedAt,
+      updatedAt: contents.apiToken.updatedAt,
+    })
+  }
+
+  return accounts
+}
+
 function readNamedTokens(value: unknown): NamedApiTokenRecord[] {
   if (!Array.isArray(value))
     return []
@@ -514,25 +761,48 @@ export class SecretsStore {
     }
   }
 
+  /**
+   * The `default` account's password-shaped record, when that account still has one.
+   *
+   * Kept because the exposure checks and the first-run display speak of "the password": there is one
+   * account whose secret a person types at the login screen, and that is this. A panel whose accounts
+   * all hold generated secrets has no such record, and `passwordSet` is still true — see below.
+   */
   get password(): PasswordRecord | null {
-    return this.load().password
+    const record = this.account('default')
+    if (record === null || record.algo !== 'scrypt')
+      return null
+    if (record.salt === undefined || record.cost === undefined || record.keylen === undefined)
+      return null
+    return {
+      algo: 'scrypt',
+      salt: record.salt,
+      hash: record.hash,
+      keylen: record.keylen,
+      cost: record.cost,
+      updatedAt: record.updatedAt,
+      ...(record.isDefault === true ? { isDefault: true } : {}),
+      ...(typeof record.initial === 'string' ? { initial: record.initial } : {}),
+      ...(record.short === true ? { short: true } : {}),
+    }
   }
 
   get passwordUpdatedAt(): number | null {
-    return this.password?.updatedAt ?? null
+    return this.account('default')?.updatedAt ?? null
   }
 
+  /** Whether **any** account can sign in — what arms authentication now. */
   get passwordSet(): boolean {
-    return this.password !== null
+    return this.anyAccountEnabled
   }
 
   get usingDefaultPassword(): boolean {
-    return this.password?.isDefault === true
+    return this.accounts.some(entry => entry.isDefault === true)
   }
 
-  /** The stored password is too short to expose the panel behind; see `PasswordRecord.short`. */
+  /** An account's secret is too short to expose the panel behind; see `AccountRecord.short`. */
   get passwordTooShort(): boolean {
-    return this.password?.short === true
+    return this.accounts.some(entry => entry.short === true)
   }
 
   /**
@@ -573,36 +843,6 @@ export class SecretsStore {
   /** Every destination id a token is stored for — including one the config no longer declares. */
   get telegramTokenIds(): string[] {
     return Object.keys(this.load().telegram).sort()
-  }
-
-  /**
-   * The first-run password while it is still the one in use, for a person on this machine.
-   * A home from before 0.12 still on the shared default reports that one.
-   */
-  get initialPassword(): string | null {
-    const record = this.password
-    if (record?.isDefault !== true)
-      return null
-    if (typeof record.initial === 'string' && record.initial.length > 0)
-      return record.initial
-    return verifyPassword(LEGACY_DEFAULT_PASSWORD, record) ? LEGACY_DEFAULT_PASSWORD : null
-  }
-
-  setPassword(password: string, options: { isDefault?: boolean, initial?: boolean } = {}): PasswordRecord {
-    const record = hashPassword(password, options)
-    this.save({ ...this.load(), password: record })
-    return record
-  }
-
-  /** Creates the first-run password only when none exists yet. */
-  ensureDefaultPassword(password: string): PasswordRecord | null {
-    if (this.passwordSet)
-      return null
-    return this.setPassword(password, { isDefault: true, initial: true })
-  }
-
-  clearPassword(): void {
-    this.save({ ...this.load(), password: null })
   }
 
   /**
@@ -726,6 +966,205 @@ export class SecretsStore {
 
   clearApiToken(): void {
     this.save({ ...this.load(), apiToken: null, apiTokens: this.apiTokens.filter(entry => entry.id !== 'default') })
+  }
+
+  /**
+   * Every account, **with the legacy credential models migrated in**.
+   *
+   * The migration runs on read and is persisted by the next write, exactly like the 0.14 token
+   * migration before it: a file written by 0.13 or 0.14 must still authenticate, and the first change
+   * a person makes writes the new shape and drops the old fields.
+   */
+  get accounts(): AccountRecord[] {
+    const contents = this.load()
+    if (contents.accounts.length > 0)
+      return contents.accounts
+    return migrateLegacyAccounts(contents)
+  }
+
+  /** Metadata for a settings page: ids, labels, scopes, whether enabled, when last used. */
+  listAccounts(): AccountView[] {
+    return this.accounts.map(({ hash: _hash, algo: _algo, salt: _salt, keylen: _keylen, cost: _cost, initial: _initial, ...rest }) => ({
+      ...rest,
+      isDefault: rest.isDefault === true,
+      short: rest.short === true,
+    }))
+  }
+
+  account(id: string): AccountRecord | null {
+    return this.accounts.find(entry => entry.id === id) ?? null
+  }
+
+  /**
+   * Creates an account, returning its **secret once**.
+   *
+   * A generated secret is the default because that is what a script wants and what needs no password
+   * policy; a person setting their own passes `secret`, and it is stretched with scrypt instead.
+   */
+  createAccount(
+    input: { id: string, label?: string, scopes: ApiTokenScope[], workspaces?: string[], secret?: string, enabled?: boolean, isDefault?: boolean, keepInitial?: boolean },
+    now = Date.now(),
+  ): { account: AccountView, secret: string } {
+    const id = input.id.trim()
+    const problem = accountIdProblem(id)
+    if (problem !== null)
+      throw new Error(problem)
+    if (input.scopes.length === 0)
+      throw new Error('an account needs at least one scope')
+    const existing = this.accounts
+    if (existing.some(entry => entry.id === id))
+      throw new Error(`an account with the id "${id}" already exists`)
+
+    const secret = input.secret ?? generateAccountSecret()
+    const record: AccountRecord = {
+      id,
+      label: input.label?.trim() || id,
+      scopes: [...new Set(input.scopes)],
+      enabled: input.enabled !== false,
+      createdAt: now,
+      updatedAt: now,
+      ...(input.workspaces === undefined || input.workspaces.length === 0 ? {} : { workspaces: [...new Set(input.workspaces)] }),
+      ...credentialFields(secret, input.secret === undefined),
+      // The boot-generated first-run account: the login page says so, exposure stays blocked, and the
+      // secret is kept in this 0600 file only while it is still the one in use so `up`/`status` can
+      // show it on the machine.
+      ...(input.isDefault === true ? { isDefault: true } : {}),
+      ...(input.isDefault === true && input.keepInitial === true ? { initial: secret } : {}),
+    }
+    this.writeAccounts([...existing, record])
+    return { account: this.listAccounts().find(entry => entry.id === id)!, secret }
+  }
+
+  /** Replaces one account's secret. A secret the panel generates stays `sha256`; a typed one is scrypt. */
+  setAccountSecret(id: string, secret: string, now = Date.now()): AccountRecord | null {
+    const existing = this.accounts
+    const index = existing.findIndex(entry => entry.id === id)
+    if (index === -1)
+      return null
+    const record: AccountRecord = {
+      ...existing[index]!,
+      ...credentialFields(secret, false),
+      updatedAt: now,
+    }
+    // A hand-set secret clears the first-run markers: it is no longer the boot default.
+    delete record.isDefault
+    delete record.initial
+    const next = [...existing]
+    next[index] = record
+    this.writeAccounts(next)
+    return record
+  }
+
+  /**
+   * Whether the secret matches this account, in constant time for the algorithm it was stored with.
+   *
+   * A **disabled** account never matches, and neither does an unknown id — the caller must not be able
+   * to tell "no such id" from "wrong secret" faster than by the answer it is given, so both spend the
+   * same work where the algorithm is known.
+   */
+  verifyAccountSecret(id: string, secret: string): boolean {
+    const record = this.account(id)
+    if (record === null || record.enabled !== true || secret.length === 0)
+      return false
+    if (record.algo === 'scrypt') {
+      if (record.salt === undefined || record.cost === undefined || record.keylen === undefined)
+        return false
+      return verifyPassword(secret, {
+        algo: 'scrypt',
+        salt: record.salt,
+        hash: record.hash,
+        keylen: record.keylen,
+        cost: record.cost,
+        updatedAt: record.updatedAt,
+      })
+    }
+    return verifyApiToken(secret, { algo: 'sha256', hash: record.hash, hint: '', updatedAt: record.updatedAt })
+  }
+
+  /** `true` when it removed one, `false` when no such id — a 404 is the caller's to answer. */
+  revokeAccount(id: string): boolean {
+    const existing = this.accounts
+    const next = existing.filter(entry => entry.id !== id)
+    if (next.length === existing.length)
+      return false
+    this.writeAccounts(next)
+    return true
+  }
+
+  /** Applies the fields a settings page may change. Returns `null` for an unknown id. */
+  updateAccount(id: string, patch: { label?: string, scopes?: ApiTokenScope[], workspaces?: string[] | null, enabled?: boolean }, now = Date.now()): AccountRecord | null {
+    const existing = this.accounts
+    const index = existing.findIndex(entry => entry.id === id)
+    if (index === -1)
+      return null
+    const current = existing[index]!
+    const next: AccountRecord = { ...current, updatedAt: now }
+    if (patch.label !== undefined)
+      next.label = patch.label.trim() || current.id
+    if (patch.scopes !== undefined) {
+      if (patch.scopes.length === 0)
+        throw new Error('an account needs at least one scope')
+      next.scopes = [...new Set(patch.scopes)]
+    }
+    if (patch.workspaces !== undefined) {
+      if (patch.workspaces === null || patch.workspaces.length === 0)
+        delete next.workspaces
+      else
+        next.workspaces = [...new Set(patch.workspaces)]
+    }
+    if (patch.enabled !== undefined)
+      next.enabled = patch.enabled
+    const list = [...existing]
+    list[index] = next
+    this.writeAccounts(list)
+    return next
+  }
+
+  /** Records a successful use, so a settings page can show an account nobody uses any more. */
+  markAccountUsed(id: string, now = Date.now()): void {
+    const existing = this.accounts
+    const index = existing.findIndex(entry => entry.id === id)
+    if (index === -1)
+      return
+    const next = [...existing]
+    next[index] = { ...next[index]!, lastUsedAt: now }
+    this.writeAccounts(next, { touchUpdatedAt: false })
+  }
+
+  /** The first account holding the boot-generated first-run secret, while it is still in use. */
+  get initialAccount(): AccountRecord | null {
+    return this.accounts.find(entry => entry.isDefault === true && typeof entry.initial === 'string' && entry.initial.length > 0) ?? null
+  }
+
+  /** The boot secret while it is still the one in use, for `up`/`status` on this machine. */
+  get initialPassword(): string | null {
+    const record = this.accounts.find(entry => entry.isDefault === true)
+    if (record === undefined)
+      return null
+    if (typeof record.initial === 'string' && record.initial.length > 0)
+      return record.initial
+    // A home from before 0.12 is still on the shared default.
+    return this.verifyAccountSecret(record.id, LEGACY_DEFAULT_PASSWORD) ? LEGACY_DEFAULT_PASSWORD : null
+  }
+
+  /** Whether any account can sign in — what arms authentication. */
+  get accountCount(): number {
+    return this.accounts.length
+  }
+
+  get anyAccountEnabled(): boolean {
+    return this.accounts.some(entry => entry.enabled)
+  }
+
+  /**
+   * Writes the account list, clearing the legacy fields in the same write.
+   *
+   * One writer for every mutation, so no path can leave a stale `password` beside a new `accounts` and
+   * have the migration resurrect a credential somebody revoked.
+   */
+  private writeAccounts(accounts: AccountRecord[], options: { touchUpdatedAt?: boolean } = {}): void {
+    void options
+    this.save({ ...this.load(), accounts, password: null, apiToken: null, apiTokens: [] })
   }
 
   setTelegramToken(id: string, token: string | null): void {
@@ -920,7 +1359,7 @@ export class SecretsStore {
 
   private read(): SecretsFile {
     this.error = null
-    const empty: SecretsFile = { password: null, apiToken: null, apiTokens: [], telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
+    const empty: SecretsFile = { accounts: [], password: null, apiToken: null, apiTokens: [], telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
     if (!fs.existsSync(this.file))
       return this.inScope(empty)
     let text: string
@@ -936,6 +1375,7 @@ export class SecretsStore {
       const parsed = JSON.parse(text) as Partial<SecretsFile>
       return this.inScope({
         password: parsed?.password ?? null,
+        accounts: readAccounts((parsed as { accounts?: unknown })?.accounts),
         apiToken: parsed?.apiToken?.hash ? parsed.apiToken : null,
         apiTokens: readNamedTokens((parsed as { apiTokens?: unknown })?.apiTokens),
         telegram: readTelegramTokens(parsed?.telegram),
@@ -958,7 +1398,7 @@ export class SecretsStore {
       // writes it, so `set-password` cannot rewrite a workspace's secrets.
       return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
     if (this.scope === 'workspace')
-      return { ...contents, password: null, apiToken: null, apiTokens: [] }
+      return { ...contents, accounts: [], password: null, apiToken: null, apiTokens: [] }
     return contents
   }
 

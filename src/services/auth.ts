@@ -1,7 +1,7 @@
-import type { NamedApiTokenRecord, SecretsStore } from '#src/config/secrets'
+import type { AccountRecord, SecretsStore } from '#src/config/secrets'
 import type { AuthConfig, SessionView } from '#src/shared/contracts'
 import crypto from 'node:crypto'
-import { verifyPassword } from '#src/config/secrets'
+import { accountIdProblem, API_TOKEN_SCOPES } from '#src/config/secrets'
 import { parseCookies } from '#src/helpers/cookies'
 
 export const SESSION_COOKIE = 'hh_session'
@@ -28,6 +28,13 @@ export interface AuthLimits {
 
 export interface SessionRecord {
   token: string
+  /**
+   * The account this session was issued for.
+   *
+   * A session belongs to an account, not to "the panel": scopes come from it, and revoking the
+   * account must end the session it issued even while the cookie is still valid.
+   */
+  accountId: string
   /**
    * The `updatedAt` of the password this session was issued under.
    *
@@ -75,12 +82,13 @@ export interface AuthIdentity {
   /** The session record, when the cookie resolved to one. */
   session: SessionRecord | null
   /**
-   * The named token that answered, when a bearer token did — its scopes and workspace limit.
+   * The account that answered, whichever credential carried it — its scopes and workspace limit.
    *
    * On the identity rather than re-derived per route: one read of the credential, one answer, so the
-   * scope middleware, `requestActor` and `GET /api/meta` cannot disagree about who is asking.
+   * scope middleware, `requestActor` and `GET /api/meta` cannot disagree about who is asking. A
+   * cookie and a bearer credential resolve to the same shape, which is the point of an account.
    */
-  token?: NamedApiTokenRecord
+  account?: AccountRecord
 }
 
 export const ANONYMOUS: AuthIdentity = { authenticated: false, method: null, session: null }
@@ -196,19 +204,42 @@ export class AuthService {
     const session = this.validate(credentials.cookieToken, options)
     if (session !== null)
       return { authenticated: true, method: 'cookie', session }
-    const token = credentials.bearerToken === null ? null : this.secrets.findApiToken(credentials.bearerToken)
-    if (token !== null) {
-      // Recorded so a settings page can show a token nobody uses any more. Best-effort: a write here
-      // must never make a valid request fail.
+    const account = credentials.bearerToken === null ? null : this.accountFromBearer(credentials.bearerToken)
+    if (account !== null) {
+      // Recorded so a settings page can show an account nobody uses any more. Best-effort: a write
+      // here must never make a valid request fail.
       try {
-        this.secrets.markApiTokenUsed(token.id)
+        this.secrets.markAccountUsed(account.id)
       }
       catch {
         // A read-only secrets file (a mounted config, a full disk) is not a reason to refuse.
       }
-      return { authenticated: true, method: 'token', session: null, token }
+      return { authenticated: true, method: 'token', session: null, account }
     }
     return ANONYMOUS
+  }
+
+  /**
+   * The account a `Bearer <id>:<secret>` header names, or `null`.
+   *
+   * The **id travels in the credential**, exactly as a username travels with a password: the panel
+   * cannot be asked "which account is this secret for" without comparing it against every stored hash,
+   * which is both slower and a timing signal. Splitting on the first `:` keeps a secret containing one
+   * intact, and a missing `:` is refused rather than guessed — a legacy single-value token is not an
+   * account and must not silently become one.
+   */
+  accountFromBearer(value: string): AccountRecord | null {
+    const separator = value.indexOf(':')
+    if (separator <= 0 || separator === value.length - 1)
+      return null
+    const id = value.slice(0, separator)
+    const secret = value.slice(separator + 1)
+    if (accountIdProblem(id) !== null)
+      return null
+    if (!this.secrets.verifyAccountSecret(id, secret))
+      return null
+    const account = this.secrets.account(id)
+    return account !== null && account.enabled ? account : null
   }
 
   /** `credential` is which kind answered; the login route passes `session`, the route above derives it. */
@@ -318,14 +349,20 @@ export class AuthService {
     return this.getConfig().cookieSecure
   }
 
-  verifyCurrentPassword(password: string): boolean {
-    const record = this.secrets.password
-    if (record === null)
-      return false
-    return verifyPassword(password, record)
+  /** Whether this id + secret pair is the signed-in account's own, for the change-secret flow. */
+  verifyAccountSecret(id: string, secret: string): boolean {
+    return this.secrets.verifyAccountSecret(id, secret)
   }
 
-  login(password: string, ip: string | null): LoginOutcome {
+  /**
+   * Signs an account in with its id **and** secret.
+   *
+   * Two halves, deliberately: an id alone is not a guessable secret and a secret alone is not an
+   * account, so a stolen file of ids is worthless and a blind guess has to get both right. The
+   * attempt budget is keyed on the address as before, and an unknown id costs the same path as a
+   * wrong secret — the caller cannot learn which accounts exist from the timing or the answer.
+   */
+  login(id: string, secret: string, ip: string | null): LoginOutcome {
     const config = this.getConfig()
     const key = ip ?? 'unknown'
     const now = Date.now()
@@ -350,17 +387,22 @@ export class AuthService {
       return {
         ok: false,
         status: 429,
-        error: `too many failed sign-ins on this panel, retry in ${Math.ceil(retryAfterMs / 1000)}s (or run \`home-hosted set-password\` on the machine)`,
+        error: `too many failed sign-ins on this panel, retry in ${Math.ceil(retryAfterMs / 1000)}s (or run \`home-hosted account reset\` on the machine)`,
         retryAfterMs,
       }
     }
 
-    const record = this.secrets.password
-    if (record === null) {
-      return { ok: false, status: 409, error: 'no password is set yet' }
+    if (!this.secrets.anyAccountEnabled) {
+      return { ok: false, status: 409, error: 'no account can sign in yet' }
     }
 
-    if (!verifyPassword(password, record)) {
+    /**
+     * A wrong id and a wrong secret take the same path: the account lookup returns `null` and
+     * `verifyAccountSecret` refuses, and both land here. The answer never says which half was wrong,
+     * because that would confirm an id exists.
+     */
+    const account = this.secrets.account(id)
+    if (account === null || !this.secrets.verifyAccountSecret(id, secret)) {
       this.globalFailures.count += 1
       const failures = (attempt?.failures ?? 0) + 1
       if (failures >= config.maxLoginAttempts) {
@@ -371,7 +413,7 @@ export class AuthService {
       else {
         this.recordAttempt(key, { failures, blockedUntil: 0, blocks: attempt?.blocks ?? 0, lastAttemptAt: Date.now() })
       }
-      return { ok: false, status: 401, error: 'invalid password' }
+      return { ok: false, status: 401, error: 'invalid account id or secret' }
     }
 
     this.attempts.delete(key)
@@ -385,6 +427,7 @@ export class AuthService {
     const expiresAt = now + config.sessionTtlMs
     this.sessions.set(token, {
       token,
+      accountId: account.id,
       passwordRevision: this.secrets.passwordUpdatedAt,
       expiresAt,
       // The login response sets this same deadline, so the browser is already in step.
@@ -428,20 +471,36 @@ export class AuthService {
   }
 
   /**
-   * Changing the password must not leave old sessions valid. The session that
-   * made the change is kept — being signed out of the page you just used is not
-   * a security requirement, and it makes a successful change look like a failure.
+   * Changing an account's secret must not leave that account's older sessions valid.
+   *
+   * The session that made the change is kept — being signed out of the page you just used is not a
+   * security requirement, and it makes a successful change look like a failure — but every *other*
+   * session of **that account** ends, and other accounts' sessions are untouched: they are other
+   * people, and rotating your own secret is not a reason to sign them out.
    */
-  setPassword(password: string, options: { isDefault?: boolean, keepToken?: string | null } = {}): void {
-    this.secrets.setPassword(password, options)
+  setAccountSecret(id: string, secret: string, options: { keepToken?: string | null } = {}): void {
+    this.secrets.setAccountSecret(id, secret)
     const keep = options.keepToken ?? null
-    this.logoutOthers(keep)
-    // The kept session is re-stamped with the new revision, or the freshness check below would
-    // sign the very browser that made the change out of the page it just used.
+    for (const [token, session] of [...this.sessions]) {
+      if (session.accountId === id && token !== keep)
+        this.sessions.delete(token)
+    }
     const session = keep === null ? undefined : this.sessions.get(keep)
     if (session !== undefined)
       session.passwordRevision = this.secrets.passwordUpdatedAt
     this.notifyCredentialsChanged()
+  }
+
+  /** Revoking an account ends its sessions too: a valid cookie must not outlive the credential. */
+  revokeAccount(id: string): boolean {
+    if (!this.secrets.revokeAccount(id))
+      return false
+    for (const [token, session] of [...this.sessions]) {
+      if (session.accountId === id)
+        this.sessions.delete(token)
+    }
+    this.notifyCredentialsChanged()
+    return true
   }
 
   /** Drops every session except one, which is how a password change stays signed in. */
@@ -456,17 +515,18 @@ export class AuthService {
     }
   }
 
-  /** Creates the boot-time default only when nothing is set yet. */
-  ensureDefaultPassword(password: string): boolean {
-    const created = this.secrets.ensureDefaultPassword(password) !== null
-    if (created)
-      this.logoutAll()
-    return created
-  }
-
-  clearPassword(): void {
-    this.secrets.clearPassword()
+  /**
+   * Creates the boot-time `default` account only when nothing can sign in yet.
+   *
+   * The first-run secret is generated by the panel and printed once on the machine that started it,
+   * so a fresh home is never a locked door and never ships a guessable default.
+   */
+  ensureDefaultAccount(secret: string): boolean {
+    if (this.secrets.anyAccountEnabled)
+      return false
+    this.secrets.createAccount({ id: 'default', label: 'default', scopes: [...API_TOKEN_SCOPES], secret, enabled: true, isDefault: true, keepInitial: true })
     this.logoutAll()
+    return true
   }
 
   dispose(): void {
