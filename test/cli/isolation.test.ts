@@ -123,3 +123,30 @@ describe('a CLI command is only called in-process against an isolated home', () 
     expect(offenders, 'set process.env.HHOSTED_HOME to a temp dir before importing, then vi.resetModules()').toEqual([])
   })
 })
+
+/**
+ * `--home` must reach the process **before** any state module is imported.
+ *
+ * `#src/helpers/paths.ts` resolves `dataRoot` once, at import, so a static import of a state module in
+ * `src/cli.ts` evaluates it before `applyDirFlags()` runs — and every command that prints or writes a
+ * path then answers for `~/.home-hosted`, whatever `--home` said. Measured: `up --home /tmp/x` wrote
+ * its state to `~/.home-hosted` and printed that path back.
+ *
+ * This is a **source** check because the failure is invisible at runtime: the command looks like it
+ * worked, and the wrong directory is the one that answers.
+ */
+describe('src/cli.ts stays path-free', () => {
+  it('imports only path-free modules statically', () => {
+    const source = fs.readFileSync(path.join(root, 'src/cli.ts'), 'utf8')
+    const staticImports = [...source.matchAll(/^import\s[^\n]*from\s+'([^']+)'/gm)].map(match => match[1]!)
+    // A `#src/config/*` or `#src/helpers/paths` import pulls the path graph in; node builtins, citty
+    // and the path-free local modules are what the pre-pass is allowed to need.
+    const forbidden = staticImports.filter(specifier =>
+      specifier === '#src/helpers/paths'
+      || specifier.startsWith('#src/config/')
+      || specifier.startsWith('#src/services/')
+      || specifier.startsWith('#src/providers/')
+      || specifier.startsWith('#src/api/'))
+    expect(forbidden, 'a static state import makes --home apply too late').toEqual([])
+  })
+})

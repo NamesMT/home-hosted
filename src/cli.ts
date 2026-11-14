@@ -2,7 +2,6 @@ import type { SubCommandsDef } from 'citty'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
-import { API_TOKEN_SCOPES } from '#src/config/secrets'
 import { errorMessage } from '#src/shared/error-message'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading, treatClosedReaderAsDone } from './cli/io'
@@ -33,6 +32,16 @@ const CLI_ENTRY = fileURLToPath(import.meta.url)
  * composed from the same lines and can never drift apart. Every section lays
  * its left column out at the same width, so the two views read alike.
  */
+
+/**
+ * The four scopes, spelled here rather than imported.
+ *
+ * `src/config/secrets.ts` is a **state module**: importing it statically would evaluate
+ * `#src/helpers/paths.ts` — whose `dataRoot` is resolved once at import — before `applyDirFlags()`
+ * has run, so `--home` would be silently ignored by every command that prints a path. This module
+ * may import only path-free code.
+ */
+const SCOPES = ['read', 'lifecycle', 'config', 'admin'] as const
 
 const HEADER = 'home-hosted — a control panel for the processes on your home server'
 
@@ -203,7 +212,7 @@ const ACCOUNT_SECTION: OptionSection = {
   heading: 'Commands for account',
   lines: [
     ['create <id>', 'a new account; the secret is generated and shown once (HHOSTED_SECRET sets your own)'],
-    ['--scope <scopes>', `comma-separated, any of ${API_TOKEN_SCOPES.join(', ')} (default: all)`],
+    ['--scope <scopes>', `comma-separated, any of ${SCOPES.join(', ')} (default: all)`],
     ['-w, --workspace <ids>', 'limit it to those workspaces (default: every workspace)'],
     ['ls', 'the ids, labels, scopes and whether each is enabled — never a secret'],
     ['secret <id>', 'set that account\'s secret (prompts, or HHOSTED_SECRET for a script)'],
@@ -326,7 +335,7 @@ const IMPORT_SECTION: OptionSection = {
 const TOKEN_SECTION: OptionSection = {
   heading: 'Commands for token',
   lines: [
-    ['create --name <name> --scope <scopes>', `a new token; scopes are comma-separated (${API_TOKEN_SCOPES.join(', ')}) and cumulative`],
+    ['create --name <name> --scope <scopes>', `a new token; scopes are comma-separated (${SCOPES.join(', ')}) and cumulative`],
     ['create … -w, --workspace <ids>', 'limit it to those workspaces (default: every workspace)'],
     ['ls', 'the ids, names, scopes and when each was last used — never a value'],
     ['revoke <id>', 'stop a token working, immediately'],
