@@ -208,8 +208,8 @@ export function declaredTokenScopes(): Array<{ route: string, scope: ApiTokenSco
 export function createTokenScopeGuard() {
   return async (c: Context, next: Next) => {
     const identity = c.get('identity') as AuthIdentity | undefined
-    const token = identity?.token
-    if (token === undefined) {
+    const account = identity?.account
+    if (account === undefined) {
       await next()
       return
     }
@@ -229,21 +229,21 @@ export function createTokenScopeGuard() {
         code: 'TOKEN_SCOPE',
       })
     }
-    if (!tokenAllows(token.scopes, rule.scope)) {
+    if (!tokenAllows(account.scopes, rule.scope)) {
       throw new DetailedError(
-        `this API token has the ${token.scopes.join(', ')} scope${token.scopes.length === 1 ? '' : 's'} — ${method} ${path} needs \`${rule.scope}\``,
-        { statusCode: 403, code: 'TOKEN_SCOPE', detail: { needed: rule.scope, held: token.scopes } },
+        `this account has the ${account.scopes.join(', ')} scope${account.scopes.length === 1 ? '' : 's'} — ${method} ${path} needs \`${rule.scope}\``,
+        { statusCode: 403, code: 'TOKEN_SCOPE', detail: { needed: rule.scope, held: account.scopes } },
       )
     }
 
     // A workspace-limited token is confined to the workspaces it names, on the routes that are
     // scoped to one. A panel-wide route has no workspace to narrow, so the limit does not apply.
-    if (rule.workspaceScoped && token.workspaces !== undefined) {
+    if (rule.workspaceScoped && account.workspaces !== undefined) {
       const asked = c.req.query('workspace')
-      if (asked !== undefined && !token.workspaces.includes(asked)) {
+      if (asked !== undefined && !account.workspaces.includes(asked)) {
         throw new DetailedError(
-          `this API token is limited to ${token.workspaces.join(', ')} — it cannot act on "${asked}"`,
-          { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: token.workspaces } },
+          `this account is limited to ${account.workspaces.join(', ')} — it cannot act on "${asked}"`,
+          { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: account.workspaces } },
         )
       }
     }

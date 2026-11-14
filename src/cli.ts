@@ -48,8 +48,7 @@ const SYNOPSIS: Record<string, string> = {
   'start': 'home-hosted start <id> [--workspace <id>] [--free-port]',
   'stop': 'home-hosted stop <id> [--workspace <id>]',
   'free-port': 'home-hosted free-port <id> [--workspace <id>]',
-  'set-password': 'home-hosted set-password [--clear]',
-  'set-token': 'home-hosted set-token [--generate|--clear]',
+  'account': 'home-hosted account create|ls|secret|revoke|reset|disable-auth [--scope <scopes>]',
   'setup-temp': 'home-hosted setup-temp [--wsl] [--download|--no-download] [--clear]',
   'migrate': 'home-hosted migrate [--dry-run] [--yes]',
   'init': 'home-hosted init [options]',
@@ -200,18 +199,17 @@ const RESTART_SECTION: OptionSection = {
   ],
 }
 
-const SET_PASSWORD_SECTION: OptionSection = {
-  heading: 'Options for set-password',
+const ACCOUNT_SECTION: OptionSection = {
+  heading: 'Commands for account',
   lines: [
-    ['--clear', 'remove the password: nobody can sign in until a new one is set'],
-  ],
-}
-
-const SET_TOKEN_SECTION: OptionSection = {
-  heading: 'Options for set-token',
-  lines: [
-    ['--generate', 'create a strong token and print it once'],
-    ['--clear', 'remove the token, so it stops working'],
+    ['create <id>', 'a new account; the secret is generated and shown once (HHOSTED_SECRET sets your own)'],
+    ['--scope <scopes>', `comma-separated, any of ${API_TOKEN_SCOPES.join(', ')} (default: all)`],
+    ['-w, --workspace <ids>', 'limit it to those workspaces (default: every workspace)'],
+    ['ls', 'the ids, labels, scopes and whether each is enabled — never a secret'],
+    ['secret <id>', 'set that account\'s secret (prompts, or HHOSTED_SECRET for a script)'],
+    ['revoke <id>', 'delete it; its sessions end immediately'],
+    ['reset [id]', 'the recovery path: set a fresh generated secret when you are locked out'],
+    ['disable-auth', 'switch the guard off; the accounts are kept'],
   ],
 }
 
@@ -375,8 +373,7 @@ const ENVIRONMENT_SECTION: OptionSection = {
   lines: [
     ['HHOSTED_HOME', 'where config, secrets, logs, TLS and backups live'],
     ['HHOSTED_PROJECT', 'base for relative entry paths'],
-    ['HHOSTED_PASSWORD', 'the password for a non-interactive set-password'],
-    ['HHOSTED_TOKEN', 'the token for a non-interactive set-token'],
+    ['HHOSTED_SECRET', 'the secret for a non-interactive account create/secret/reset'],
     ['HHOSTED_MIGRATE', '`allow` lets migrate apply without asking, for an unattended run'],
     ['HHOSTED_DDNS_SECRET', 'the key DDNS credentials are sealed with'],
     ['GITHUB_TOKEN', 'a GitHub token for ui-switch and ui-update (GH_TOKEN also works)'],
@@ -432,8 +429,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'start': START_SECTION,
   'stop': SERVER_SECTION,
   'free-port': SERVER_SECTION,
-  'set-password': SET_PASSWORD_SECTION,
-  'set-token': SET_TOKEN_SECTION,
+  'account': ACCOUNT_SECTION,
   'setup-temp': SETUP_TEMP_SECTION,
   'migrate': MIGRATE_SECTION,
   'init': INIT_SECTION,
@@ -510,8 +506,7 @@ const COMMANDS = {
   'start': () => import('#src/cli/server').then(module => module.startCommand),
   'stop': () => import('#src/cli/server').then(module => module.stopCommand),
   'free-port': () => import('#src/cli/server').then(module => module.freePortCommand),
-  'set-password': () => import('#src/cli/set-password').then(module => module.setPasswordCommand),
-  'set-token': () => import('#src/cli/set-token').then(module => module.setTokenCommand),
+  'account': () => import('#src/cli/account').then(module => module.accountCommand),
   'setup-temp': () => import('#src/cli/setup-temp').then(module => module.setupTempCommand),
   'migrate': () => import('#src/cli/migrate').then(module => module.migrateCommand),
   'init': () => import('#src/cli/init').then(module => module.initCommand),

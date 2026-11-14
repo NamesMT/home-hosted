@@ -238,13 +238,13 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     return
   }
 
-  // Auth is on by default, so a first boot needs *a* password; the default is
-  // deliberately weak and flagged, which keeps LAN/exposure binding blocked (and
-  // is announced on the login page) until it is changed.
+  // Auth is on by default, so a first boot needs an account. The first-run **secret** is generated,
+  // not chosen: a shipped default is guessable and a locked door is worse than a printed one. It is
+  // kept in the 0600 secrets file until it is changed, so `status` can show it on the machine.
   if (!auth.passwordSet) {
     const initial = generateInitialPassword()
-    auth.ensureDefaultPassword(initial)
-    logger.warn(`no password was set — generated the first-run password "${initial}"; change it in Global settings → Authentication (\`status\` shows it until you do)`)
+    auth.ensureDefaultAccount(initial)
+    logger.warn(`no account existed — created "default" with the first-run secret "${initial}"; sign in as default with it, then change it in Global settings → Accounts (\`status\` shows it until you do)`)
   }
 
   // Never serve the panel beyond loopback without a password behind it.

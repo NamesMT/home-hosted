@@ -1,25 +1,26 @@
 import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
-import type { LoginRequest, PasswordRequest } from '#src/shared/contracts'
+import type { AuthIdentity } from '#src/services/auth'
+import type { LoginRequest } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { bodyLimit } from 'hono/body-limit'
-import { generateApiToken } from '#src/config/secrets'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
-import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
+import { requestIp } from '#src/middleware/loopback'
+import { tokenAllows } from '#src/middleware/token-scope'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
-import { apiTokenCreatedBodySchema, apiTokenCreatedSchema, apiTokenCreateSchema, apiTokenListSchema, loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
+import { accountCreatedBodySchema, accountCreateSchema, accountIdBodySchema, accountListSchema, accountPatchSchema, accountSecretSchema, loginSchema, okResponseSchema, sessionViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { credentialOf } from '#src/shared/meta'
 import { EXPOSED_PASSWORD_MIN_LENGTH, passwordLength } from '#src/shared/password-policy'
 
-/** A token id, as `DELETE /api/auth/tokens/:id` takes it. */
-const tokenIdParam = lazy(() => type({ id: 'string >= 1' }))
+/** An account id, as the account routes take it. Ids are lowercase slugs. */
+const accountIdParam = lazy(() => type({ id: 'string >= 1' }))
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
@@ -45,11 +46,11 @@ export function createAuthRoute(deps: AppDeps) {
       '/auth/login',
       describeRoute({
         tags: ['auth'],
-        summary: 'Exchange the panel password for a session cookie',
+        summary: 'Exchange an account id and secret for a session cookie',
         responses: {
           200: { description: 'Signed in', content: jsonBody(sessionViewSchema) },
           400: ERROR_RESPONSES[400],
-          401: { description: 'Wrong password, or locked out (see `Retry-After`)' },
+          401: { description: 'Wrong account id or secret, or locked out (see `Retry-After`)' },
         },
       }),
       // Unauthenticated by nature, so the body is bounded before it is parsed.
@@ -62,7 +63,7 @@ export function createAuthRoute(deps: AppDeps) {
       validate('json', loginSchema),
       (c) => {
         const body: LoginRequest = c.req.valid('json')
-        const outcome = deps.auth.login(body.password, requestIp(c))
+        const outcome = deps.auth.login(body.id, body.secret, requestIp(c))
 
         if (!outcome.ok) {
           if (outcome.retryAfterMs !== undefined)
@@ -101,50 +102,137 @@ export function createAuthRoute(deps: AppDeps) {
     )
 
     /**
-     * First-time setup is allowed from loopback without a session (there is
-     * nothing to authenticate against yet), and only from there; every later change
-     * needs a credential *and* the current password.
+     * Create an account. Session only, and `admin`-scoped.
+     *
+     * A credential that could mint another would let a leaked one escalate: it could create an
+     * account it knows the secret of and hold that after its own is revoked. `admin` alone is not
+     * enough either — the actor must be a session, so a stolen token cannot turn itself into a
+     * permanent one.
      */
     .post(
-      '/auth/password',
+      '/auth/accounts',
       describeRoute({
         tags: ['auth'],
-        summary: 'Set, change or enable the panel password',
-        responses: { 200: { description: 'Updated', content: jsonBody(passwordSetResponseSchema) }, 400: { description: 'Invalid input, a missing current password, or a password shorter than 12 characters while the panel is exposed beyond loopback (`PASSWORD_TOO_SHORT`)', content: ERROR_RESPONSES[400].content }, 401: ERROR_RESPONSES[401], 403: { description: 'The first password must be set from this machine, not with an API token' } },
+        summary: 'Create an account (signed-in session required)',
+        description: 'The secret is returned **once**; only a hash is stored. Omit `secret` to have the panel generate one.',
+        responses: {
+          201: { description: 'The account, with its secret shown once', content: jsonBody(accountCreatedBodySchema) },
+          400: ERROR_RESPONSES[400],
+          401: ERROR_RESPONSES[401],
+          403: { description: 'Needs a session and the `admin` scope (`SESSION_REQUIRED`)' },
+          409: { description: 'An account with that id already exists (`ACCOUNT_EXISTS`)' },
+        },
       }),
-      validate('json', passwordSchema),
+      validate('json', accountCreateSchema),
       (c) => {
-        const body: PasswordRequest = c.req.valid('json')
-        const identity = requestIdentity(c, deps.auth)
-        const hadPassword = deps.auth.passwordSet
-        const firstSetup = !hadPassword && isLoopbackRequest(c)
-
-        if (!identity.authenticated && !firstSetup)
-          throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
-
-        // The *first* password arms the panel and locks every other credential out, so it is set from
-        // this machine (or a session), never by a remote token holder.
-        if (!hadPassword && !firstSetup && identity.method !== 'cookie') {
-          throw new DetailedError('setting the first panel password needs this machine — open the panel on it, or run `home-hosted set-password` there', {
-            statusCode: 403,
-            code: 'SESSION_REQUIRED',
+        requireAdminSession(c, deps, 'creating an account')
+        const body = c.req.valid('json')
+        try {
+          const created = deps.secrets.createAccount({
+            id: body.id,
+            ...(body.label === undefined ? {} : { label: body.label }),
+            scopes: body.scopes,
+            ...(body.workspaces === undefined ? {} : { workspaces: body.workspaces }),
+            ...(body.secret === undefined ? {} : { secret: body.secret }),
           })
+          deps.auth.notifyCredentialsChanged()
+          return c.json({ account: created.account, secret: created.secret }, 201)
         }
-
-        // The current password is demanded of every credential, so a stolen API
-        // token cannot rewrite the password it would then need to be recovered from.
-        if (identity.authenticated && hadPassword) {
-          if (body.currentPassword === undefined)
-            throw new DetailedError('currentPassword is required to change an existing password', { statusCode: 400, code: 'CURRENT_PASSWORD_REQUIRED' })
-          if (!deps.auth.verifyCurrentPassword(body.currentPassword))
-            throw new DetailedError('current password is incorrect', { statusCode: 401, code: 'CURRENT_PASSWORD_WRONG' })
+        catch (error) {
+          // The refusals a person fixes by typing something else, so they keep their own sentence.
+          throw new DetailedError(error instanceof Error ? error.message : String(error), { statusCode: 409, code: 'ACCOUNT_EXISTS' })
         }
+      },
+    )
 
-        // A password too short for exposure would leave an exposed panel refusing its next start, so
-        // it is refused while the listener (or a proxy route to the panel) is exposed. On loopback any
+    .get(
+      '/auth/accounts',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Every account, without its secret (signed-in session required)',
+        responses: { 200: { description: 'The accounts', content: jsonBody(accountListSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'Needs a session and the `admin` scope' } },
+      }),
+      (c) => {
+        requireAdminSession(c, deps, 'listing accounts')
+        return c.json({ accounts: deps.auth.listAccounts() })
+      },
+    )
+
+    .patch(
+      '/auth/accounts/:id',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Change an account\'s label, scopes, workspace limit or enabled flag (session required)',
+        responses: { 200: { description: 'Updated', content: jsonBody(accountIdBodySchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'Needs a session and the `admin` scope' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('param', accountIdParam),
+      validate('json', accountPatchSchema),
+      (c) => {
+        requireAdminSession(c, deps, 'changing an account')
+        const { id } = c.req.valid('param')
+        const body = c.req.valid('json')
+        const updated = deps.auth.updateAccount(id, body)
+        if (updated === null)
+          throw new DetailedError(`no account with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_ACCOUNT' })
+        return c.json({ account: updated })
+      },
+    )
+
+    .delete(
+      '/auth/accounts/:id',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Revoke an account, and end its sessions (signed-in session required)',
+        description: 'Refused for the account that is asking, and for the last account that can sign in — either would lock the panel.',
+        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'Needs a session and the `admin` scope' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('param', accountIdParam),
+      (c) => {
+        const identity = requireAdminSession(c, deps, 'revoking an account')
+        const { id } = c.req.valid('param')
+        // Revoking the credential you are using is a mistake, not an attack: say so and stop.
+        if (identity.account?.id === id)
+          throw new DetailedError('that is the account you are signed in as — sign in as another one to revoke it', { statusCode: 400, code: 'CANNOT_REVOKE_SELF' })
+        const remaining = deps.auth.listAccounts().filter(entry => entry.id !== id && entry.enabled)
+        if (remaining.length === 0)
+          throw new DetailedError('that is the last account that can sign in — create another first, or the panel would have no way in', { statusCode: 400, code: 'LAST_ACCOUNT' })
+        if (!deps.auth.revokeAccount(id))
+          throw new DetailedError(`no account with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_ACCOUNT' })
+        return c.json({ ok: true })
+      },
+    )
+
+    /**
+     * Change **your own** secret.
+     *
+     * The current secret is required, for the same reason the password change demanded it: a stolen
+     * cookie must not become a permanent takeover. The session that made the change stays signed in —
+     * being thrown out of the page you just used reads as a failure.
+     */
+    .post(
+      '/auth/accounts/me/secret',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Set a new secret for the signed-in account (signed-in session required)',
+        responses: { 200: { description: 'Updated', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'Needs a signed-in session (`SESSION_REQUIRED`)' } },
+      }),
+      validate('json', accountSecretSchema),
+      (c) => {
+        const identity = requireSession(c, deps, 'changing an account secret')
+        const accountId = identity.account?.id
+        if (accountId === undefined)
+          throw new DetailedError('a session must belong to an account', { statusCode: 403, code: 'SESSION_REQUIRED' })
+        const body = c.req.valid('json')
+
+        if (body.currentSecret === undefined)
+          throw new DetailedError('currentSecret is required to change an existing secret', { statusCode: 400, code: 'CURRENT_PASSWORD_REQUIRED' })
+        if (!deps.auth.verifyAccountSecret(accountId, body.currentSecret))
+          throw new DetailedError('the current secret is incorrect', { statusCode: 401, code: 'CURRENT_PASSWORD_WRONG' })
+
+        // A secret too short for exposure would leave an exposed panel refusing its next start, so it
+        // is refused while the listener (or a proxy route to the panel) is exposed. On loopback any
         // length is accepted.
-        const tooShort = passwordLength(body.newPassword) < EXPOSED_PASSWORD_MIN_LENGTH
-        if (tooShort) {
+        if (passwordLength(body.newSecret) < EXPOSED_PASSWORD_MIN_LENGTH) {
           const control = deps.panel.settings.control
           const reason = checkExposure({ ...control, host: deps.controlServer.endpoint.host }, true, false, true).blockedReason
             ?? checkExposure(control, true, false, true).blockedReason
@@ -153,143 +241,12 @@ export function createAuthRoute(deps: AppDeps) {
             throw new DetailedError(reason, { statusCode: 400, code: 'PASSWORD_TOO_SHORT' })
         }
 
-        // Keep the caller signed in: every *other* session is dropped. A token
-        // caller holds no session, so this signs every browser out instead.
-        deps.auth.setPassword(body.newPassword, { keepToken: identity.session?.token ?? null })
+        deps.auth.setAccountSecret(accountId, body.newSecret, { keepToken: identity.session?.token ?? null })
 
-        // A password that is not enforced protects nothing, so the first setup enables it.
-        let enabled = deps.panel.settings.control.auth.enabled
-        if (!enabled) {
+        // A secret that is not enforced protects nothing, so a first setup enables auth.
+        if (!deps.panel.settings.control.auth.enabled)
           deps.panel.settings.updateControl({ auth: { enabled: true } })
-          enabled = true
-        }
 
-        return c.json({ ok: true, enabled, sessionsInvalidated: true })
-      },
-    )
-
-    /**
-     * Mint (or rotate) the API token from a signed-in browser, so a remote person can hand a script,
-     * TUI or desktop app a credential without a shell on the machine. Session only: a token minting
-     * its own successor would make a leaked one impossible to revoke from the panel.
-     */
-    .post(
-      '/auth/token',
-      describeRoute({
-        tags: ['auth'],
-        summary: 'Generate a new API token, replacing any existing one (signed-in session required)',
-        responses: { 200: { description: 'The token, shown once', content: jsonBody(apiTokenCreatedSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not mint a token' } },
-      }),
-      (c) => {
-        requireSession(c, deps, 'generating an API token')
-        const token = generateApiToken()
-        deps.secrets.setApiToken(token)
-        deps.auth.notifyCredentialsChanged()
-        return c.json({ token, hint: deps.secrets.apiTokenHint ?? token.slice(0, 8) })
-      },
-    )
-
-    /**
-     * The named, scoped tokens: list them, mint one, revoke one.
-     *
-     * Session only, for the same reason the single-token routes are: a token that could mint its own
-     * successor — or revoke the one that would replace it — would let a leaked credential take the
-     * panel over. A listing is session-only too: it names every credential a script holds, which is
-     * reconnaissance a stolen token does not get.
-     */
-    .get(
-      '/auth/tokens',
-      describeRoute({
-        tags: ['auth'],
-        summary: 'Every named API token, without its secret (signed-in session required)',
-        responses: { 200: { description: 'The tokens', content: jsonBody(apiTokenListSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not list tokens (`SESSION_REQUIRED`)' } },
-      }),
-      (c) => {
-        requireSession(c, deps, 'listing API tokens')
-        return c.json({ tokens: deps.secrets.listApiTokens() })
-      },
-    )
-
-    .post(
-      '/auth/tokens',
-      describeRoute({
-        tags: ['auth'],
-        summary: 'Mint a named, scoped API token (signed-in session required)',
-        description: 'The token value is returned **once**; only its hash is stored. `scopes` are cumulative — `admin` covers the rest — and `workspaces` limits it to those (omit for all).',
-        responses: { 201: { description: 'The token, shown once', content: jsonBody(apiTokenCreatedBodySchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not mint a token' }, 409: { description: 'A token with that name already exists (`TOKEN_EXISTS`)' } },
-      }),
-      validate('json', apiTokenCreateSchema),
-      (c) => {
-        requireSession(c, deps, 'minting an API token')
-        const body = c.req.valid('json')
-        try {
-          const created = deps.secrets.createApiToken({ name: body.name, scopes: body.scopes, ...(body.workspaces === undefined ? {} : { workspaces: body.workspaces }) })
-          deps.auth.notifyCredentialsChanged()
-          return c.json({ token: created.token, tokenMeta: { ...created.record, hash: undefined } }, 201)
-        }
-        catch (error) {
-          // The one refusal a person fixes by typing another name, so it says so.
-          throw new DetailedError(error instanceof Error ? error.message : String(error), { statusCode: 409, code: 'TOKEN_EXISTS' })
-        }
-      },
-    )
-
-    .delete(
-      '/auth/tokens/:id',
-      describeRoute({
-        tags: ['auth'],
-        summary: 'Revoke one named API token (signed-in session required)',
-        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not revoke a token' }, 404: ERROR_RESPONSES[404] },
-      }),
-      validate('param', tokenIdParam),
-      (c) => {
-        requireSession(c, deps, 'revoking an API token')
-        if (!deps.secrets.revokeApiToken(c.req.valid('param').id))
-          throw new DetailedError(`no API token with the id "${c.req.valid('param').id}"`, { statusCode: 404, code: 'UNKNOWN_TOKEN' })
-        deps.auth.notifyCredentialsChanged()
-        return c.json({ ok: true })
-      },
-    )
-
-    /**
-     * Revoke the token named `default` — the one an upgraded home already had.
-     *
-     * Session only, for the same reason minting is: a token that could revoke its own successor — or
-     * itself — would let a leaked credential destroy the operator's access, and with auth switched
-     * off it was reachable with no credential at all.
-     *
-     * **Deprecated by `/auth/tokens/:id`, and it says so.** It only ever removed `default`, so a
-     * panel whose tokens were all named something else answered `{ ok: true }` and changed nothing —
-     * a button that reports success and does not act is worse than one that refuses. When there is no
-     * `default` to remove the answer is `404 UNKNOWN_TOKEN` naming the ids that do exist.
-     */
-    .delete(
-      '/auth/token',
-      describeRoute({
-        tags: ['auth'],
-        summary: 'Revoke the API token (signed-in session required)',
-        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not revoke a token' } },
-      }),
-      (c) => {
-        requireSession(c, deps, 'revoking an API token')
-        const ids = deps.secrets.listApiTokens().map(token => token.id)
-        /**
-         * Idempotent when there is **nothing** to remove — `DELETE` of an absent thing succeeding is
-         * the ordinary contract, and clearing a token that is already gone must not read as an error.
-         *
-         * But it refuses when tokens exist and none is named `default`, which is the case this route
-         * used to answer `{ ok: true }` to while changing nothing: the panel showed "an API token is
-         * set", the person pressed Revoke, and every other token stayed. A success that did not act is
-         * the defect, not the 404.
-         */
-        if (ids.length > 0 && !ids.includes('default')) {
-          throw new DetailedError(
-            `this route only revokes the token named \`default\`, and there is none — revoke a specific token with \`DELETE /api/auth/tokens/:id\` (ids: ${ids.join(', ')})`,
-            { statusCode: 404, code: 'UNKNOWN_TOKEN' },
-          )
-        }
-        deps.secrets.clearApiToken()
-        deps.auth.notifyCredentialsChanged()
         return c.json({ ok: true })
       },
     )
@@ -298,8 +255,9 @@ export function createAuthRoute(deps: AppDeps) {
       '/auth/password',
       describeRoute({
         tags: ['auth'],
-        summary: 'Clear the password and turn authentication off (signed-in session required)',
-        responses: { 200: { description: 'Cleared', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not clear the password' } },
+        summary: 'Turn authentication off (signed-in session required)',
+        description: 'The accounts stay on disk — this switches the guard off, so the next start is unarmed until an account signs in again.',
+        responses: { 200: { description: 'Disabled', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'A bearer credential may not turn authentication off' } },
       }),
       (c) => {
         const identity = requestIdentity(c, deps.auth)
@@ -315,7 +273,7 @@ export function createAuthRoute(deps: AppDeps) {
          * names the two real paths, both of which the person can follow.
          */
         if (identity.method !== 'cookie') {
-          throw new DetailedError('clearing the panel password needs a signed-in session, not an API token — sign in at the panel, or run `home-hosted set-password --clear` on the machine', {
+          throw new DetailedError('turning authentication off needs a signed-in session, not a bearer credential — sign in at the panel, or run `home-hosted account disable-auth` on the machine', {
             statusCode: 403,
             code: 'SESSION_REQUIRED',
           })
@@ -337,18 +295,35 @@ export function createAuthRoute(deps: AppDeps) {
         if (proxyExposure !== null)
           throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
 
-        deps.auth.clearPassword()
+        // The accounts are **not** deleted: switching the guard off is not the same as losing the way
+        // in, and a person who does this by mistake can switch it back on without re-creating one.
+        deps.auth.logoutAll()
         deps.panel.settings.updateControl({ auth: { enabled: false } })
         return c.json({ ok: true })
       },
     )
 }
 
-/** Refuses anything but a signed-in browser session, naming what needed one. */
-function requireSession(c: Context, deps: AppDeps, what: string): void {
+/**
+ * A signed-in **session**, not merely a bearer credential.
+ *
+ * Managing credentials is the one class of action a credential may not perform on itself: an account
+ * that could create or revoke another could escalate past its own scopes, and a stolen secret could
+ * make itself permanent. Returns the identity so a caller can compare the acting account.
+ */
+function requireSession(c: Context, deps: AppDeps, what: string): AuthIdentity {
   const identity = requestIdentity(c, deps.auth)
   if (!identity.authenticated)
     throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
   if (identity.method !== 'cookie')
-    throw new DetailedError(`${what} needs a signed-in session, not an API token — sign in at the panel, or run \`home-hosted set-token --generate\` on the machine`, { statusCode: 403, code: 'SESSION_REQUIRED' })
+    throw new DetailedError(`${what} needs a signed-in session, not an API credential — sign in at the panel, or run \`home-hosted account\` on the machine`, { statusCode: 403, code: 'SESSION_REQUIRED' })
+  return identity
+}
+
+/** A session whose account holds `admin`. Creating an account is a privilege escalation otherwise. */
+function requireAdminSession(c: Context, deps: AppDeps, what: string): AuthIdentity {
+  const identity = requireSession(c, deps, what)
+  if (identity.account === undefined || !tokenAllows(identity.account.scopes, 'admin'))
+    throw new DetailedError(`${what} needs an account with the \`admin\` scope`, { statusCode: 403, code: 'TOKEN_SCOPE' })
+  return identity
 }

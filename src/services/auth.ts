@@ -1,5 +1,5 @@
-import type { AccountRecord, SecretsStore } from '#src/config/secrets'
-import type { AuthConfig, SessionView } from '#src/shared/contracts'
+import type { AccountRecord, ApiTokenScope, SecretsStore } from '#src/config/secrets'
+import type { AccountView, AuthConfig, SessionView } from '#src/shared/contracts'
 import crypto from 'node:crypto'
 import { accountIdProblem, API_TOKEN_SCOPES } from '#src/config/secrets'
 import { parseCookies } from '#src/helpers/cookies'
@@ -347,6 +347,27 @@ export class AuthService {
   /** The cookie policy the guard and the login route must agree on. */
   get cookieSecureMode(): AuthConfig['cookieSecure'] {
     return this.getConfig().cookieSecure
+  }
+
+  /** Every account, metadata only — what a settings page lists. */
+  listAccounts(): AccountView[] {
+    return this.secrets.listAccounts()
+  }
+
+  /** Applies a settings-page edit, ending the account's sessions if it was disabled. */
+  updateAccount(id: string, patch: { label?: string, scopes?: ApiTokenScope[], workspaces?: string[] | null, enabled?: boolean }): AccountView | null {
+    const updated = this.secrets.updateAccount(id, patch)
+    if (updated === null)
+      return null
+    // A disabled account must not keep working through a cookie it already holds.
+    if (updated.enabled !== true) {
+      for (const [token, session] of [...this.sessions]) {
+        if (session.accountId === id)
+          this.sessions.delete(token)
+      }
+    }
+    this.notifyCredentialsChanged()
+    return this.secrets.listAccounts().find(entry => entry.id === id) ?? null
   }
 
   /** Whether this id + secret pair is the signed-in account's own, for the change-secret flow. */

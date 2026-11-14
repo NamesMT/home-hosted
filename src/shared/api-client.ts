@@ -17,7 +17,7 @@
  */
 import type { AppState, BackupSelection, DdnsConfig, DdnsView, FreePortResult, JobRunResultBody, LogHistoryView, LogServerView, ProxyPatch, ProxyView, RestorePlan, ServerCreate, ServerPatch, ServerView, SessionView, SettingsPatch, SettingsSaved, SettingsView, UiStatus, WorkspaceCreate, WorkspaceSettingsPatch, WorkspaceSettingsView, WorkspaceView, WslTemperatureStatus } from './contracts'
 import { type } from 'arktype'
-import { backupSelectionSchema, ddnsViewSchema, freePortResultSchema, logHistoryViewSchema, loginSchema, logServersViewSchema, passwordSchema, proxyCertificateUploadSchema, proxyPatchSchema, proxyViewSchema, settingsPatchSchema, settingsSavedSchema, tlsReviewResponseSchema, tlsUploadSchema, workspaceCreateSchema, workspaceRenameSchema, workspaceSettingsPatchSchema, workspaceSettingsViewSchema, workspaceViewSchema } from './contracts'
+import { accountCreateSchema, accountPatchSchema, accountSecretSchema, backupSelectionSchema, ddnsViewSchema, freePortResultSchema, logHistoryViewSchema, loginSchema, logServersViewSchema, proxyCertificateUploadSchema, proxyPatchSchema, proxyViewSchema, settingsPatchSchema, settingsSavedSchema, tlsReviewResponseSchema, tlsUploadSchema, workspaceCreateSchema, workspaceRenameSchema, workspaceSettingsPatchSchema, workspaceSettingsViewSchema, workspaceViewSchema } from './contracts'
 import { parseState } from './live-frames'
 import { isRecord } from './shape'
 
@@ -243,33 +243,59 @@ export function backupWarnings(result: unknown): string[] {
   return result.warnings.filter((warning): warning is string => typeof warning === 'string' && warning.length > 0)
 }
 
-/** Replaces the API token with a new one, returned once. Needs a signed-in session. */
-export function generateApiToken(): Promise<{ token: string, hint: string }> {
-  return request('/api/auth/token', { method: 'POST' })
-}
-
 /**
- * The named, scoped tokens — session-only, like the single-token routes above.
+ * Accounts are the credential model: one record signs in to the panel *and* authenticates the API.
  *
- * `create` returns the value **once** and metadata; `list` names them and never shows one.
+ * `create` returns the secret **once** and metadata; `list` names the accounts and never shows a
+ * secret. Every one of these needs a signed-in session, because a credential that could mint another
+ * could escalate past its own scopes.
  */
-export function listApiTokens(): Promise<{ tokens: Array<{ id: string, name: string, scopes: string[], workspaces?: string[], createdAt: number, lastUsedAt?: number }> }> {
-  return request('/api/auth/tokens')
+export interface AccountRow {
+  id: string
+  label: string
+  scopes: string[]
+  workspaces?: string[]
+  enabled: boolean
+  isDefault: boolean
+  short: boolean
+  createdAt: number
+  updatedAt: number
+  lastUsedAt?: number
 }
 
-export function createApiToken(body: { name: string, scopes: string[], workspaces?: string[] }): Promise<{ token: string, tokenMeta: { id: string, name: string, scopes: string[] } }> {
-  return request('/api/auth/tokens', { method: 'POST', body: JSON.stringify(body) })
+export function listAccounts(): Promise<{ accounts: AccountRow[] }> {
+  return request('/api/auth/accounts')
 }
 
-export function revokeNamedApiToken(id: string): Promise<{ ok: boolean }> {
-  return request(`/api/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export function createAccount(body: { id: string, label?: string, scopes: string[], workspaces?: string[], secret?: string }): Promise<{ account: AccountRow, secret: string }> {
+  const parsed = accountCreateSchema(body)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  return request('/api/auth/accounts', { method: 'POST', body: JSON.stringify(parsed) })
 }
 
-export function revokeApiToken(): Promise<unknown> {
-  return request('/api/auth/token', { method: 'DELETE' })
+export function updateAccount(id: string, body: { label?: string, scopes?: string[], workspaces?: string[] | null, enabled?: boolean }): Promise<{ account: AccountRow }> {
+  const parsed = accountPatchSchema(body)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  return request(`/api/auth/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(parsed) })
 }
 
-export function clearPassword(): Promise<unknown> {
+export function revokeAccount(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/auth/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** Changes **your own** secret, proving the current one. */
+export function setMySecret(currentSecret: string | undefined, newSecret: string): Promise<{ ok: boolean }> {
+  const body = currentSecret === undefined ? { newSecret } : { currentSecret, newSecret }
+  const parsed = accountSecretSchema(body)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  return request('/api/auth/accounts/me/secret', { method: 'POST', body: JSON.stringify(parsed) })
+}
+
+/** Turns the auth guard off. The accounts stay on disk. */
+export function disableAuth(): Promise<unknown> {
   return request('/api/auth/password', { method: 'DELETE' })
 }
 
@@ -322,8 +348,8 @@ export async function installProxyEngine(version = ''): Promise<ProxyView> {
   return proxyView(await request<unknown>('/api/proxy/engine', { method: 'POST', body: JSON.stringify({ version }) }))
 }
 
-export function login(password: string): Promise<SessionView> {
-  const parsed = loginSchema({ password })
+export function login(id: string, secret: string): Promise<SessionView> {
+  const parsed = loginSchema({ id, secret })
   if (parsed instanceof type.errors)
     throw new Error(parsed.summary)
   return request<SessionView>('/api/auth/login', { method: 'POST', body: JSON.stringify(parsed) })
@@ -395,16 +421,6 @@ export function revertProxy(): Promise<ProxyView> {
 
 export function revertUi(): Promise<{ ok: boolean, removed: boolean, ui: UiStatus }> {
   return request('/api/settings/ui', { method: 'DELETE' })
-}
-
-export function setPassword(currentPassword: string | undefined, newPassword: string): Promise<{ ok: boolean, enabled: boolean }> {
-  // ArkType treats an explicit `undefined` as an invalid string, so the key is
-  // omitted entirely when there is no current password (first-time setup).
-  const body = currentPassword === undefined ? { newPassword } : { currentPassword, newPassword }
-  const parsed = passwordSchema(body)
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  return request('/api/auth/password', { method: 'POST', body: JSON.stringify(parsed) })
 }
 
 export function startProxy(): Promise<ProxyView> {

@@ -1688,10 +1688,17 @@ export type CredentialView = typeof credentialViewSchema.infer
 export const sessionViewSchema = lazy(() => type({
   'authenticated': 'boolean',
   'authRequired': 'boolean',
+  /** Whether any account can sign in — what arms authentication. */
   'passwordSet': 'boolean',
-  /** A long-lived API token is configured; optional for the same reason as above. */
+  /** Whether any account exists. Kept for a client that branched on the old token field. */
   'apiTokenSet': 'boolean?',
   'usingDefaultPassword': 'boolean',
+  /**
+   * The id of the account that answered, so a UI can name who is signed in.
+   *
+   * Optional and absent for an older panel, like every response addition.
+   */
+  'accountId?': 'string',
   /**
    * The boot-time password, exposed only while it is still in use.
    *
@@ -1793,17 +1800,85 @@ export const apiTokenCreatedBodySchema = lazy(() => type({
   tokenMeta: apiTokenViewSchema,
 }))
 
-export const loginSchema = lazy(() => type({ password: 'string <= 512' }).onUndeclaredKey('reject'))
+/**
+ * Signing in takes an **id and a secret**, like a username and a password.
+ *
+ * Two halves rather than one: the id is not secret, so a blind guess has to get both right, and an
+ * attempt budget keyed on the address can refuse one without confirming the other. The lengths are
+ * sanity caps, not policy.
+ */
+export const loginSchema = lazy(() => type({
+  id: '1 <= string <= 64',
+  secret: '1 <= string <= 512',
+}).onUndeclaredKey('reject'))
 export type LoginRequest = typeof loginSchema.infer
 
-/** Any non-empty password is allowed; only a sanity cap on the length. */
+/** Any non-empty secret is allowed; only a sanity cap on the length. */
 export const passwordValueSchema = lazy(() => type('1 <= string <= 512'))
 
-export const passwordSchema = lazy(() => type({
-  currentPassword: 'string?',
-  newPassword: passwordValueSchema,
+/**
+ * Changing **your own** account's secret.
+ *
+ * `currentSecret` is required unless the account has none, which is why it is optional: the boot
+ * first-run account has one, and a caller that could rotate without proving it holds the old secret
+ * would make a stolen cookie a permanent takeover.
+ */
+export const accountSecretSchema = lazy(() => type({
+  'currentSecret?': passwordValueSchema,
+  'newSecret': passwordValueSchema,
 }).onUndeclaredKey('reject'))
-export type PasswordRequest = typeof passwordSchema.infer
+export type AccountSecretRequest = typeof accountSecretSchema.infer
+
+/** An account as a listing shows it. Never carries the secret, only metadata. */
+export const accountViewSchema = lazy(() => type({
+  'id': 'string',
+  'label': 'string',
+  'scopes': apiTokenScopeSchema.array(),
+  'workspaces?': 'string[]',
+  'enabled': 'boolean',
+  'isDefault': 'boolean',
+  /** Its secret is shorter than the exposure bar, so a non-loopback bind stays refused. */
+  'short': 'boolean',
+  'createdAt': 'number',
+  'updatedAt': 'number',
+  'lastUsedAt?': 'number',
+}).onDeepUndeclaredKey('ignore'))
+export type AccountView = typeof accountViewSchema.infer
+
+export const accountListSchema = lazy(() => type({ accounts: accountViewSchema.array() }))
+
+/** One account, for the routes that answer with it alone. */
+export const accountIdBodySchema = lazy(() => type({ account: accountViewSchema }))
+
+/**
+ * Creating an account: an id a person types, its scopes, and an optional secret.
+ *
+ * Absent `secret` means the panel generates one and shows it once — which is what a script wants and
+ * what needs no policy. A `secret` given here is typed by a person and stretched with scrypt.
+ */
+export const accountCreateSchema = lazy(() => type({
+  'id': '1 <= string <= 64',
+  'label?': '1 <= string <= 120',
+  'scopes': apiTokenScopeSchema.array(),
+  'workspaces?': 'string[]',
+  'secret?': passwordValueSchema,
+}).onUndeclaredKey('reject'))
+export type AccountCreateRequest = typeof accountCreateSchema.infer
+
+/** Editing an account: the fields a settings page may change. Ids are immutable. */
+export const accountPatchSchema = lazy(() => type({
+  'label?': '1 <= string <= 120',
+  'scopes?': apiTokenScopeSchema.array(),
+  'workspaces?': type('string[]').or(type('null')),
+  'enabled?': 'boolean',
+}).onUndeclaredKey('reject'))
+export type AccountPatchRequest = typeof accountPatchSchema.infer
+
+/** The create answer: the account, and its secret **once**. */
+export const accountCreatedBodySchema = lazy(() => type({
+  account: accountViewSchema,
+  secret: 'string',
+}))
 
 export const serverStatusSchema = lazy(() => type('"stopped" | "starting" | "running" | "stopping" | "backoff" | "crashed" | "conflict"'))
 export type ServerStatus = typeof serverStatusSchema.infer
