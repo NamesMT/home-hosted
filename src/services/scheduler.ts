@@ -60,10 +60,9 @@ export interface JobSchedulerOptions {
   onStateChange: () => void
 }
 
-/** The slice of one configured entry the scheduler reads. */
+/** The slice of one configured job the scheduler reads. */
 export interface ScheduledEntry {
   id: string
-  kind?: string
   schedule?: string
   enabled: boolean
 }
@@ -113,7 +112,8 @@ export class JobScheduler {
   tick(now = Date.now()): void {
     if (this.disposed)
       return
-    const jobs = this.options.servers().filter(server => server.kind === 'job')
+    // Every entry handed in is a job now: the caller is the jobs service, not a mixed server list.
+    const jobs = this.options.servers()
     // Drop the clocks of jobs that no longer exist or stopped being jobs, so a renamed or removed
     // entry cannot inherit another's occurrence and skip its first run.
     const known = new Set(jobs.map(job => job.id))

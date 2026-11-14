@@ -83,7 +83,7 @@ function makeScheduler(entries: ScheduledEntry[]): Harness {
 }
 
 function job(overrides: Partial<ScheduledEntry> = {}): ScheduledEntry {
-  return { id: 'nightly', kind: 'job', schedule: '0 3 * * *', enabled: true, ...overrides }
+  return { id: 'nightly', schedule: '0 3 * * *', enabled: true, ...overrides }
 }
 
 afterEach(() => {
@@ -135,16 +135,24 @@ describe('one run per occurrence', () => {
     expect(harness.runs[1]!.occurrence).toBe(local(2026, 3, 10, 9, 15))
   })
 
-  it('runs every job on the workspace, and only the jobs', async () => {
-    const harness = makeScheduler([
-      job({ id: 'a' }),
-      job({ id: 'b' }),
-      // A service is supervised continuously; a schedule on it is refused by the config, and this one
-      // has none, so nothing about it may run.
-      { id: 'web', kind: 'service', enabled: true },
-    ])
+  it('runs every job it is given', async () => {
+    const harness = makeScheduler([job({ id: 'a' }), job({ id: 'b' })])
     harness.scheduler.tick(local(2026, 3, 10, 3, 0))
     expect(harness.runs.map(run => run.id).sort()).toEqual(['a', 'b'])
+  })
+
+  /**
+   * An entry with **no** schedule never runs.
+   *
+   * The old shape had to filter services out of a mixed list, because a server could appear beside a
+   * job. A job now lives in its own file, where `schedule` is required — so the remaining case is the
+   * one this pins: an entry handed to the scheduler without a schedule is silent, not run at every
+   * tick.
+   */
+  it('never runs an entry that carries no schedule', async () => {
+    const harness = makeScheduler([{ id: 'schedless', enabled: true } as never])
+    harness.scheduler.tick(local(2026, 3, 10, 3, 0))
+    expect(harness.runs).toEqual([])
   })
 
   it('skips a disabled job, and reports nothing for a broken expression', async () => {
@@ -322,7 +330,7 @@ describe('a repeated wall-clock time', () => {
     ['Antarctica/Troll', '30 1 * * *', Date.UTC(2026, 9, 25, 1, 30), Date.UTC(2026, 9, 25, 1, 31), Date.UTC(2026, 9, 25, 4, 0)],
   ])('does not run again for the repeated hour in %s', async (zone, expression, firstRunAt, from, to) => {
     process.env.TZ = zone
-    const harness = makeScheduler([{ id: 'nightly', kind: 'job', schedule: expression, enabled: true }])
+    const harness = makeScheduler([{ id: 'nightly', schedule: expression, enabled: true }])
     harness.lastRuns.set('nightly', firstRunAt)
 
     // Every tick the panel would make, second by second, through the rest of the fold.
@@ -335,7 +343,7 @@ describe('a repeated wall-clock time', () => {
 
   it('still runs the next night, so the dedup did not swallow the schedule', async () => {
     process.env.TZ = 'America/New_York'
-    const harness = makeScheduler([{ id: 'nightly', kind: 'job', schedule: '30 1 * * *', enabled: true }])
+    const harness = makeScheduler([{ id: 'nightly', schedule: '30 1 * * *', enabled: true }])
     harness.lastRuns.set('nightly', Date.UTC(2026, 10, 1, 5, 30))
 
     // The rest of the fold night, then the whole of the following night.
