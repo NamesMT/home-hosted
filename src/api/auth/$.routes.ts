@@ -252,9 +252,16 @@ export function createAuthRoute(deps: AppDeps) {
     )
 
     /**
-     * Revoke the API token. Session only, for the same reason minting is: a token that could revoke
-     * its own successor — or itself — would let a leaked credential destroy the operator's access,
-     * and with auth switched off it was reachable with no credential at all.
+     * Revoke the token named `default` — the one an upgraded home already had.
+     *
+     * Session only, for the same reason minting is: a token that could revoke its own successor — or
+     * itself — would let a leaked credential destroy the operator's access, and with auth switched
+     * off it was reachable with no credential at all.
+     *
+     * **Deprecated by `/auth/tokens/:id`, and it says so.** It only ever removed `default`, so a
+     * panel whose tokens were all named something else answered `{ ok: true }` and changed nothing —
+     * a button that reports success and does not act is worse than one that refuses. When there is no
+     * `default` to remove the answer is `404 UNKNOWN_TOKEN` naming the ids that do exist.
      */
     .delete(
       '/auth/token',
@@ -265,6 +272,22 @@ export function createAuthRoute(deps: AppDeps) {
       }),
       (c) => {
         requireSession(c, deps, 'revoking an API token')
+        const ids = deps.secrets.listApiTokens().map(token => token.id)
+        /**
+         * Idempotent when there is **nothing** to remove — `DELETE` of an absent thing succeeding is
+         * the ordinary contract, and clearing a token that is already gone must not read as an error.
+         *
+         * But it refuses when tokens exist and none is named `default`, which is the case this route
+         * used to answer `{ ok: true }` to while changing nothing: the panel showed "an API token is
+         * set", the person pressed Revoke, and every other token stayed. A success that did not act is
+         * the defect, not the 404.
+         */
+        if (ids.length > 0 && !ids.includes('default')) {
+          throw new DetailedError(
+            `this route only revokes the token named \`default\`, and there is none — revoke a specific token with \`DELETE /api/auth/tokens/:id\` (ids: ${ids.join(', ')})`,
+            { statusCode: 404, code: 'UNKNOWN_TOKEN' },
+          )
+        }
         deps.secrets.clearApiToken()
         deps.auth.notifyCredentialsChanged()
         return c.json({ ok: true })

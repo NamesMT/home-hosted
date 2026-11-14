@@ -172,7 +172,81 @@ function buildLocales() {
     process.stderr.write('could not rebuild the i18n catalogs — serving whatever is on disk\n')
 }
 
+/**
+ * Build the stock UI the **panel** serves, before it starts.
+ *
+ * The panel serves `uis/stock/dist` (`src/index.ts` passes it as `stockDir`) — a gitignored build
+ * artifact — while Vite serves the *other* port from source. So `pnpm dev` gave a working UI port and
+ * a panel whose `/` was whatever `dist/` happened to hold, which can be arbitrarily old: measured on
+ * 2026-11-15, a build three days stale, missing the whole API-tokens table added since. Opening the
+ * panel URL showed a settings page with no token list and no way to manage one, which reads as a bug
+ * in the feature rather than in the build.
+ *
+ * Built **only when it is missing or older than the newest source file**, so a repeat `pnpm dev` is
+ * immediate and a source edit still needs a rebuild — which this says out loud rather than leaving a
+ * person to wonder why the panel's copy lags the dev server's.
+ */
+function buildStockUi() {
+  const dist = path.join(root, 'uis', 'stock', 'dist', 'index.html')
+  const sources = [
+    path.join(root, 'uis', 'stock', 'src'),
+    path.join(root, 'src', 'shared'),
+    path.join(root, 'uis', 'stock', 'i18n', 'generated'),
+  ]
+
+  /** The newest mtime under these directories — what `dist/` has to be younger than. */
+  function newest(directories) {
+    let latest = 0
+    const walk = (current) => {
+      let entries
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true })
+      }
+      catch {
+        return
+      }
+      for (const entry of entries) {
+        const full = path.join(current, entry.name)
+        if (entry.isDirectory()) {
+          walk(full)
+          continue
+        }
+        try {
+          latest = Math.max(latest, fs.statSync(full).mtimeMs)
+        }
+        catch {
+          // A file that vanished mid-walk cannot be the newest one.
+        }
+      }
+    }
+    for (const directory of directories)
+      walk(directory)
+    return latest
+  }
+
+  let built = 0
+  try {
+    built = fs.statSync(dist).mtimeMs
+  }
+  catch {
+    // Missing: build.
+  }
+  if (built !== 0 && built > newest(sources))
+    return
+
+  process.stdout.write(`building the stock UI the panel serves${built === 0 ? '' : ' (dist is older than the source)'}…\n`)
+  const result = spawnSync(pnpm, ['run', 'build:ui'], {
+    cwd: root,
+    stdio: 'ignore',
+    shell: process.platform === 'win32',
+  })
+  // Not fatal: a stale panel build is a degraded demo, and refusing to start over it is worse.
+  if (result.status !== 0)
+    process.stderr.write('the stock UI build failed — the panel at / serves whatever dist/ holds\n')
+}
+
 buildLocales()
+buildStockUi()
 
 const seeded = seedDevPassword()
 

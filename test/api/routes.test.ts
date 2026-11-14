@@ -1605,4 +1605,29 @@ describe('the API token, from the panel', () => {
     const response = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
     expect(response.status, 'a session can always clear a stale token').toBe(200)
   })
+
+  /**
+   * `DELETE /api/auth/token` only ever removed the token named `default`.
+   *
+   * Once tokens were named, a panel whose tokens were all named something else answered `{ ok: true }`
+   * and changed nothing — the UI showed "an API token is set", the person pressed Revoke, and every
+   * token stayed. A success that does not act is worse than a refusal, so it now names the ids that do
+   * exist and points at the route that removes one. It stays idempotent when there is nothing at all,
+   * which the test above pins.
+   */
+  it('refuses when tokens exist but none is named default, naming the ids', async () => {
+    const created = await fixture({ password: 'a-good-password' })
+    const cookie = await signIn(created, 'a-good-password')
+    created.globalSecrets.createApiToken({ name: 'monitor', scopes: ['read'] })
+
+    const response = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
+    expect(response.status).toBe(404)
+    const body = await response.json() as { code: string, message: string }
+    expect(body.code).toBe('UNKNOWN_TOKEN')
+    // The message names the ids that exist, so the fix needs no further lookup.
+    expect(body.message).toContain('monitor')
+    expect(body.message).toContain('/api/auth/tokens/:id')
+    // And it changed nothing: the token is still there.
+    expect(created.globalSecrets.listApiTokens().map(token => token.id)).toEqual(['monitor'])
+  })
 })

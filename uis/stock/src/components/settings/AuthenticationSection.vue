@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import type { ControlView } from '@shared/contracts'
 import type { AuthForm } from '@/components/settings/settingsForm'
-import { generateApiToken, revokeApiToken } from '@shared/api-client'
-import { errorMessage } from '@shared/error-message'
 import { EXPOSED_PASSWORD_MIN_LENGTH, WEAK_PASSWORD_LENGTH } from '@shared/password-policy'
 import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
@@ -10,7 +8,6 @@ import Notice from '@/components/settings/Notice.vue'
 import { numberModel, secondsModel } from '@/components/settings/settingsForm'
 import TokensSection from '@/components/settings/TokensSection.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
@@ -36,7 +33,6 @@ const maxLoginAttempts = numberModel(() => auth.value.maxLoginAttempts, value =>
 const lockout = secondsModel(() => auth.value.lockoutMs, value => (auth.value.lockoutMs = value), 60_000)
 
 const passwordSet = computed(() => props.view?.auth.passwordSet === true)
-const apiTokenSet = computed(() => props.view?.auth.apiTokenSet === true)
 const blockedReason = computed(() => props.view?.auth.blockedReason ?? null)
 const exposed = computed(() => props.view?.auth.exposed === true)
 const usingDefault = computed(() => props.view?.auth.usingDefaultPassword === true)
@@ -89,32 +85,6 @@ async function submitPassword(): Promise<void> {
 }
 
 /** A freshly minted token, held only until the person leaves the page — the panel keeps its hash. */
-const newToken = ref<string | null>(null)
-const tokenBusy = ref(false)
-const tokenError = ref<string | null>(null)
-
-async function runTokenAction(action: () => Promise<string | null>): Promise<void> {
-  tokenBusy.value = true
-  tokenError.value = null
-  try {
-    newToken.value = await action()
-  }
-  catch (caught) {
-    tokenError.value = errorMessage(caught)
-  }
-  finally {
-    tokenBusy.value = false
-  }
-}
-
-const mintToken = (): Promise<void> => runTokenAction(async () => (await generateApiToken()).token)
-function dropToken(): Promise<void> {
-  return runTokenAction(async () => {
-    await revokeApiToken()
-    return null
-  })
-}
-
 async function clearPasswordValue(): Promise<void> {
   passwordError.value = null
   passwordMessage.value = null
@@ -170,63 +140,29 @@ async function clearPasswordValue(): Promise<void> {
   <TokensSection />
 
   <div class="space-y-2">
-    <Notice
-      :tone="apiTokenSet ? 'info' : 'neutral'"
-      :title="apiTokenSet ? t('settings.auth.apiTokenSet') : t('settings.auth.apiTokenMissing')"
-    >
-      <TransText v-if="apiTokenSet" k="settings.auth.apiTokenNote">
+    <!--
+      One note about tokens, and **no controls**: the table above creates, lists and revokes them.
+      This used to carry Generate/Revoke buttons for the pre-0.14 single token, and they became a
+      trap once tokens were named — "Revoke token" called the legacy route, which only ever removes
+      the token whose id is `default`. With a token named anything else on the panel, the button
+      reported success and changed nothing, and there was no way to see or remove the others from
+      that screen.
+    -->
+    <Notice tone="info" :title="t('settings.auth.apiTokenSet')">
+      <TransText k="settings.auth.apiTokenNote">
         <template #code>
           <code>Authorization: Bearer …</code>
         </template>
       </TransText>
-      <TransText v-else k="settings.auth.noTokenNote">
-        <template #command>
-          <code>home-hosted set-token --generate</code>
-        </template>
-      </TransText>
-      <!-- A token outlives a password change: `setPassword()` drops sessions and never clears the
+      <!-- A token outlives a password change: `setPassword()` drops sessions and never clears any
            token. The person rotating a password is exactly who needs to know that. -->
-      <p v-if="apiTokenSet" class="mt-1">
+      <p class="mt-1">
         <TransText k="settings.auth.apiTokenRotation">
           <template #command>
-            <code>home-hosted set-token --generate</code>
+            <code>home-hosted token create</code>
           </template>
         </TransText>
       </p>
-      <div v-if="newToken" class="mt-2 flex min-w-0 flex-col gap-1">
-        <span class="text-2xs font-medium text-warn">{{ t('settings.auth.tokenShownOnce') }}</span>
-        <div class="flex min-w-0 items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
-          <code class="min-w-0 flex-1 truncate font-mono text-xs">{{ newToken }}</code>
-          <CopyButton :value="newToken" />
-        </div>
-      </div>
-      <p v-if="tokenError" class="mt-1 text-2xs text-danger">
-        {{ tokenError }}
-      </p>
-      <div class="mt-2 flex flex-wrap gap-1.5">
-        <AppButton v-if="!apiTokenSet" size="xs" variant="secondary" :loading="tokenBusy" @click="mintToken">
-          {{ t('settings.auth.generateToken') }}
-        </AppButton>
-        <template v-else>
-          <ConfirmButton
-            :label="t('settings.auth.regenerateToken')"
-            :confirm-label="t('settings.auth.regenerateToken')"
-            :title="t('settings.auth.regenerateTokenTitle')"
-            variant="ghost"
-            size="xs"
-            :disabled="tokenBusy"
-            @confirm="mintToken"
-          />
-          <ConfirmButton
-            :label="t('settings.auth.revokeToken')"
-            :confirm-label="t('settings.auth.revokeToken')"
-            :title="t('settings.auth.revokeTokenTitle')"
-            size="xs"
-            :disabled="tokenBusy"
-            @confirm="dropToken"
-          />
-        </template>
-      </div>
     </Notice>
     <Notice v-if="usingDefault" tone="warn" :title="t('settings.auth.defaultPasswordTitle')">
       <TransText k="settings.auth.defaultPasswordText">

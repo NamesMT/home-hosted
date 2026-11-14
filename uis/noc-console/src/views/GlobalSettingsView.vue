@@ -443,27 +443,6 @@ async function clearPassword(): Promise<void> {
   else passwordMessage.value = 'password cleared and authentication disabled'
 }
 
-const apiTokenSet = computed(() => controlView.value?.auth.apiTokenSet === true)
-/** Shown once, then gone with the page — the panel keeps only its hash. */
-const mintedToken = ref<string | null>(null)
-const tokenError = ref<string | null>(null)
-
-async function tokenAction(mint: boolean): Promise<void> {
-  tokenError.value = null
-  try {
-    if (mint) {
-      mintedToken.value = (await api.generateApiToken()).token
-    }
-    else {
-      await api.revokeApiToken()
-      mintedToken.value = null
-    }
-  }
-  catch (caught) {
-    tokenError.value = errorMessage(caught)
-  }
-}
-
 const backupBusy = ref(false)
 const backupMessage = ref<string | null>(null)
 const backupError = ref<string | null>(null)
@@ -908,26 +887,16 @@ async function revertUi(): Promise<void> {
 
             <TokensSection />
 
+            <!--
+              A note, and **no controls**: the table above creates, lists and revokes tokens. These
+              buttons used to drive the pre-0.14 single token, and once tokens were named they became
+              a trap — "Revoke token" called the legacy route, which only removes the token whose id is
+              `default`, so with a token named anything else it reported success and changed nothing.
+            -->
             <p class="note">
-              API token: <strong>{{ apiTokenSet ? 'set' : 'none' }}</strong> — scripts and apps send it as
-              <code>Authorization: Bearer …</code>. It is full admin; changing the password does not revoke it.
+              Scripts and apps send a token as <code>Authorization: Bearer …</code>. Changing the
+              password does not revoke one; revoke it in the table above.
             </p>
-            <label v-if="mintedToken" class="field">
-              <span class="field__label">new token — copy it now, it is shown once</span>
-              <input :value="mintedToken" readonly spellcheck="false" @focus="($event.target as HTMLInputElement).select()">
-            </label>
-            <p v-if="tokenError" class="note note--error">
-              {{ tokenError }}
-            </p>
-            <div class="actions actions--start">
-              <button v-if="!apiTokenSet" type="button" class="btn btn--sm" @click="tokenAction(true)">
-                Generate token
-              </button>
-              <template v-else>
-                <ConfirmButton label="Regenerate token" confirm-label="Confirm regenerate" title="Every script and app using the current token stops working" @confirm="tokenAction(true)" />
-                <ConfirmButton label="Revoke token" confirm-label="Confirm revoke" tone="danger" title="Every script and app using the token loses access at once" @confirm="tokenAction(false)" />
-              </template>
-            </div>
           </div>
         </div>
       </section>
