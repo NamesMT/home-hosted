@@ -262,7 +262,15 @@ const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.c
       </tbody>
     </table>
 
-    <Modal :open="creating" :title="t('jobs.create')" @update:open="creating = false">
+    <!--
+      `v-model:open`, like every other Modal in this UI. `:open` plus `@update:open` looked equivalent
+      and was not: `Modal` is a `defineModel('open')`, so it emits `update:open` as it **opens** too,
+      and the handler reset `creating` straight back to false. Measured: the sheet rendered in the
+      closed state, and a successful create left it on screen with empty fields while the row it
+      created was already in the table. The job was stored correctly the whole time; only the sheet
+      lied. `test/shared/ui-modal-binding.test.ts` now holds every view to `v-model:open`.
+    -->
+    <Modal v-model:open="creating" :title="t('jobs.create')">
       <div class="flex flex-col gap-2">
         <TextField v-model="form.id" :label="t('jobs.id')" placeholder="nightly-backup" :hint="t('jobs.idHint')" />
         <TextField v-model="form.label" :label="t('common.label')" />
