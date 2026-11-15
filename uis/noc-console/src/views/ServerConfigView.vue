@@ -37,6 +37,19 @@ const config = computed<ServerConfig | null>(() => server.value?.config ?? null)
 const form = reactive(pageFormFrom(config.value ?? placeholderConfig()))
 
 /**
+ * The secret names as the form lists them **right now**, which is what feeds the value boxes.
+ *
+ * It has to be the draft rather than the saved entry: the saved one only changes when the panel sends
+ * a fresh view, i.e. after a save and a reopen — so a name typed into the textarea did not get a box
+ * until then. Blank lines are dropped and duplicates collapsed, the same normalisation the patch
+ * applies, so what is shown is what will be stored.
+ */
+const draftSecretNames = computed(() => [...new Set(String(form.secretEnv ?? '')
+  .split('\n')
+  .map(line => line.trim())
+  .filter(line => line.length > 0))])
+
+/**
  * The config the form was last filled from — detached, so it never moves with the store. A cleared
  * box falls back to it, and Save diffs against it: diffing against live state would write back the
  * old value of anything another client changed meanwhile.
@@ -386,7 +399,8 @@ async function remove(): Promise<void> {
       <SecretEnvBlock
         v-if="server && config"
         :server-id="server.id"
-        :config="config"
+        :declared="draftSecretNames"
+        :saved-declared="config.secretEnv ?? []"
         :set-names="server.secretEnvSet ?? []"
         :workspace-id="workspace.activeId.value"
         @changed="workspace.refresh()"

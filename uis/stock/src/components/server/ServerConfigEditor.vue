@@ -72,6 +72,27 @@ function wholeForm(): ServerEditForm {
   }
 }
 
+/**
+ * The secret names as they stand **in the form right now**, in the order typed.
+ *
+ * This is what feeds the value boxes. It has to be the draft rather than `props.config`: the config
+ * only changes when the panel sends a fresh view, i.e. after a save and a reopen, so a name typed
+ * into the textarea above did not reach its own value box until then.
+ *
+ * Blank lines are dropped and duplicates collapsed — the same normalisation `linesToArray` +
+ * the schema's own validation apply when the patch is built, so what is shown here is what will be
+ * stored.
+ */
+const draftSecretNames = computed(() => {
+  const seen = new Set<string>()
+  for (const raw of form.secretEnv.split('\n')) {
+    const name = raw.trim()
+    if (name.length > 0)
+      seen.add(name)
+  }
+  return [...seen]
+})
+
 /** Exactly what Save would write: the payload minus everything equal to what the form was filled with. */
 const patch = computed(() => serverEditPatch(wholeForm(), filled.value))
 
@@ -202,17 +223,6 @@ async function save(): Promise<void> {
         <TextField v-model="form.command" :label="t('common.command')" placeholder="node" required class="font-mono text-xs" />
         <TextField v-model="form.cwd" :label="t('serverForm.workingDirectory')" placeholder="." :hint="t('serverForm.cwdHint')" class="font-mono text-xs" />
         <TextField v-model="form.envFile" :label="t('serverForm.envFile')" :placeholder="t('serverForm.envFilePlaceholder')" :hint="t('serverForm.envFileHint')" class="font-mono text-xs" />
-        <!--
-          The declared secret **names**, one per line. The values are written by their own block below
-          (write-only); a `KEY=value` box here would put a secret into the form's model and its PATCH.
-        -->
-        <TextAreaField
-          v-model="form.secretEnv"
-          :label="t('serverForm.secretEnv')"
-          :placeholder="t('serverForm.secretEnvPlaceholder')"
-          :hint="t('serverForm.secretEnvHint')"
-          class="font-mono text-xs"
-        />
         <TextAreaField
           v-model="form.args"
           :label="t('serverForm.arguments')"
@@ -233,6 +243,33 @@ async function save(): Promise<void> {
           :rows="3"
           :hint="t('serverForm.dataEnvsHint')"
           placeholder="DATA_DIR={home}/.app"
+        />
+        <!--
+          The declared secret **names**, right below Data envs and directly above the boxes that store
+          their values. It used to sit above `args`, with the values in a separate panel at the bottom
+          of the page: setting one secret meant typing a name in one place and a value in another, far
+          apart, and the value boxes only appeared after a save and a reopen.
+        -->
+        <TextAreaField
+          v-model="form.secretEnv"
+          :label="t('secretEnv.env')"
+          :placeholder="t('secretEnv.envPlaceholder')"
+          :hint="t('secretEnv.envHint')"
+          class="font-mono text-xs"
+        />
+        <!--
+          The values, **beside the names that declare them** — the whole point of the move. They still
+          go through their own write-only route (the panel never sends a value back), but the boxes are
+          now driven by the live draft, so a name appears the moment it is typed.
+        -->
+        <SecretEnvBlock
+          class="sm:col-span-2"
+          :server-id="props.serverId"
+          :declared="draftSecretNames"
+          :saved-declared="props.config.secretEnv ?? []"
+          :set-names="props.secretEnvSet ?? []"
+          :workspace-id="props.workspaceId"
+          @changed="emit('saved')"
         />
         <TextAreaField
           v-model="form.backupPaths"
@@ -388,18 +425,6 @@ async function save(): Promise<void> {
           />
         </template>
       </FieldGroup>
-
-      <!--
-        The values, kept apart from the config form: they are written through their own write-only
-        route, after the entry is saved, so a declaration and its value are two separate acts.
-      -->
-      <SecretEnvBlock
-        :server-id="props.serverId"
-        :config="props.config"
-        :set-names="props.secretEnvSet ?? []"
-        :workspace-id="props.workspaceId"
-        @changed="emit('saved')"
-      />
     </div>
 
     <p v-if="error" class="mt-3 rounded-control border border-danger/40 bg-danger-soft px-2.5 py-1.5 font-mono text-2xs leading-4 text-danger">

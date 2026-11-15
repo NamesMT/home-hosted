@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import type { ServerConfig } from '@shared/contracts'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import SecretEnvBlock from '../src/components/server/SecretEnvBlock.vue'
@@ -15,13 +14,16 @@ import SecretEnvBlock from '../src/components/server/SecretEnvBlock.vue'
  * every input is masked and empty, and no box exists for a name the entry does not declare — because
  * declaration is the consent, so an undeclared name cannot be written through this screen either.
  */
-function config(secretEnv: string[]): ServerConfig {
-  return { id: 'app', command: 'node', args: [], secretEnv, env: {}, dataEnvs: {} } as unknown as ServerConfig
-}
-
-function mountBlock(setNames: string[]) {
+/**
+ * Mount with the **draft** names the caller passes.
+ *
+ * `declared` is what the form currently lists and `savedDeclared` is what the stored config has; a
+ * name in the first but not the second is typed-but-unsaved, and its box is disabled. The default
+ * here is the saved config, so every existing assertion keeps its meaning.
+ */
+function mountBlock(setNames: string[], declared = ['DATABASE_URL', 'API_KEY'], savedDeclared = declared) {
   return mount(SecretEnvBlock, {
-    props: { serverId: 'app', config: config(['DATABASE_URL', 'API_KEY']), setNames, workspaceId: 'default' },
+    props: { serverId: 'app', declared, savedDeclared, setNames, workspaceId: 'default' },
   })
 }
 
@@ -67,5 +69,44 @@ describe('the secret environment block', () => {
     finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+/**
+ * The two defects this block was rebuilt for.
+ *
+ * Both were reported from the running UI: a name typed into the form did not get a box until the
+ * config was saved and the page reopened, and setting one secret meant typing in two places far
+ * apart. The first is reactivity (`declared` must be the form draft, not the saved config), and the
+ * second is layout, which `test/shared/secret-env-layout.test.ts` pins.
+ */
+describe('a name typed into the form, not yet saved', () => {
+  it('gets a box as soon as it is declared, with no save', () => {
+    // One saved name, and the draft has grown a second one — the regression was the box not existing.
+    const wrapper = mountBlock([], ['DATABASE_URL', 'NEW_TOKEN'], ['DATABASE_URL'])
+    const labels = wrapper.findAll('input').map(input => input.attributes('aria-label'))
+    expect(labels).toEqual(['DATABASE_URL', 'NEW_TOKEN'])
+    wrapper.unmount()
+  })
+
+  it('marks it as needing a save, and refuses to take a value yet', () => {
+    const wrapper = mountBlock([], ['DATABASE_URL', 'NEW_TOKEN'], ['DATABASE_URL'])
+    expect(wrapper.text()).toMatch(/needs saving/i)
+    // The route refuses a value for a name the **stored** entry does not declare, so the box says so
+    // rather than letting a person type a secret and be answered with a 400.
+    const unsavedBox = wrapper.findAll('input')[1]!
+    expect(unsavedBox.attributes('disabled')).toBeDefined()
+    // The badge carries the instruction, and the box refuses input rather than letting a person type
+    // a secret that the route would then answer with a 400.
+    expect(wrapper.text()).toMatch(/needs saving/i)
+    wrapper.unmount()
+  })
+
+  it('loses a box when the name is removed from the form', () => {
+    const wrapper = mountBlock([], ['DATABASE_URL'], ['DATABASE_URL'])
+    return wrapper.setProps({ declared: [] }).then(() => {
+      expect(wrapper.findAll('input')).toHaveLength(0)
+      wrapper.unmount()
+    })
   })
 })

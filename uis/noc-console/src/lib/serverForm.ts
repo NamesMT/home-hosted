@@ -253,7 +253,7 @@ const COMMON = {
   loadTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, enabledBy: 'loadEnabled' },
   loadArgs: { label: 'args — one per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
   loadEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
-  secretEnv: { label: 'secret env names', control: 'textarea', rows: 2, placeholder: 'DATABASE_URL', hint: 'one name per line; the values live in the workspace secrets file, never in this config', full: true },
+  secretEnv: { label: 'secret env names', control: 'textarea', rows: 2, placeholder: 'DATABASE_URL', hint: 'one name per line — set each value in the boxes right below; values live in the workspace secrets file, never in this config', full: true },
   deploySteps: { label: 'deploy steps', control: 'textarea', rows: 3, placeholder: 'git pull', hint: 'one step per line: `command arg arg`. A failed step stops the sequence and leaves the running process alone', full: true },
   deployRestart: { label: 'restart after a successful deploy', control: 'check' },
 } satisfies Partial<Record<FieldKey, FieldSpec>>
@@ -375,7 +375,7 @@ export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
       sections: [
         {
           container: 'grid',
-          fields: ['enabled', 'onPortConflict', 'logBufferLines', 'maxRssMb', 'envFile', 'dependsOn', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated'],
+          fields: ['enabled', 'onPortConflict', 'logBufferLines', 'maxRssMb', 'envFile', 'dependsOn', 'env', 'dataEnvs', 'secretEnv', 'backupPaths', 'backupIgnoreGenerated'],
         },
         { container: 'lifecycle', fields: [] },
         {
@@ -388,7 +388,7 @@ export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
     },
   ],
   page: [
-    { container: 'pane', title: 'process', fields: ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated'] },
+    { container: 'pane', title: 'process', fields: ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'secretEnv', 'backupPaths', 'backupIgnoreGenerated'] },
     {
       container: 'pane',
       title: 'port & binding',

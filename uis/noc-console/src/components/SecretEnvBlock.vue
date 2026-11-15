@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { ServerConfig } from '@shared/contracts'
 import { computed, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import * as api from '@/lib/api'
@@ -15,15 +14,26 @@ import * as api from '@/lib/api'
  */
 const props = defineProps<{
   serverId: string
-  config: ServerConfig
   /** From the view: the declared names whose values are stored. */
   setNames: string[]
   workspaceId: string
+  /**
+   * The names as the **form draft** currently lists them.
+   *
+   * This was derived from `config` (the saved entry), so a name typed into the form got no box until
+   * the config was saved and the page reopened — the same reactivity bug the stock UI had.
+   */
+  declared: string[]
+  /** What the **stored** config declares: a name in `declared` but not here is typed-not-saved. */
+  savedDeclared: string[]
 }>()
 
 const emit = defineEmits<{ changed: [] }>()
 
-const declared = computed(() => props.config.secretEnv ?? [])
+const declared = computed(() => props.declared)
+const saved = computed(() => new Set(props.savedDeclared))
+/** A name typed in the form but not yet in the stored config: the route would refuse its value. */
+const unsaved = (name: string): boolean => !saved.value.has(name)
 const isSet = computed(() => new Set(props.setNames))
 
 /** One box per declared name, always blank — a blank box means "leave it alone". */
@@ -47,6 +57,10 @@ async function save(name: string): Promise<void> {
   const value = drafts[name] ?? ''
   // Blank is "do not touch": an empty variable reads as unset, so Remove is how a name is cleared.
   if (value.length === 0)
+    return
+  // A name that is typed but not saved is not declared in the stored entry, so the route would
+  // answer 400. The box is disabled, and this is the same rule for a keyboard submit.
+  if (unsaved(name))
     return
   busy.value = name
   error.value = null
@@ -98,7 +112,8 @@ async function remove(name: string): Promise<void> {
     <div v-for="name in declared" :key="name" class="field">
       <span class="field__label">
         <span class="mono">{{ name }}</span>
-        <span v-if="isSet.has(name)" class="chip chip--ok">set</span>
+        <span v-if="unsaved(name)" class="chip chip--warn">needs saving</span>
+        <span v-else-if="isSet.has(name)" class="chip chip--ok">set</span>
         <span v-else class="faint">— not set</span>
       </span>
       <div class="row">
@@ -107,11 +122,12 @@ async function remove(name: string): Promise<void> {
           type="password"
           autocomplete="new-password"
           spellcheck="false"
-          :placeholder="isSet.has(name) ? 'a value is stored — enter a new one to replace it' : 'enter a value…'"
+          :placeholder="unsaved(name) ? 'save the config first' : isSet.has(name) ? 'a value is stored — enter a new one to replace it' : 'enter a value…'"
           :aria-label="name"
+          :disabled="unsaved(name)"
           @keydown.enter.prevent="save(name)"
         >
-        <button type="button" class="btn btn--sm" :disabled="busy === name || (drafts[name] ?? '').length === 0" @click="save(name)">
+        <button type="button" class="btn btn--sm" :disabled="unsaved(name) || busy === name || (drafts[name] ?? '').length === 0" @click="save(name)">
           save
         </button>
         <!--

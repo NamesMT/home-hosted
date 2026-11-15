@@ -13,9 +13,15 @@ A sheet is named after the key's own prefix, so a key's home is decided by the k
 | `serverForm.portHint` | `serverForm.csv` |
 | `settings.ddns.updates` | `settings.ddns.csv` |
 | `settings.host.cpuTemp` | `settings.host.csv` |
+| `secretEnv.envHint` | `secretEnv.csv` |
 
 `settings.*`, `proxy.*` and `views.*` are large enough to shard one level deeper; every other prefix
-keeps all its keys in the file named after it. `test/i18n-catalog.test.ts` fails if a row sits in the
+keeps all its keys in the file named after it.
+
+`secretEnv.*` is its own prefix for a different reason: those strings all belong to one panel (the
+secret environment block), and keeping them inside `serverForm.csv` put that sheet at its size budget
+— so the budget started dictating how short a translation had to be. A prefix of its own keeps the
+prefix rule and the size rule from fighting. `test/i18n-catalog.test.ts` fails if a row sits in the
 wrong sheet, so this stays true without anyone remembering it.
 
 ## A row
