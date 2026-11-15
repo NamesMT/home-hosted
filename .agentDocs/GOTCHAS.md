@@ -169,6 +169,16 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   render after the whole block: the secret-values panel sat 1897 px below the names that declare it,
   which reads perfectly in a unit test that mounts the component alone. Assert position, and assert it
   in **every** UI — a scan pinned to one UI let the other drift. (`uis/noc-console/test/server-form-fields.test.ts`)
+  The **jobs** sheet is the third place this rule binds: a job declares `secretEnv` exactly as a
+  server does, so both UIs draw its value block under its names, and
+  `test/shared/secret-env-layout.test.ts` scans the stock sheet too. A new sheet that grows a names
+  field without a positional assertion is the next 1897 px.
+- **A control that explains a field goes after that field, through the layout — not at the pane's end.**
+  `FORM_LAYOUT` owns field order, so `FormSection.slots` names an anchor field and the renderer draws
+  the entry point's markup immediately after it, inside the same grid. A section-level slot can only
+  render after the whole block: the secret-values panel sat 1897 px below the names that declare it,
+  which reads perfectly in a unit test that mounts the component alone. Assert position, and assert it
+  in **every** UI — a scan pinned to one UI let the other drift. (`uis/noc-console/test/server-form-fields.test.ts`)
 - **With auth off, `authRequired` and `authenticated` never change** — watch
   `streamDecision(session)`, not the flags.
 - **A form copying live state guards per block and copies detached** — `/api/settings` lands after

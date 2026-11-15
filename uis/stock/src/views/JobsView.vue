@@ -3,11 +3,14 @@ import type { JobRow } from '@shared/api-client'
 import { secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import JobSecretEnvBlock from '@/components/job/JobSecretEnvBlock.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import FieldGroup from '@/components/ui/FieldGroup.vue'
 import Modal from '@/components/ui/Modal.vue'
 import NumberField from '@/components/ui/NumberField.vue'
+import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
@@ -49,13 +52,27 @@ const mode = ref<'create' | 'edit'>('create')
 /** The job being edited, by id. `null` while creating. */
 const editingId = ref<string | null>(null)
 
-const form = ref(blankForm())
+const form = ref<JobForm>(blankForm())
 
 /** How long a new job may run: the schema's own default, in the seconds the box shows. */
 const DEFAULT_TIMEOUT_SECONDS = 3600
 
-function blankForm(): { id: string, label: string, command: string, args: string, schedule: string, cwd: string, timeoutSeconds: number | null, enabled: boolean } {
-  return { id: '', label: '', command: '', args: '', schedule: '', cwd: '', timeoutSeconds: DEFAULT_TIMEOUT_SECONDS, enabled: true }
+/** What the sheet holds: the stored entry's fields, with the numeric and list boxes as text. */
+interface JobForm {
+  id: string
+  label: string
+  command: string
+  args: string
+  schedule: string
+  cwd: string
+  timeoutSeconds: number | null
+  enabled: boolean
+  /** The declared secret **names**, one per line. A value never enters this model. */
+  secretEnv: string
+}
+
+function blankForm(): JobForm {
+  return { id: '', label: '', command: '', args: '', schedule: '', cwd: '', timeoutSeconds: DEFAULT_TIMEOUT_SECONDS, enabled: true, secretEnv: '' }
 }
 
 async function refresh(): Promise<void> {
@@ -139,8 +156,8 @@ function startCreate(): void {
  *
  * Everything the stored entry carries is filled in from **it**, not from the form defaults: a save
  * that sent the defaults would quietly reset a `cwd`, a timeout or an `enabled` the person never
- * touched. Its `secretEnv` names are not patched from here: a field this sheet does not draw must
- * not be sent, and leaving it out of the body is what keeps the stored names.
+ * touched. Its `secretEnv` names are sent whole, because the sheet draws them and the patch replaces
+ * the list: a job's declaration is the consent for its values, so it has to be editable here.
  */
 function startEdit(job: JobRow): void {
   mode.value = 'edit'
@@ -154,6 +171,7 @@ function startEdit(job: JobRow): void {
     cwd: job.cwd ?? '',
     timeoutSeconds: job.timeoutMs === undefined ? DEFAULT_TIMEOUT_SECONDS : Math.round(job.timeoutMs / 1000),
     enabled: job.enabled,
+    secretEnv: (job.secretEnv ?? []).join('\n'),
   }
   error.value = null
   sheetOpen.value = true
@@ -163,6 +181,18 @@ function startEdit(job: JobRow): void {
 function argsOf(text: string): string[] {
   return text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
 }
+
+/** The declared secret names, deduplicated in the order they were typed. */
+function secretEnvOf(text: string): string[] {
+  return [...new Set(argsOf(text))]
+}
+
+/** The names the draft declares — the live list the value boxes are drawn from. */
+const draftSecretNames = computed(() => secretEnvOf(form.value.secretEnv))
+/** What the **stored** job declares: a name in the draft but not here cannot take a value yet. */
+const savedSecretNames = computed<string[]>(() => (mode.value === 'edit' ? jobs.value.find(job => job.id === editingId.value)?.secretEnv ?? [] : []))
+/** Which declared names have a stored value, from the row the panel last sent. */
+const setSecretNames = computed<string[]>(() => (mode.value === 'edit' ? jobs.value.find(job => job.id === editingId.value)?.secretEnvSet ?? [] : []))
 
 function labelOf(text: string): string | null {
   const trimmed = text.trim()
@@ -186,6 +216,7 @@ async function submit(): Promise<void> {
         cwd: form.value.cwd.trim().length === 0 ? '.' : form.value.cwd.trim(),
         timeoutMs: timeoutOf(),
         enabled: form.value.enabled,
+        secretEnv: secretEnvOf(form.value.secretEnv),
         ...(labelOf(form.value.label) === null ? {} : { label: labelOf(form.value.label) }),
       }, workspaceId.value)
     }
@@ -200,6 +231,7 @@ async function submit(): Promise<void> {
         cwd: form.value.cwd.trim().length === 0 ? '.' : form.value.cwd.trim(),
         timeoutMs: timeoutOf(),
         enabled: form.value.enabled,
+        secretEnv: secretEnvOf(form.value.secretEnv),
       }, workspaceId.value)
     }
     sheetOpen.value = false
@@ -388,6 +420,33 @@ const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : 
           :hint="t('jobs.timeoutHint')"
         />
         <ToggleSwitch v-model="form.enabled" :label="t('common.enabled')" />
+        <!--
+          The secret names and their value boxes are **one group**, and the boxes come directly after
+          the names that declare them — the same rule the server form keeps, and the reason
+          `test/shared/secret-env-layout.test.ts` scans for the order as well as the presence. The
+          block is fed the **live draft**, so a name appears the moment it is typed.
+        -->
+        <!--
+          The group's title only: the block below states what it writes and that no value comes back,
+          so a description here said the same thing twice, 20 px apart.
+        -->
+        <FieldGroup :title="t('jobs.secretGroup')" class="sm:col-span-2">
+          <TextAreaField
+            v-model="form.secretEnv"
+            :label="t('jobs.secretEnv')"
+            :hint="t('jobs.secretEnvHint')"
+            :rows="2"
+            placeholder="BACKUP_TOKEN"
+            class="sm:col-span-2"
+          />
+          <JobSecretEnvBlock
+            :job-id="editingId ?? ''"
+            :declared="draftSecretNames"
+            :saved-declared="savedSecretNames"
+            :set-names="setSecretNames"
+            @changed="refresh()"
+          />
+        </FieldGroup>
       </div>
       <template #footer>
         <AppButton size="sm" variant="ghost" @click="sheetOpen = false">

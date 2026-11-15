@@ -86,7 +86,8 @@ whatever is stored", which is what the form displayed.
 A job's **secret values** are set from the same sheet, in the block directly under the names that
 declare them: one masked box per declared name, a "needs saving" marker on a name typed but not yet
 stored, and a remove that confirms. The panel never sends a value back, so a box is always empty and
-a stored name reads only as *set*.
+a stored name reads only as *set*. A value cannot be set from a sheet that is still creating the job —
+the store is keyed by the job id — so the block says so until the job exists.
 
 ## Running one
 

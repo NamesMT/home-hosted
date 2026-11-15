@@ -29,6 +29,39 @@ import { describe, expect, it } from 'vitest'
  */
 const root = process.cwd()
 
+/**
+ * The **jobs** sheet keeps the same rule, and it is a `Modal` rather than a page.
+ *
+ * A job declares `secretEnv` exactly as a server does, and its value boxes are the same block against
+ * a different route — so the ordering has to hold here too, and the scan that covered only the
+ * server editor would have measured the wrong file the moment the sheet grew a names field.
+ */
+describe('the jobs sheet puts the secret names and their values together', () => {
+  const source = fs.readFileSync(path.join(root, 'uis/stock/src/views/JobsView.vue'), 'utf8')
+
+  it('renders the names and the value boxes in one group, boxes after names', () => {
+    const names = source.indexOf('v-model="form.secretEnv"')
+    const block = source.indexOf('<JobSecretEnvBlock')
+    expect(names, 'the secret names field must exist').toBeGreaterThan(-1)
+    expect(block, 'the value block must be rendered').toBeGreaterThan(-1)
+    expect(block, 'the boxes belong under the names that declare them').toBeGreaterThan(names)
+
+    // The group opens before the names and closes after the block: one group, not two.
+    const groupStart = source.lastIndexOf('<FieldGroup', names)
+    const groupEnd = source.indexOf('</FieldGroup>', names)
+    expect(groupStart, 'the names belong in a FieldGroup').toBeGreaterThan(-1)
+    expect(block, 'the block must be inside the group, not after it').toBeLessThan(groupEnd)
+  })
+
+  it('feeds the block the live draft and the stored declaration separately', () => {
+    // A name typed into the names box must get a box immediately, and a name not yet saved must be
+    // marked inert — the two lists are what tell those apart.
+    expect(source).toContain(':declared="draftSecretNames"')
+    expect(source).toContain(':saved-declared="savedSecretNames"')
+    expect(source).toContain(':set-names="setSecretNames"')
+  })
+})
+
 describe.each([
   ['stock', 'uis/stock/src/components/server/ServerConfigEditor.vue'],
 ])('%s puts the secret names and their values together', (_ui, file) => {
