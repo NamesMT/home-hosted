@@ -34,6 +34,11 @@ panel that quietly stopped running a backup.
 - `home-hosted run <id>` → `home-hosted job run <id>`, with `home-hosted job ls` beside it.
 - `POST /api/servers/:id/run` → `POST /api/jobs/:id/run`, plus `POST /api/jobs/:id/stop`.
 - The `job` block on a server view, and the `NEXT RUN` column in `home-hosted ls`.
+- **A job's stdout/stderr out of the panel log.** It goes to that job's own file now —
+  `.hh/<workspace>/.logs/jobs/<id>.log` — and `home-hosted job log <id>` (or the **log** button on
+  the Jobs page) reads it. The panel log keeps the summary lines only. If you were tailing the panel
+  log at DEBUG to follow a backup, read `job log` instead: it has the same output, it is there
+  whether or not the panel is verbose, and it is kept per job.
 
 **What you gain:** jobs are no longer explained twice. The Servers page has no `kind` column and no
 schedule field, its table has four columns always, and the rules about what a job may not declare
