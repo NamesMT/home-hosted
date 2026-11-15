@@ -4,6 +4,7 @@ import type { JobForm } from '@/lib/jobForm'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import ConfirmButton from '@/components/ConfirmButton.vue'
+import JobLogSheet from '@/components/JobLogSheet.vue'
 import JobSecretEnvBlock from '@/components/JobSecretEnvBlock.vue'
 import JobSheet from '@/components/JobSheet.vue'
 import { flash } from '@/composables/useUi'
@@ -46,6 +47,8 @@ const saving = ref(false)
 const editing = computed<JobRow | null>(() => jobs.value.find(job => job.id === editingId.value) ?? null)
 /** The panel's refusal, shown *in* the sheet rather than behind it. */
 const sheetError = ref<string | null>(null)
+/** The job whose log sheet is open, by id; `null` while it is shut. */
+const logFor = ref<string | null>(null)
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -249,6 +252,11 @@ function when(ms: number | null | undefined): string {
             <button type="button" class="btn btn--sm" :disabled="busy === job.id" @click="startEdit(job)">
               edit
             </button>
+            <!-- A failed run's own output is the one thing needed to debug it, so it is one click
+                 from the row rather than buried behind a page of its own. -->
+            <button type="button" class="btn btn--sm" @click="logFor = job.id">
+              log
+            </button>
             <!--
               Disabling confirms; enabling does not. Turning a job off stops the schedule that
               exists to run it, which is the kind of thing a stray click should not do. Enabling
@@ -298,5 +306,11 @@ function when(ms: number | null | undefined): string {
         />
       </template>
     </JobSheet>
+
+    <JobLogSheet
+      :open="logFor !== null"
+      :job-id="logFor ?? ''"
+      @close="logFor = null"
+    />
   </div>
 </template>

@@ -15,7 +15,7 @@
  * names, and three drifts. The only genuine difference was *where the workspace comes from*, which
  * is now one injected resolver — see `useWorkspaceResolver`.
  */
-import type { AppState, BackupSelection, DdnsConfig, DdnsView, FreePortResult, JobRunResultBody, LogHistoryView, LogServerView, ProxyPatch, ProxyView, RestorePlan, ServerCreate, ServerPatch, ServerView, SessionView, SettingsPatch, SettingsSaved, SettingsView, UiStatus, WorkspaceCreate, WorkspaceSettingsPatch, WorkspaceSettingsView, WorkspaceView, WslTemperatureStatus } from './contracts'
+import type { AppState, BackupSelection, DdnsConfig, DdnsView, FreePortResult, JobLogView, JobRunResultBody, LogHistoryView, LogServerView, ProxyPatch, ProxyView, RestorePlan, ServerCreate, ServerPatch, ServerView, SessionView, SettingsPatch, SettingsSaved, SettingsView, UiStatus, WorkspaceCreate, WorkspaceSettingsPatch, WorkspaceSettingsView, WorkspaceView, WslTemperatureStatus } from './contracts'
 import { type } from 'arktype'
 import { accountCreateSchema, accountPatchSchema, accountSecretSchema, backupSelectionSchema, ddnsViewSchema, freePortResultSchema, logHistoryViewSchema, loginSchema, logServersViewSchema, proxyCertificateUploadSchema, proxyPatchSchema, proxyViewSchema, settingsPatchSchema, settingsSavedSchema, tlsReviewResponseSchema, tlsUploadSchema, workspaceCreateSchema, workspaceRenameSchema, workspaceSettingsPatchSchema, workspaceSettingsViewSchema, workspaceViewSchema } from './contracts'
 import { parseState } from './live-frames'
@@ -827,6 +827,29 @@ export function updateJob(id: string, patch: {
   timeoutMs?: number
 }, workspace?: string | null): Promise<{ job: JobRow }> {
   return request<{ job: JobRow }>(scoped(`/api/jobs/${encodeURIComponent(id)}`, workspace), { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+/**
+ * A job's own log: what its last runs wrote.
+ *
+ * `tail`/`search`/`stream` are a server's log filters, unchanged — a job log is the same JSONL, so the
+ * same controls work on it. `enabled` is the workspace's `logs.persist`: off means the panel keeps
+ * nothing, and a page must say that rather than show an empty log as "the run printed nothing".
+ */
+export function fetchJobLog(
+  id: string,
+  query: { tail?: number, search?: string, stream?: string } = {},
+  workspace?: string | null,
+): Promise<JobLogView> {
+  const params = new URLSearchParams()
+  if (query.tail !== undefined)
+    params.set('tail', String(query.tail))
+  if (query.search !== undefined && query.search.length > 0)
+    params.set('search', query.search)
+  if (query.stream !== undefined && query.stream.length > 0)
+    params.set('stream', query.stream)
+  const suffix = params.size === 0 ? '' : `?${params.toString()}`
+  return request<JobLogView>(scoped(`/api/jobs/${encodeURIComponent(id)}/log${suffix}`, workspace))
 }
 
 /** Ends a run in flight. Its record is marked cancelled, so its non-zero status is not a failure. */

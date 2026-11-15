@@ -1,7 +1,7 @@
 import type { JobRunResultBody } from '#src/shared/contracts'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { dim, fail, green, invocation } from '#src/cli/io'
+import { dim, fail, green, invocation, paint } from '#src/cli/io'
 
 /**
  * `home-hosted job` — a workspace's jobs: list them, and run one.
@@ -116,7 +116,10 @@ export const jobRunCommand = defineCommand({
       return
     }
     process.stdout.write(`${green('ran')} ${id} — ${jobRunLine(body)}\n`)
-    process.stdout.write(`${dim(`its output is in the panel's log — \`${invocation()} logs\``)}\n`)
+    // The job's **own** log, not the panel's: a run's output is written to `<id>.log` under the
+    // workspace's job-log directory, and the panel log keeps only the summary lines. Sending a person
+    // to the panel log to find their script's output is how this command's own message was wrong.
+    process.stdout.write(`${dim(`its output is in the job's own log — \`${invocation()} job log ${id}\``)}\n`)
     if (body.exitCode !== 0 || body.cancelled === true)
       process.exitCode = 1
   },
@@ -132,8 +135,60 @@ export function jobRunLine(outcome: { exitCode?: number | null, signal?: string 
   return `exit code ${outcome.exitCode ?? '?'} after ${took}`
 }
 
-/** The `job` group: `ls`, `run`. */
+/** `home-hosted job log <id>` — what this job's runs wrote, newest last. */
+export const jobLogCommand = defineCommand({
+  meta: { name: 'log' },
+  args: {
+    id: { type: 'positional', required: false, description: 'the job id from the workspace\'s jobs.config.json' },
+    workspace: workspaceArg,
+    json: { type: 'boolean', description: 'print one document on stdout' },
+  },
+  async run({ args }) {
+    const id = typeof args.id === 'string' ? args.id.trim() : ''
+    if (id.length === 0)
+      fail(`job log needs a job id — see \`${invocation()} job ls\``)
+    const workspace = typeof args.workspace === 'string' ? args.workspace.trim() : undefined
+
+    const { readRuntime, requestControl, runtimeIsAlive } = await import('#src/helpers/daemon')
+    const runtime = readRuntime()
+    if (runtime === null || !await runtimeIsAlive(runtime))
+      fail(`home-hosted is not running — a job's log is written by the panel, so start it with \`${invocation()} up\``)
+
+    const where = workspace === undefined || workspace.length === 0 ? '' : `?workspace=${encodeURIComponent(workspace)}`
+    const answer = await requestControl(runtime, `/_hh/jobs/${encodeURIComponent(id)}/log${where}`, 15_000, 'GET')
+    if (answer === null)
+      fail(`the control panel is not answering on ${runtime.probeUrl}`)
+    if (answer.status !== 200) {
+      const body = (answer.body ?? {}) as { message?: string }
+      fail(body.message ?? `the panel answered ${answer.status}`)
+    }
+
+    const body = (answer.body ?? { lines: [] }) as { enabled?: boolean, lines: Array<{ ts: number, stream: string, text: string }> }
+    // `--json` prints **one document on stdout or nothing**, so an empty log is `{ lines: [] }` rather
+    // than silence — a caller branching on it must not read "not a log" from "no output".
+    if (args.json === true) {
+      process.stdout.write(`${JSON.stringify({ job: id, lines: body.lines ?? [] })}\n`)
+      return
+    }
+    if (body.enabled === false) {
+      process.stdout.write(`${dim('the panel keeps no job logs — enable "persist" in the workspace log settings')}\n`)
+      return
+    }
+    const lines = body.lines ?? []
+    if (lines.length === 0) {
+      process.stdout.write(`${dim(`no output yet — this job has not run since it was declared`)}`)
+      process.stdout.write('\n')
+      return
+    }
+    for (const line of lines) {
+      const stamp = new Date(line.ts).toISOString().slice(11, 23)
+      process.stdout.write(`${dim(stamp)} ${line.stream === 'stderr' ? paint('31', line.stream) : line.stream.padEnd(6)} ${line.text}\n`)
+    }
+  },
+})
+
+/** The `job` group: `ls`, `run`, `log`. */
 export const jobCommand = defineCommand({
   meta: { name: 'job' },
-  subCommands: { ls: jobListCommand, run: jobRunCommand },
+  subCommands: { ls: jobListCommand, run: jobRunCommand, log: jobLogCommand },
 })

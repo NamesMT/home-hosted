@@ -17,7 +17,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 import { selectionOf } from '#src/shared/backup-scope'
-import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, jobRunResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverSecretsSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, jobLogViewSchema, jobRunResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverSecretsSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam } from '#src/shared/query-params'
 
@@ -129,6 +129,39 @@ export function createControlRoute(deps: AppDeps) {
         assertLocalCall(c, 'list jobs')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         return c.json({ jobs: runtime.jobs.list() })
+      },
+    )
+
+    /**
+     * A job's own log, over the local channel — `home-hosted job log <id>` while the panel runs.
+     *
+     * The same lines `GET /api/jobs/:id/log` serves, and the same reader behind both. The CLI needs
+     * this because a run's output is **no longer** in the panel log: it goes to the job's own file, so
+     * a command that told a person to read the panel log was pointing at the wrong place.
+     */
+    .get(
+      '/jobs/:id/log',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'A job\'s own log lines (local token required)',
+        responses: { 200: { description: 'Lines', content: jsonBody(jobLogViewSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      async (c) => {
+        assertLocalCall(c, 'read a job log')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        if (runtime.jobs.get(id) === null)
+          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+        const info = runtime.jobs.logInfo(id)
+        return c.json({
+          jobId: id,
+          enabled: info.enabled,
+          sizeBytes: info.sizeBytes,
+          files: info.files.map(file => file.name),
+          lines: await runtime.jobs.readLog(id, 500),
+        })
       },
     )
 

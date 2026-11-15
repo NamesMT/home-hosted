@@ -87,6 +87,11 @@ const RULES: Record<string, TokenScopeRule> = {
   'PUT /api/jobs/:id/secrets': { scope: 'config', workspaceScoped: true },
   'POST /api/jobs/:id/run': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/jobs/:id/stop': { scope: 'lifecycle', workspaceScoped: true },
+  // A job's own log is a read, like a server's: it says what the run printed, and it is written by the
+  // panel, not by the caller. Without a rule here the route answered `404 NOT_FOUND` for every
+  // authenticated caller, because this guard runs before routing and refuses a path it cannot classify
+  // — a route that exists, shipped unreachable.
+  'GET /api/jobs/:id/log': { scope: 'read', workspaceScoped: true },
   'POST /api/servers/:id/clear-logs': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/start-all': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/stop-all': { scope: 'lifecycle', workspaceScoped: true },

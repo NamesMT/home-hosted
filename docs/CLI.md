@@ -124,6 +124,8 @@ home-hosted job ls                                  # id, expression, and whethe
 home-hosted job ls --json                           # { jobs: [{ id, schedule, nextRunAt, lastRunAt, lastExitCode, running }] }
 home-hosted job run nightly-backup                  # waits; exits 0 when the exit code is 0
 home-hosted job run nightly-backup --json           # { job, ok, exitCode, signal, durationMs, cancelled }
+home-hosted job log nightly-backup                  # what its runs wrote, newest last
+home-hosted job log nightly-backup --json           # { job, lines: [{ ts, stream, text }] }
 ```
 
 `job run` **waits** and exits non-zero on a failed run: a job's exit code *is* its outcome, and a

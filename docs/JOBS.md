@@ -141,9 +141,32 @@ all work. Sunday is both `0` and `7`. When **both** day fields are restricted, a
 
 ## Where a run's result goes
 
-A run's output goes to the panel's log, and each run records a **`job-run`** history event carrying
-its exit code and how long it took. A **failed run notifies like a crash** — a backup that did not run
-is the same news to a reader as a service that stopped.
+**A run's own output goes to that job's own log file**, one JSONL file per job id under the
+workspace's `.logs/jobs/`. It is the same format, rotation and retention a server's log has (`logs.
+persist`, `maxBytes`, `keep`), read by the same tailer — a job log is not a second kind of log.
+
+It used to go to the panel log at **DEBUG**, which nobody runs a home panel at, so a failed backup's
+own output was in practice unreadable: the one thing needed to debug the run was the one thing not
+written anywhere a person would look. The panel log now keeps only the summary lines (started,
+finished, stopped, failed), and the run's stdout and stderr go to the file.
+
+```bash
+home-hosted job log nightly-backup          # what the last runs wrote, newest last
+home-hosted job log nightly-backup --json   # one document, `{ job, lines }`
+```
+
+The Jobs page has a **log** button per row for the same content, with a stream filter. Both read
+`GET /api/jobs/:id/log`, which takes a server log's `tail`/`search`/`stream`/`since`/`before`
+unchanged. A job that has not run answers an empty list, not a `404`; a workspace with
+`logs.persist` off answers `enabled: false`, and both UIs say the panel keeps nothing rather than
+showing an empty log as "the run printed nothing".
+
+A removed job's log is deleted with it, so re-declaring the same id does not inherit a dead run's
+output.
+
+Each run also records a **`job-run`** history event carrying its exit code and how long it took, and
+a **failed run notifies like a crash** — a backup that did not run is the same news to a reader as a
+service that stopped.
 
 The Jobs page shows the expression, the next run, the last run and the last exit code.
 

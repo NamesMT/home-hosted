@@ -7,7 +7,7 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
-import { jobCreateSchema, jobEntryViewSchema, jobPatchSchema, jobsListSchema, okResponseSchema, serverSecretsSchema } from '#src/shared/contracts'
+import { jobCreateSchema, jobEntryViewSchema, jobLogViewSchema, jobPatchSchema, jobsListSchema, logHistoryQuerySchema, okResponseSchema, serverSecretsSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam } from '#src/shared/query-params'
 
@@ -22,6 +22,14 @@ import { booleanParam } from '#src/shared/query-params'
 const idParam = lazy(() => type({ id: 'string >= 1' }))
 const jobResponse = lazy(() => type({ job: jobEntryViewSchema }))
 const jobsQuery = lazy(() => type({ 'wait?': booleanParam }).merge(workspaceQuerySchema))
+/**
+ * A job's log window: the same 50–5000 bound and the same default as a server's.
+ *
+ * Not a second query schema: `logHistoryQuerySchema` already carries the search and stream filters and
+ * the cursor bounds, and a job log is the same JSONL. Reusing it means a page can offer the same
+ * controls without a second set of rules, and a caller gets the same `400` for `tail=3`.
+ */
+const jobLogQuery = lazy(() => logHistoryQuerySchema.merge(workspaceQuerySchema))
 
 /**
  * A jobs-file failure as the answer it deserves.
@@ -132,6 +140,9 @@ export function createJobsRoute(deps: AppDeps) {
         void runtime.jobs.stop(id)
         if (!runtime.jobs.jobs.remove(id))
           throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+        // The log goes with it. A re-declared job of the same id must not inherit a dead run's output
+        // — the same rule the supervisor applies when a server entry disappears.
+        runtime.jobs.clearLog(id)
         return c.json({ ok: true })
       },
     )
@@ -210,6 +221,72 @@ export function createJobsRoute(deps: AppDeps) {
           runtime.secrets.setServerEnv(id, next)
         }
         return c.json({ ok: true })
+      },
+    )
+
+    /**
+     * A job's own log: what its last runs wrote.
+     *
+     * A run's output went to the panel log at DEBUG, which nobody enables — so a failed backup's own
+     * output, the one thing needed to debug it, was not readable anywhere. The service writes it to a
+     * JSONL file per job id now, and this serves it through the same tail reader a server's log uses.
+     *
+     * `tail`/`search`/`stream`/`since`/`before` are `logHistoryQuerySchema`'s, unchanged: a job log is
+     * the same JSONL, so the filters and their bounds are the same answer rather than a second one.
+     */
+    .get(
+      '/jobs/:id/log',
+      describeRoute({
+        tags: ['jobs'],
+        summary: 'A job\'s own log lines, with search and a stream filter',
+        responses: { 200: { description: 'Lines', content: jsonBody(jobLogViewSchema) }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', jobLogQuery),
+      validate('param', idParam),
+      async (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        if (runtime.jobs.get(id) === null)
+          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+
+        const query = c.req.valid('query')
+        const tail = query.tail ?? 500
+        const info = runtime.jobs.logInfo(id)
+
+        // A filter keeps only *some* of the lines, so it reads the whole readable window rather than
+        // the display tail: "the last 500 stderr lines" among the last 500 overall is a different
+        // question, and the shorter answer reads as "nothing was logged".
+        const search = query.search?.trim() ?? ''
+        const stream = query.stream ?? ''
+        const window = search.length > 0 || stream.length > 0 || query.since !== undefined || query.before !== undefined
+          ? Math.max(tail, 5000)
+          : tail
+
+        let lines = await runtime.jobs.readLog(id, window)
+        if (stream.length > 0)
+          lines = lines.filter(line => line.stream === stream)
+
+        if (search.length > 0) {
+          const needle = search.toLowerCase()
+          lines = lines.filter(line => line.text.toLowerCase().includes(needle))
+        }
+
+        // The cursors are exclusive on both ends, exactly as on a server's log, so a client polling in
+        // both directions never sees a line twice.
+        if (query.since !== undefined)
+          lines = lines.filter(line => line.ts > query.since!).slice(0, tail)
+        else if (query.before !== undefined)
+          lines = lines.filter(line => line.ts < query.before!).slice(-tail)
+        else
+          lines = lines.slice(-tail)
+
+        return c.json({
+          jobId: id,
+          enabled: info.enabled,
+          sizeBytes: info.sizeBytes,
+          files: info.files.map(file => file.name),
+          lines,
+        })
       },
     )
 

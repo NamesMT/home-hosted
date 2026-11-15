@@ -23,6 +23,7 @@ import {
   workspaceDdnsStatePath,
   workspaceDir,
   workspaceHistoryPath,
+  workspaceJobsLogsDir,
   workspaceLegacyDdnsStatePath,
   workspaceLogsDir,
   workspaceSecretsPath,
@@ -564,6 +565,10 @@ export class PanelService {
      */
     const jobs = new JobsService({
       workspaceId: id,
+      logDir: workspaceJobsLogsDir(id),
+      // A job log obeys the workspace's own `logs` group: `persist` off keeps nothing, and a person
+      // who bounded a server's log meant the same about a job's.
+      logs: () => store.logs,
       onStateChange: () => this.scheduleState(),
       // A job's `secretEnv` resolves through the same store a server's does. The names are per-id, so
       // a job reads its own entry only — never another job's or a server's values.

@@ -119,4 +119,74 @@ describe('running a job', () => {
     expect((listed?.nextRunAt ?? 0) > Date.now()).toBe(true)
     service.dispose()
   })
+
+  /**
+   * A run's own output goes to its **own** log file.
+   *
+   * It went to the panel log at DEBUG, which nobody enables — so a failed backup's own output, the one
+   * thing needed to debug it, was readable nowhere. The view advertised a `logPath` nothing served.
+   */
+  it('writes a run\'s output to the job\'s own log, and reads it back', async () => {
+    const { service } = await workspace([{ id: 'noisy', command: process.execPath, args: ['-e', 'console.log("hello from the run")'] }])
+    await service.run('noisy')
+
+    const lines = await service.readLog('noisy', 100)
+    expect(lines.map(line => line.text)).toContain('hello from the run')
+    // The summary line is in it too, so a log read on its own says how the run ended.
+    expect(lines.some(line => /finished in \d+s/.test(line.text))).toBe(true)
+    service.dispose()
+  })
+
+  it('keeps job logs apart by id, and away from each other', async () => {
+    const { service } = await workspace([
+      { id: 'first', command: process.execPath, args: ['-e', 'console.log("from first")'] },
+      { id: 'second', command: process.execPath, args: ['-e', 'console.log("from second")'] },
+    ])
+    await service.run('first')
+    await service.run('second')
+
+    expect((await service.readLog('first', 100)).map(line => line.text)).not.toContain('from second')
+    expect((await service.readLog('second', 100)).map(line => line.text)).toContain('from second')
+    service.dispose()
+  })
+
+  /**
+   * The log is served the moment the run resolves, not on a later timer.
+   *
+   * `LogFiles` batches writes on a 250 ms timer, so a caller that runs a job and then reads its log —
+   * the API's wait-for-exit, the CLI, a page that ran and refreshed — was answered with a log that did
+   * not contain the run it had just watched finish.
+   */
+  it('has the run\'s lines on disk when `run` resolves, with no wait', async () => {
+    const { service } = await workspace([{ id: 'prompt', command: process.execPath, args: ['-e', 'console.log("immediate")'] }])
+    await service.run('prompt')
+    // No delay, no poll: the answer must already be there.
+    expect((await service.readLog('prompt', 100)).map(line => line.text)).toContain('immediate')
+    service.dispose()
+  })
+
+  /**
+   * A removed job's log goes with it, so a re-declared id starts clean.
+   *
+   * A job id is unique only among the jobs in one file: re-declaring one under an id it used to have is
+   * an ordinary edit, and inheriting a dead run's output under it is the bug the supervisor already
+   * fixed for servers.
+   */
+  it('drops the log when the job does, so a re-declared id starts clean', async () => {
+    const { service } = await workspace([{ id: 'gone', command: process.execPath, args: ['-e', 'console.log("old run")'] }])
+    await service.run('gone')
+    expect((await service.readLog('gone', 100)).map(line => line.text)).toContain('old run')
+
+    service.clearLog('gone')
+    expect(await service.readLog('gone', 100)).toEqual([])
+    service.dispose()
+  })
+
+  it('tells a page where the log is, on the view it lists', async () => {
+    const { service } = await workspace([{ id: 'located' }])
+    const [listed] = service.list()
+    expect(listed?.logPath).toBeTypeOf('string')
+    expect(listed?.logPath.endsWith('located.log')).toBe(true)
+    service.dispose()
+  })
 })

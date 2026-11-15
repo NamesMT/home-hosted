@@ -436,7 +436,14 @@ export const jobEntryViewSchema = lazy(() => type({
   'lastRunAt?': 'number',
   'lastExitCode?': 'number | null',
   'running': 'boolean',
-  /** Where its output goes: the workspace's job log for this id. */
+  /**
+   * Where the run's own output is written: one JSONL file per job id, in the workspace's `jobs/` log
+   * directory.
+   *
+   * Served, not just advertised: `GET /api/jobs/:id/log` reads it through the same tail reader a
+   * server's log uses, and the Jobs page shows it. It was an optional field nothing answered for a
+   * while, which reads to a client as "the panel keeps this and will not show it".
+   */
   'logPath?': 'string',
   /**
    * The secret environment **names** this job declares, and which of them have a stored value.
@@ -2741,6 +2748,21 @@ export const bufferedLogsResponseSchema = lazy(() => type({
  * This is the shape the UIs parse (`logHistoryViewSchema` below is the same thing with its own
  * name for the client side), and it is what `logLinesResponseSchema` should always have been.
  */
+/**
+ * One job's own log lines, plus what the page needs to explain an empty answer.
+ *
+ * `enabled` is the workspace's `logs.persist`, which a job log obeys like a server's: off means the
+ * panel keeps nothing, and a page must say so rather than claim the run printed nothing.
+ */
+export const jobLogViewSchema = lazy(() => type({
+  jobId: 'string',
+  enabled: 'boolean',
+  sizeBytes: 'number',
+  files: 'string[]',
+  lines: logLineSchema.array(),
+}))
+export type JobLogView = typeof jobLogViewSchema.infer
+
 export const logLinesResponseSchema = lazy(() => type({
   serverId: 'string',
   enabled: 'boolean',

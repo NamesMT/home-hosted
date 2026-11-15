@@ -3,6 +3,7 @@ import type { JobRow } from '@shared/api-client'
 import { secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import JobLogModal from '@/components/job/JobLogModal.vue'
 import JobSecretEnvBlock from '@/components/job/JobSecretEnvBlock.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -45,6 +46,9 @@ const error = ref<string | null>(null)
 const busy = ref<string | null>(null)
 /** The outcome of the last run this page started, kept visible beside the row that produced it. */
 const outcome = ref<{ id: string, text: string, ok: boolean } | null>(null)
+
+/** The job whose log sheet is open, by id; `null` while it is shut. */
+const logFor = ref<string | null>(null)
 
 /** Which sheet is open, and what it is doing: one Modal, two modes. */
 const sheetOpen = ref(false)
@@ -354,6 +358,11 @@ const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : 
               <AppButton size="xs" variant="ghost" :disabled="busy === job.id" @click="startEdit(job)">
                 {{ t('common.edit') }}
               </AppButton>
+              <!-- A failed run's own output is the one thing needed to debug it, so it is one click
+                   from the row rather than buried behind a page of its own. -->
+              <AppButton size="xs" variant="ghost" @click="logFor = job.id">
+                {{ t('jobs.log') }}
+              </AppButton>
               <ConfirmButton
                 v-if="job.enabled"
                 :label="t('jobs.disable')"
@@ -457,5 +466,11 @@ const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : 
         </AppButton>
       </template>
     </Modal>
+    <JobLogModal
+      :open="logFor !== null"
+      :job-id="logFor ?? ''"
+      :now="control.now.value"
+      @update:open="(value: boolean) => { if (!value) logFor = null }"
+    />
   </div>
 </template>

@@ -1,11 +1,13 @@
 import type { ResolvedSpawn } from '#src/services/supervisor/entry'
-import type { JobConfig, JobEntryView } from '#src/shared/contracts'
+import type { JobConfig, JobEntryView, LogLine, LogsConfig } from '#src/shared/contracts'
+import path from 'node:path'
 import process from 'node:process'
 import { JobStore } from '#src/config/jobs'
 import { logger } from '#src/helpers/logger'
-import { projectDir, workspaceJobsPath } from '#src/helpers/paths'
+import { projectDir, workspaceJobsLogsDir, workspaceJobsPath } from '#src/helpers/paths'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { resolveCommand, resolveCwd } from '#src/providers/process'
+import { LogFiles } from '#src/services/log-files'
 import { JobScheduler } from '#src/services/scheduler'
 import { spawnJobRun, stopJobRun } from '#src/services/supervisor/job-run'
 import { nextCronRun, parseCron } from '#src/shared/cron'
@@ -22,6 +24,14 @@ import { nextCronRun, parseCron } from '#src/shared/cron'
  * it deliberately does not borrow is the service lifecycle — no readiness wait, no health probe, no
  * restart policy, no nanny — because a job has none of those.
  */
+
+/**
+ * The retention a job log gets when the caller passes none.
+ *
+ * The `logs` group's own defaults, spelled here rather than read from the schema so a service can be
+ * built with no settings store at all (a test, a CLI caller). A panel always passes the workspace's.
+ */
+const DEFAULT_JOB_LOGS: LogsConfig = { persist: true, maxBytes: 2_000_000, keep: 3 }
 
 /** Where a run's output goes. One file per job id, so a job's history is readable on its own. */
 export interface JobRunRecord {
@@ -43,6 +53,23 @@ export interface JobsServiceOptions {
    * import would resolve to the default home — which is somebody's real one.
    */
   file?: string
+  /**
+   * Where a run's output is kept, and whether it is kept at all.
+   *
+   * The same `logs` group a workspace's servers obey: `persist` off writes no file, and `maxBytes`/
+   * `keep` bound one. Omitted, this service keeps its own files under the workspace's own job-log
+   * directory with the contract's defaults — which is what a test wants, and never what a panel
+   * builds (it passes the workspace's settings).
+   */
+  logs?: () => LogsConfig
+  /**
+   * The directory those files live in. Omitted, it is the workspace's own job-log directory.
+   *
+   * A caller that already knows its root passes it the same way it passes `file`: `dataRoot` is a
+   * module-level constant, so a test cannot redirect it, and deriving the directory from `file`'s
+   * parent would put a fixture's logs next to its own `jobs.config.json` rather than under `.logs/`.
+   */
+  logDir?: string
   /** Notified when a job's state changes, so the panel publishes a frame. */
   onStateChange?: () => void
   /** A run finished: the caller records it in the workspace history and notifies on failure. */
@@ -76,6 +103,16 @@ function secretEnvSetFor(reader: ((jobId: string) => Record<string, string>) | u
 export class JobsService {
   private readonly store: JobStore
   private readonly scheduler: JobScheduler
+  /**
+   * One JSONL file per job id, in the workspace's own `jobs/` log directory.
+   *
+   * A run's output used to go to the panel log at DEBUG, which meant a failed backup's own output was
+   * invisible: nobody runs the panel at debug level, so the one thing a person needs to debug a run
+   * was the one thing not written. It is a `LogFiles` with the same rotation, the same tail reader and
+   * the same retention a server's log has, under a directory of its own because a job id and a server
+   * id are unique in different namespaces (`workspaceJobsLogsDir`).
+   */
+  private readonly logs: LogFiles
   /** One run in flight per job id — the same rule the supervisor applies, at this level. */
   /**
    * One entry per run in flight.
@@ -89,6 +126,7 @@ export class JobsService {
 
   constructor(private readonly options: JobsServiceOptions) {
     this.store = new JobStore(options.file ?? workspaceJobsPath(options.workspaceId))
+    this.logs = new LogFiles(options.logDir ?? workspaceJobsLogsDir(options.workspaceId), () => options.logs?.() ?? DEFAULT_JOB_LOGS)
     this.scheduler = new JobScheduler({
       // Every job in the file, whether enabled or not: the scheduler skips a disabled one itself, and
       // handing it the whole list keeps "which jobs exist" in one place.
@@ -132,6 +170,9 @@ export class JobsService {
         ...(job.timeoutMs === undefined ? {} : { timeoutMs: job.timeoutMs }),
         ...(job.cwd === undefined ? {} : { cwd: job.cwd }),
         ...(job.env === undefined ? {} : { env: job.env }),
+        // Where this job's runs write. Optional on the wire, and always answered: the view advertised
+        // a `logPath` nothing served, which is worse than no field at all.
+        logPath: this.logPath(job.id),
       }
     })
   }
@@ -200,6 +241,11 @@ export class JobsService {
         : outcome.exitCode === 0
           ? `run finished in ${seconds}s`
           : `run failed with exit code ${outcome.exitCode ?? outcome.signal ?? 'unknown'}`)
+      // Written out before this resolves. `LogFiles` batches on a 250 ms timer, so without this a
+      // caller that runs a job and then reads its log — the CLI, the API's own wait-for-exit, a page
+      // that ran and refreshed — would be answered with a log that does not contain the run it just
+      // watched. The batch is one job's, and a finished run is exactly when it should hit disk.
+      this.logs.flush()
       return record
     }
     catch (error) {
@@ -207,6 +253,7 @@ export class JobsService {
       const record: JobRunRecord = { startedAt, endedAt: Date.now(), exitCode: null, signal: null, cancelled: false }
       this.history.set(id, record)
       this.log(id, 'system', `run could not start: ${error instanceof Error ? error.message : String(error)}`)
+      this.logs.flush()
       this.options.onRunFinished?.(job, record)
       return record
     }
@@ -260,6 +307,9 @@ export class JobsService {
   dispose(): void {
     this.disposed = true
     this.scheduler.dispose()
+    // Writes the batch that is still buffered: a run that ended a moment ago has its last lines in
+    // memory, and a panel stopping is exactly when nobody will run that job again to produce them.
+    this.logs.dispose()
     for (const running of this.running.values())
       void running.stop().catch(() => undefined)
   }
@@ -302,11 +352,43 @@ export class JobsService {
     }
   }
 
-  /** A run's output goes to the panel's log, tagged with the job id. */
+  /**
+   * A run's output goes to the job's own file, and the summary lines to the panel's log.
+   *
+   * Both, and they are different things: the **file** is what a person debugging a failed run reads,
+   * and the panel log keeps the system lines (started, finished, stopped) so an operator tailing the
+   * panel sees that a job ran at all. The run's own stdout/stderr is *not* echoed into the panel log —
+   * it used to be, at DEBUG, which nobody enables, so it was invisible in practice while still costing
+   * a line per line when it was.
+   */
   private log(id: string, stream: 'stdout' | 'stderr' | 'system', text: string): void {
+    this.logs.append(id, { ts: Date.now(), stream, text })
     if (stream === 'system')
       logger.info(`job "${id}": ${text}`)
-    else
-      logger.debug(`job "${id}" ${stream}: ${text}`)
+  }
+
+  /**
+   * A job's own log: the lines a run wrote, newest last.
+   *
+   * The same tail a server's log serves, from the same reader — so one window size, one rotation and
+   * one retention rule cover both, and a page can show either without a second implementation.
+   */
+  async readLog(id: string, tail: number): Promise<LogLine[]> {
+    return await this.logs.readTail(id, tail)
+  }
+
+  /** How much a job's log has on disk, and which files carry it. */
+  logInfo(id: string): { enabled: boolean, sizeBytes: number, files: Array<{ name: string, sizeBytes: number }>, directory: string } {
+    return { ...this.logs.info(id), directory: this.logs.directory }
+  }
+
+  /** The path a person would open on disk, whether or not a run has written one yet. */
+  logPath(id: string): string {
+    return path.join(this.logs.directory, `${id}.log`)
+  }
+
+  /** Drops a job's whole log, for the removal that must not leave its output behind. */
+  clearLog(id: string): void {
+    this.logs.clear(id)
   }
 }

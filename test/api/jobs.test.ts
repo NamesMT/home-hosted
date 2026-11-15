@@ -220,4 +220,110 @@ describe('the jobs API', () => {
     expect(response.status).toBe(404)
     await created.cleanup()
   })
+
+  /**
+   * A run's own output, readable afterwards.
+   *
+   * It went to the panel log at DEBUG — a level nobody runs a home panel at — so a failed backup's own
+   * output, the one thing needed to debug it, was readable nowhere. The view advertised a `logPath`
+   * that no route served, which is worse than advertising nothing: it says the panel keeps the output
+   * and will not show it.
+   */
+  it('serves a run\'s own output under the job id', async () => {
+    const created = await makeFixture()
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 'noisy',
+        command: process.execPath,
+        args: ['-e', 'console.log("backup starting"); console.error("disk full")'],
+        schedule: '0 3 * * *',
+      }),
+    })
+
+    const ran = await created.app.request('/api/jobs/noisy/run', { method: 'POST' })
+    expect(ran.status).toBe(200)
+
+    const log = await created.app.request('/api/jobs/noisy/log')
+    expect(log.status).toBe(200)
+    const body = await log.json() as { jobId: string, enabled: boolean, lines: Array<{ stream: string, text: string }> }
+    expect(body.jobId).toBe('noisy')
+    expect(body.enabled).toBe(true)
+    const texts = body.lines.map(line => line.text)
+    expect(texts).toContain('backup starting')
+    expect(texts).toContain('disk full')
+    // The two streams are kept apart, so "the last stderr lines" is a question a page can ask.
+    expect(body.lines.find(line => line.text === 'disk full')?.stream).toBe('stderr')
+    // And the summary line says how the run ended, so a log read on its own is not ambiguous.
+    expect(texts.some(text => /finished in \d+s/.test(text))).toBe(true)
+    await created.cleanup()
+  })
+
+  it('filters a job log by stream and by search, and 404s an unknown job', async () => {
+    const created = await makeFixture()
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 'mixed',
+        command: process.execPath,
+        args: ['-e', 'console.log("all good"); console.error("it broke")'],
+        schedule: '0 3 * * *',
+      }),
+    })
+    await created.app.request('/api/jobs/mixed/run', { method: 'POST' })
+
+    const stderrOnly = await (await created.app.request('/api/jobs/mixed/log?stream=stderr')).json() as { lines: Array<{ text: string }> }
+    expect(stderrOnly.lines.map(line => line.text)).toContain('it broke')
+    expect(stderrOnly.lines.map(line => line.text)).not.toContain('all good')
+
+    const searched = await (await created.app.request('/api/jobs/mixed/log?search=BROKE')).json() as { lines: Array<{ text: string }> }
+    expect(searched.lines.map(line => line.text)).toEqual(['it broke'])
+
+    // A `tail` below the floor is a 400 naming the parameter, never a silent clamp — the same rule a
+    // server's log route keeps, because it is the same query schema.
+    const refused = await created.app.request('/api/jobs/mixed/log?tail=3')
+    expect(refused.status).toBe(400)
+
+    const missing = await created.app.request('/api/jobs/nope/log')
+    expect(missing.status).toBe(404)
+    await created.cleanup()
+  })
+
+  it('answers a job that never ran with an empty log, not a 404', async () => {
+    const created = await makeFixture()
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'idle', command: process.execPath, args: ['-e', ''], schedule: '0 3 * * *' }),
+    })
+
+    const log = await created.app.request('/api/jobs/idle/log')
+    expect(log.status).toBe(200)
+    const body = await log.json() as { lines: unknown[] }
+    expect(body.lines).toEqual([])
+    await created.cleanup()
+  })
+
+  it('drops the log when the job is removed, so a re-declared id starts clean', async () => {
+    const created = await makeFixture()
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'gone', command: process.execPath, args: ['-e', 'console.log("old run")'], schedule: '0 3 * * *' }),
+    })
+    await created.app.request('/api/jobs/gone/run', { method: 'POST' })
+    await created.app.request('/api/jobs/gone', { method: 'DELETE' })
+
+    // Declared again with the same id: the old run's bytes must not be this job's log.
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'gone', command: process.execPath, args: ['-e', ''], schedule: '0 3 * * *' }),
+    })
+    const log = await (await created.app.request('/api/jobs/gone/log')).json() as { lines: Array<{ text: string }> }
+    expect(log.lines.map(line => line.text)).not.toContain('old run')
+    await created.cleanup()
+  })
 })

@@ -354,6 +354,10 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       jobs: new JobsService({
         workspaceId: declaration.id,
         file: path.join(workspaceDir(declaration.id), 'jobs.config.json'),
+        // The real paths the panel uses, under this fixture's home: a job's own log directory, and the
+        // workspace's own `logs` group, so a route that reads one reads what a run wrote.
+        logDir: path.join(workspaceDir(declaration.id), '.logs', 'jobs'),
+        logs: () => store.logs,
         // The same reader `src/services/panel.ts` passes. Without it a job's `secretEnv` was never
         // resolved here either, so a test of the feature would have exercised a graph the real panel
         // does not build.
