@@ -365,7 +365,7 @@ export async function releaseDockerPort(holder: DockerPortHolder, timeoutMs = 20
 export async function listPortHolders(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     const outputs = await Promise.all(NETSTAT_LISTENER_ARGS.map(args =>
-      execFileAsync('netstat', [...args], { timeout: 10000 }).then(result => result.stdout, () => '')))
+      execFileAsync('netstat', [...args], { timeout: 10000, windowsHide: true }).then(result => result.stdout, () => '')))
     return [...new Set(outputs.flatMap(output => parseNetstatListeners(output, port)))]
   }
 

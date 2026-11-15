@@ -93,7 +93,7 @@ export async function readSwapUsedPercent(): Promise<number> {
   if (process.platform === 'win32') {
     try {
       const script = 'Get-CimInstance Win32_PageFileUsage | Select-Object AllocatedBaseSize,CurrentUsage | ConvertTo-Csv -NoTypeInformation'
-      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 5000 })
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 5000, windowsHide: true })
       return swapPercentFromPageFile(stdout)
     }
     catch {
