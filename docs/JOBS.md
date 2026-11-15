@@ -73,15 +73,20 @@ environment it started with.
 
 ## Editing one
 
-The Jobs page creates a job and edits it in the same sheet — the fields are the same ones, so a
-second form would be a copy that drifts. One field it will not change: **`id`**. The id names the
-job's log file, its run history and its stored secret values, so renaming it in place would orphan
-all three under a name nothing points at any more. The box is disabled with that reason beside it;
-the way to a different id is to remove the job and declare it again.
+Both UIs create a job and edit it in the same sheet — the fields are the same ones, so a second
+form would be a copy that drifts. One field it will not change: **`id`**. The id names the job's log
+file, its run history and its stored secret values, so renaming it in place would orphan all three
+under a name nothing points at any more. The box is read-only with that reason beside it; the way to
+a different id is to remove the job and declare it again.
 
 `PATCH /api/jobs/:id` is what the sheet sends. It carries no `id`, and it carries **every field the
 sheet shows**, not only the changed ones — a patch is whole-field, so omitting one means "keep
 whatever is stored", which is what the form displayed.
+
+A job's **secret values** are set from the same sheet, in the block directly under the names that
+declare them: one masked box per declared name, a "needs saving" marker on a name typed but not yet
+stored, and a remove that confirms. The panel never sends a value back, so a box is always empty and
+a stored name reads only as *set*.
 
 ## Running one
 
