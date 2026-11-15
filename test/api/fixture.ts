@@ -351,7 +351,14 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
        */
       // The file is passed explicitly: this fixture's home is a temp dir it hands to the services, and
       // `dataRoot` (which the default path reads) is resolved once at import, from the real environment.
-      jobs: new JobsService({ workspaceId: declaration.id, file: path.join(workspaceDir(declaration.id), 'jobs.config.json') }),
+      jobs: new JobsService({
+        workspaceId: declaration.id,
+        file: path.join(workspaceDir(declaration.id), 'jobs.config.json'),
+        // The same reader `src/services/panel.ts` passes. Without it a job's `secretEnv` was never
+        // resolved here either, so a test of the feature would have exercised a graph the real panel
+        // does not build.
+        serverEnv: jobId => secrets.serverEnv(jobId),
+      }),
       watches: [],
       logsDir: logFiles.directory,
       reportedConfigError: store.configError,

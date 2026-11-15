@@ -815,6 +815,24 @@ export function deleteJob(id: string, workspace?: string | null): Promise<{ ok: 
   return request<{ ok: boolean }>(scoped(`/api/jobs/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
 }
 
+/**
+ * Set or clear a job's secret environment values.
+ *
+ * Write-only, like a server's: the panel never sends a value back, so a blank box means "leave it
+ * alone" and `unset` is how one is cleared. A name the job does not declare is refused — the
+ * declaration is the consent.
+ */
+export function setJobSecrets(
+  id: string,
+  body: { set?: Record<string, string>, unset?: string[] },
+  workspace?: string | null,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(scoped(`/api/jobs/${encodeURIComponent(id)}/secrets`, workspace), {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
 export async function serverAction(id: string, action: 'start' | 'stop' | 'restart', workspace?: string | null): Promise<ActionResult> {
   const response = await fetch(scoped(`/api/servers/${encodeURIComponent(id)}/${action}`, workspace), {
     method: 'POST',

@@ -565,6 +565,9 @@ export class PanelService {
     const jobs = new JobsService({
       workspaceId: id,
       onStateChange: () => this.scheduleState(),
+      // A job's `secretEnv` resolves through the same store a server's does. The names are per-id, so
+      // a job reads its own entry only — never another job's or a server's values.
+      serverEnv: jobId => secrets.serverEnv(jobId),
       onRunFinished: (job, record) => {
         // The durable record: a run's history event outlives the panel, and it is what decides
         // whether the first tick after boot owes a missed occurrence.

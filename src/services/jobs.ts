@@ -47,6 +47,30 @@ export interface JobsServiceOptions {
   onStateChange?: () => void
   /** A run finished: the caller records it in the workspace history and notifies on failure. */
   onRunFinished?: (job: JobConfig, record: JobRunRecord) => void
+  /**
+   * The stored secret values for a job's declared names — the job half of a server's `serverEnv`.
+   *
+   * `secretEnv` on the config is the **consent**: a name the job did not declare is never passed,
+   * even when the workspace holds a value for a job of that id that has since been edited. That is
+   * the same rule `src/services/supervisor/spawn.ts` applies to a server, and it has to be applied
+   * here too — the names were accepted, stored and shown in the UI while `resolve()` ignored them
+   * entirely, so a job declaring `MY_SECRET` ran without it and nobody was told.
+   */
+  serverEnv?: (jobId: string) => Record<string, string>
+}
+
+/**
+ * Which of a job's declared names have a stored value — sorted, and **never** the values.
+ *
+ * One helper rather than an inline expression because it is the same question `serverView.secretEnvSet`
+ * answers for a server, and the answer has to stay "names only": a view that leaked a value would undo
+ * the whole point of the store.
+ */
+function secretEnvSetFor(reader: ((jobId: string) => Record<string, string>) | undefined, job: JobConfig): string[] {
+  if (reader === undefined || job.secretEnv.length === 0)
+    return []
+  const stored = reader(job.id)
+  return job.secretEnv.filter(name => stored[name] !== undefined).sort()
 }
 
 export class JobsService {
@@ -100,6 +124,14 @@ export class JobsService {
         ...(record?.endedAt === undefined || record?.endedAt === null ? {} : { lastRunAt: record.endedAt }),
         ...(record === undefined ? {} : { lastExitCode: record.exitCode }),
         running: this.running.has(job.id),
+        // The names a job declares, and which of them have a stored value — the pair a page needs to
+        // render one value box per name. Values are never included: the store holds them, the view
+        // only says whether one exists, exactly as `serverView.secretEnvSet` does.
+        secretEnv: job.secretEnv,
+        secretEnvSet: secretEnvSetFor(this.options.serverEnv, job),
+        ...(job.timeoutMs === undefined ? {} : { timeoutMs: job.timeoutMs }),
+        ...(job.cwd === undefined ? {} : { cwd: job.cwd }),
+        ...(job.env === undefined ? {} : { env: job.env }),
       }
     })
   }
@@ -236,8 +268,8 @@ export class JobsService {
    * The environment and argv a job spawns with — its **own**, not a server's.
    *
    * A job has no `port`, no `bind` and no `envFile`, so it uses the template variables it can honestly
-   * have (`{id}`, `{label}`, `{cwd}`, `{projectDir}`, `{dataRoot}`, `{home}`) and expands its `env` and
-   * `dataEnvs`-equivalent through the same helper a service does.
+   * have (`{id}`, `{label}`, `{cwd}`, `{projectDir}`, `{dataRoot}`, `{home}`) and expands its `env`
+   * through the same helper a service does.
    */
   private resolve(job: JobConfig): ResolvedSpawn {
     const cwd = resolveCwd(job.cwd)
@@ -250,11 +282,22 @@ export class JobsService {
       home: process.env.HOME ?? '',
     }
     const args = resolveTemplates(job.args, vars)
+    const env: Record<string, string> = { ...process.env as Record<string, string>, ...resolveRecord(job.env, vars) }
+    // The declared secrets, and nothing else from the store — the same consent rule a server's spawn
+    // applies. Without this a job's `secretEnv` was decorative: the names were accepted and stored,
+    // the UI listed them as settable, and the run never saw a value.
+    if (job.secretEnv.length > 0 && this.options.serverEnv !== undefined) {
+      const stored = this.options.serverEnv(job.id)
+      for (const name of job.secretEnv) {
+        if (stored[name] !== undefined)
+          env[name] = stored[name]
+      }
+    }
     return {
       command: resolveCommand(job.command, cwd, projectDir),
       args,
       cwd,
-      env: { ...process.env as Record<string, string>, ...resolveRecord(job.env, vars) },
+      env,
       loggedArgs: resolveTemplates(job.args, vars),
     }
   }

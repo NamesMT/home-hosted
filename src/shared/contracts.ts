@@ -438,6 +438,19 @@ export const jobEntryViewSchema = lazy(() => type({
   'running': 'boolean',
   /** Where its output goes: the workspace's job log for this id. */
   'logPath?': 'string',
+  /**
+   * The secret environment **names** this job declares, and which of them have a stored value.
+   *
+   * Optional, and names only: a UI one release behind must not break when a newer panel starts
+   * sending these, and a value never travels. `secretEnvSet` says which names have one, exactly as
+   * `serverView.secretEnvSet` does for a server.
+   */
+  'secretEnv?': 'string[]',
+  'secretEnvSet?': 'string[]',
+  /** How long one run may take before the panel ends it. */
+  'timeoutMs?': 'number',
+  'cwd?': 'string',
+  'env?': 'Record<string, string>',
 }).onDeepUndeclaredKey('ignore'))
 export type JobEntryView = typeof jobEntryViewSchema.infer
 

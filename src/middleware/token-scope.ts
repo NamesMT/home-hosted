@@ -82,6 +82,9 @@ const RULES: Record<string, TokenScopeRule> = {
   'POST /api/jobs': { scope: 'config', workspaceScoped: true },
   'PATCH /api/jobs/:id': { scope: 'config', workspaceScoped: true },
   'DELETE /api/jobs/:id': { scope: 'config', workspaceScoped: true },
+  // A job's secret values are config, like a server's: the route is write-only, and what it protects
+  // is the value the run will read.
+  'PUT /api/jobs/:id/secrets': { scope: 'config', workspaceScoped: true },
   'POST /api/jobs/:id/run': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/jobs/:id/stop': { scope: 'lifecycle', workspaceScoped: true },
   'POST /api/servers/:id/clear-logs': { scope: 'lifecycle', workspaceScoped: true },

@@ -48,6 +48,29 @@ refusing them, because a refusal needs explaining and the explanation was the no
 `{id}`, `{label}`, `{cwd}`, `{projectDir}`, `{dataRoot}` and `{home}` expand in `args` and `env`,
 exactly as they do on a server.
 
+### A job's secret environment
+
+`secretEnv` names variables whose **values** are kept in the workspace secrets file (0600) instead of
+in `jobs.config.json`, where they would be in every backup, every `git diff` and every screen share.
+
+```json
+{ "id": "nightly-backup", "schedule": "0 3 * * *", "command": "./backup.sh", "secretEnv": ["BACKUP_TOKEN"] }
+```
+
+Declaring the name is **consent**: the run receives a value only for a name the job declares, so a
+value left behind by a renamed job never reaches its process. Declare the name first, then set the
+value — a value for an undeclared name is refused, and the refusal names the name and the fix.
+
+```bash
+home-hosted secret set nightly-backup BACKUP_TOKEN --stdin   # prompts without echo
+home-hosted secret ls nightly-backup                        # the names, and which have a value
+```
+
+The panel never sends a value back — only which names have one (`secretEnvSet` on the job view). A
+job's values are the same store a server's use, keyed by id, so the two cannot disagree about what a
+name means. **A changed `secretEnv` takes effect on the next run**; a run in flight keeps the
+environment it started with.
+
 ## Running one
 
 Three ways, and all three are the same run — same spawn, same log lines, same history event, same

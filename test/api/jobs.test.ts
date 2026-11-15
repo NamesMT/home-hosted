@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { makeFixture } from './fixture'
@@ -126,6 +128,96 @@ describe('the jobs API', () => {
       body: JSON.stringify({ id: 'not-a-job', command: 'true', kind: 'job', schedule: '0 3 * * *' }),
     })
     expect(response.status).toBe(400)
+    await created.cleanup()
+  })
+
+  /**
+   * A job's `secretEnv` reaches the process it spawns.
+   *
+   * The names were declarable, storable and listed, and `JobsService.resolve()` built the environment
+   * from `job.env` alone — so a job that declared `BACKUP_TOKEN` ran without it and nothing said so.
+   * A server's spawn has always resolved them; this is the job half.
+   */
+  it('injects a declared secret into the run, and only a declared one', async () => {
+    const created = await makeFixture()
+    // The child writes what it actually saw, so the assertion is about the spawned environment
+    // rather than about the config that asked for it.
+    const out = path.join(created.dir, '.hh', created.defaultId, 'seen.txt')
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, [process.env.BACKUP_TOKEN, process.env.UNDECLARED].map(v => String(v)).join('|'))`
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'secretive', command: process.execPath, args: ['-e', script], secretEnv: ['BACKUP_TOKEN'], schedule: '0 3 * * *' }),
+    })
+
+    // A value for the declared name, and one for a name the job never declared.
+    created.secrets.setServerEnv('secretive', { BACKUP_TOKEN: 'tok-123', UNDECLARED: 'should-not-travel' })
+
+    // The view reports which names have a value, and never the value itself.
+    const listed = await (await created.app.request('/api/jobs')).json() as { jobs: Array<Record<string, unknown>> }
+    expect(listed.jobs[0]).toMatchObject({ secretEnv: ['BACKUP_TOKEN'], secretEnvSet: ['BACKUP_TOKEN'] })
+    expect(JSON.stringify(listed)).not.toContain('tok-123')
+
+    const ran = await created.app.request('/api/jobs/secretive/run', { method: 'POST' })
+    expect(ran.status).toBe(200)
+    expect(await ran.json()).toMatchObject({ ok: true, exitCode: 0 })
+
+    // The declared name arrived; the undeclared one did not, which is the consent rule.
+    expect(fs.readFileSync(out, 'utf8')).toBe('tok-123|undefined')
+    await created.cleanup()
+  })
+
+  it('runs a job with no secret once it has been cleared', async () => {
+    const created = await makeFixture()
+    const out = path.join(created.dir, '.hh', created.defaultId, 'after-clear.txt')
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, String(process.env.GONE))`
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'clearable', command: process.execPath, args: ['-e', script], secretEnv: ['GONE'], schedule: '0 3 * * *' }),
+    })
+    created.secrets.setServerEnv('clearable', { GONE: 'bye' })
+
+    const cleared = await created.app.request('/api/jobs/clearable/secrets', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ unset: ['GONE'] }),
+    })
+    expect(cleared.status).toBe(200)
+
+    await created.app.request('/api/jobs/clearable/run', { method: 'POST' })
+    expect(fs.readFileSync(out, 'utf8')).toBe('undefined')
+    await created.cleanup()
+  })
+
+  it('refuses a value for a name the job does not declare, and names the fix', async () => {
+    const created = await makeFixture()
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'plain', command: process.execPath, args: ['-e', ''], schedule: '0 3 * * *' }),
+    })
+
+    const refused = await created.app.request('/api/jobs/plain/secrets', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ set: { NOT_DECLARED: 'x' } }),
+    })
+    expect(refused.status).toBe(400)
+    const body = await refused.json() as { message: string }
+    expect(body.message).toContain('NOT_DECLARED')
+    expect(body.message).toContain('secretEnv')
+    await created.cleanup()
+  })
+
+  it('404s a job\'s secrets for a job that does not exist', async () => {
+    const created = await makeFixture()
+    const response = await created.app.request('/api/jobs/nope/secrets', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ set: { A: 'b' } }),
+    })
+    expect(response.status).toBe(404)
     await created.cleanup()
   })
 })

@@ -7,7 +7,7 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
-import { jobCreateSchema, jobEntryViewSchema, jobPatchSchema, jobsListSchema, okResponseSchema } from '#src/shared/contracts'
+import { jobCreateSchema, jobEntryViewSchema, jobPatchSchema, jobsListSchema, okResponseSchema, serverSecretsSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam } from '#src/shared/query-params'
 
@@ -158,6 +158,57 @@ export function createJobsRoute(deps: AppDeps) {
           throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
         // `false` means nothing was running, which is an answered question rather than an error.
         await runtime.jobs.stop(id)
+        return c.json({ ok: true })
+      },
+    )
+
+    /**
+     * A job's secret environment values — the write-only half of its `secretEnv`.
+     *
+     * A job declares the **names** exactly as a server does, and a run needs their values exactly as a
+     * server's spawn does. There was no route at all: `secretEnv` could be declared on a job, listed,
+     * and stored, and the run still saw nothing. This is the missing half.
+     *
+     * `404` for an unknown job; a name the job does not declare is refused, because declaring is the
+     * consent — the same rule, and the same message, as `PUT /api/servers/:id/secrets`.
+     */
+    .put(
+      '/jobs/:id/secrets',
+      describeRoute({
+        tags: ['jobs'],
+        summary: 'Set or clear a job\'s secret environment values (write-only)',
+        responses: { 200: { description: 'Written', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      validate('json', serverSecretsSchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        const job = runtime.jobs.get(id)
+        if (job === null)
+          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+
+        const body = c.req.valid('json')
+        const declared = new Set(job.secretEnv)
+        const writing = Object.keys(body.set ?? {})
+        const undeclared = writing.filter(name => !declared.has(name))
+        if (undeclared.length > 0) {
+          throw new DetailedError(
+            `${undeclared.map(name => `"${name}"`).join(', ')} ${undeclared.length === 1 ? 'is' : 'are'} not declared in this job's secretEnv — add ${undeclared.length === 1 ? 'the name' : 'the names'} to the job first`,
+            { statusCode: 400, code: 'INVALID_INPUT', detail: [{ path: 'set', message: `declare ${undeclared.join(', ')} in secretEnv` }] },
+          )
+        }
+
+        const clearing = body.unset ?? []
+        if (clearing.length > 0)
+          runtime.secrets.unsetServerEnv(id, clearing)
+        if (writing.length > 0) {
+          const next = { ...runtime.secrets.serverEnv(id) }
+          for (const [name, value] of Object.entries(body.set ?? {}))
+            next[name] = value
+          runtime.secrets.setServerEnv(id, next)
+        }
         return c.json({ ok: true })
       },
     )

@@ -66,6 +66,15 @@ can be tried before it is saved; `DELETE /api/notifications/destinations/alerts/
 | a server recovered | `onRecovered` | ⬜ |
 | host thresholds breached, and recovered | `onHost` | ✅ |
 | a dynamic DNS record changed, or a pass failed | `onDdns` | ✅ |
+| a deploy failed | `onCrash` | ✅ |
+| a [job](./JOBS.md) run failed | `onCrash` | ✅ |
+
+**A failed deploy and a failed job both ride `onCrash`**, because to a reader they are the same news
+as a crash: the service is still on the old version, or last night's backup did not run. Nobody asks
+"tell me only about processes". A job run that a person **stopped** is not a failure and sends
+nothing — its record is marked cancelled, so its non-zero status is not reported as an error. A job
+that succeeds sends nothing either: silence is the expected outcome, and a message per successful
+nightly backup is noise that hides the one that failed.
 
 A **forced restart** is two messages, not one: the restart is announced, and then its outcome is —
 the entry is serving again, or it did not come back (in which case its crash is the second message).
