@@ -18,6 +18,14 @@ import { describe, expect, it } from 'vitest'
  *
  * A source scan, because the defect is one of ordering across two template regions — a mounted
  * assertion would pass with the block moved to the bottom of the page again.
+ *
+ * **Only `stock` is scanned here, and that is not the whole rule.** `noc-console` renders its form
+ * through `FORM_LAYOUT` (`@/lib/serverForm`), so its markup has no `form.secretEnv` to find and its
+ * ordering is data, not template text. Pinning the same rule there by naming a UI's spelling would
+ * be pinning the wrong thing: `uis/noc-console/test/server-form-fields.test.ts` mounts the form and
+ * asserts the block is drawn *immediately after its anchor field, in that field's own grid*. That
+ * is the rule; a scan that listed noc-console and found nothing would have looked like coverage in
+ * this commit's message while the noc-console block sat 1897 px from the names it explains.
  */
 const root = process.cwd()
 

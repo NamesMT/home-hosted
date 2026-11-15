@@ -355,6 +355,16 @@ export interface FormSection {
   sections?: FormSection[]
   /** The sentence above a `fold`'s blocks. */
   note?: string
+  /**
+   * Entry-point markup drawn **directly after** one of this block's fields, inside the same grid.
+   *
+   * The secret-values block needs this and a plain sibling could not do it: it belongs under the
+   * names that declare it, in the pane those names live in, and a section appended to the layout
+   * renders after the whole pane — measured 1897 px below the field it explains, which is the
+   * defect this exists to prevent. The layout names the anchor, so the ordering stays in the one
+   * place that already owns field order.
+   */
+  slots?: Array<{ after: FieldKey, name: string }>
 }
 
 /**
@@ -388,7 +398,7 @@ export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
     },
   ],
   page: [
-    { container: 'pane', title: 'process', fields: ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'secretEnv', 'backupPaths', 'backupIgnoreGenerated'] },
+    { container: 'pane', title: 'process', fields: ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'secretEnv', 'backupPaths', 'backupIgnoreGenerated'], slots: [{ after: 'secretEnv', name: 'secret-values' }] },
     {
       container: 'pane',
       title: 'port & binding',

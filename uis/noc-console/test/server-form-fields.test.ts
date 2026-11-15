@@ -149,4 +149,37 @@ describe('the shared server form', () => {
     expect((document.activeElement as HTMLInputElement | null)?.getAttribute('placeholder')).toBe('my-server')
     wrapper.unmount()
   })
+
+  /**
+   * A layout slot is drawn by the block that **anchors** it, directly after that field.
+   *
+   * This is the secret-values block: it belongs under the `secretEnv` names that declare it, in the
+   * same pane. Rendered as an ordinary sibling section it landed after every pane on the page —
+   * measured 1897 px below the field it explains, which is the whole defect the move was meant to
+   * fix. The failure is positional, so nothing but a positional assertion catches it.
+   */
+  it('draws an anchored slot right after its field, in that field’s own grid', () => {
+    const form = reactive<Record<string, string | boolean>>({ label: '', command: '', dataEnvs: '', secretEnv: '', backupPaths: '' })
+    const wrapper = mount(ServerFormFields, {
+      props: { variant: 'page', form },
+      slots: { 'secret-values': '<div class="secret-values-slot" />' },
+    })
+
+    const slot = wrapper.find('.secret-values-slot')
+    expect(slot.exists(), 'the page must render the anchored slot').toBe(true)
+
+    // The slot shares a grid with the field it follows, and sits immediately after it.
+    const anchor = fieldInput(wrapper, 'secret env names')
+    const grid = anchor.element.parentElement!
+    expect(grid.classList.contains('grid')).toBe(true)
+    expect(slot.element.parentElement).toBe(grid)
+    expect([...grid.children].indexOf(anchor.element) + 1).toBe([...grid.children].indexOf(slot.element))
+
+    // And it is inside the `process` pane, where the names are — not after the page's last pane.
+    const panes = wrapper.findAll('.pane')
+    const processPane = panes.find(pane => pane.find('.pane__title').text() === 'process')!
+    expect(processPane.element.contains(slot.element)).toBe(true)
+
+    wrapper.unmount()
+  })
 })

@@ -1434,6 +1434,17 @@ input[type='file'] {
   padding: 0.6rem 0.75rem 0.75rem;
 }
 
+/*
+ * A `group` nested inside a field grid — the secret-values block, anchored under the names that
+ * declare it — is a continuation of that pane, not a page section. The pane already supplies the
+ * padding and the divider, so it would otherwise double both and read as a separate page block.
+ */
+.grid > .group {
+  border-bottom: none;
+  padding: 0;
+  margin-top: 0.2rem;
+}
+
 .group__head {
   display: flex;
   align-items: center;

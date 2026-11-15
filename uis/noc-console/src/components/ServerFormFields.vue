@@ -38,6 +38,19 @@ const form = defineModel<FormModel>('form', { required: true })
 const sections = computed(() => FORM_LAYOUT[props.variant])
 
 /**
+ * Every slot name the layout anchors somewhere in this variant, so this component can forward the
+ * entry point's markup into the block that owns the anchor.
+ */
+const slotNames = computed(() => {
+  const names = new Set<string>()
+  for (const section of sections.value) {
+    for (const slot of section.slots ?? [])
+      names.add(slot.name)
+  }
+  return [...names]
+})
+
+/**
  * The rendered fields by key, so an entry point can move the caret into one — the dialog
  * focuses its `id` box on open, as it did before. One registry for the whole tree, handed
  * down so the folded half registers into the same map as the grid above it.
@@ -65,6 +78,13 @@ defineExpose({ focusField: (key: FieldKey): void => fields.get(key)?.focus() })
   >
     <template #lifecycle>
       <slot name="lifecycle" />
+    </template>
+    <!--
+      Drawn by the block that anchors it — one named slot per `FormSection.slots` entry, so which
+      field it follows is the layout's decision and not a second copy of the order here.
+    -->
+    <template v-for="name in slotNames" :key="name" #[name]>
+      <slot :name="name" />
     </template>
   </ServerFormBlocks>
 </template>

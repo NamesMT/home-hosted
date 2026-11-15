@@ -42,6 +42,17 @@ function visible(section: FormSection): FieldKey[] {
     fieldSpec(props.variant, key).whenCustomBind !== true || form.value?.bind === 'custom')
 }
 
+/**
+ * The slot names a block draws right after `key`, if any.
+ *
+ * The layout decides *where* a field is, so it decides where the entry point's own markup goes
+ * too: a section-level slot could only render after the whole block, which put the secret value
+ * boxes below every other field in the pane instead of under the names that declare them.
+ */
+function slotsAfter(section: FormSection, key: FieldKey): string[] {
+  return (section.slots ?? []).filter(slot => slot.after === key).map(slot => slot.name)
+}
+
 /** Everything a drawn control needs: the catalogue entry, plus this form's own state. */
 function drawn(key: FieldKey): FieldPresentation & { disabled: boolean, readout?: string } {
   const spec = fieldSpec(props.variant, key)
@@ -98,14 +109,15 @@ function registerField(key: FieldKey, instance: unknown): void {
       </div>
       <div class="pane__body" style="padding: 0.6rem 0.75rem">
         <div class="grid">
-          <ServerFormField
-            v-for="key in visible(section)"
-            :key="key"
-            :ref="(instance) => registerField(key, instance)"
-            v-bind="drawn(key)"
-            :model-value="form[key]"
-            @update:model-value="update(key, $event)"
-          />
+          <template v-for="key in visible(section)" :key="key">
+            <ServerFormField
+              :ref="(instance) => registerField(key, instance)"
+              v-bind="drawn(key)"
+              :model-value="form[key]"
+              @update:model-value="update(key, $event)"
+            />
+            <slot v-for="name in slotsAfter(section, key)" :key="name" :name="name" />
+          </template>
         </div>
       </div>
     </div>
@@ -122,26 +134,28 @@ function registerField(key: FieldKey, instance: unknown): void {
         />
       </div>
       <div class="grid">
+        <template v-for="key in visible(section)" :key="key">
+          <ServerFormField
+            :ref="(instance) => registerField(key, instance)"
+            v-bind="drawn(key)"
+            :model-value="form[key]"
+            @update:model-value="update(key, $event)"
+          />
+          <slot v-for="name in slotsAfter(section, key)" :key="name" :name="name" />
+        </template>
+      </div>
+    </div>
+
+    <div v-else class="grid">
+      <template v-for="key in visible(section)" :key="key">
         <ServerFormField
-          v-for="key in visible(section)"
-          :key="key"
           :ref="(instance) => registerField(key, instance)"
           v-bind="drawn(key)"
           :model-value="form[key]"
           @update:model-value="update(key, $event)"
         />
-      </div>
-    </div>
-
-    <div v-else class="grid">
-      <ServerFormField
-        v-for="key in visible(section)"
-        :key="key"
-        :ref="(instance) => registerField(key, instance)"
-        v-bind="drawn(key)"
-        :model-value="form[key]"
-        @update:model-value="update(key, $event)"
-      />
+        <slot v-for="name in slotsAfter(section, key)" :key="name" :name="name" />
+      </template>
     </div>
   </template>
 </template>

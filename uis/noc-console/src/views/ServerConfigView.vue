@@ -390,21 +390,26 @@ async function remove(): Promise<void> {
             </div>
           </div>
         </template>
-      </ServerFormFields>
 
-      <!--
-        The values, kept apart from the config form: they are written through their own write-only
-        route, so declaring a name and setting its value are two separate acts.
-      -->
-      <SecretEnvBlock
-        v-if="server && config"
-        :server-id="server.id"
-        :declared="draftSecretNames"
-        :saved-declared="config.secretEnv ?? []"
-        :set-names="server.secretEnvSet ?? []"
-        :workspace-id="workspace.activeId.value"
-        @changed="workspace.refresh()"
-      />
+        <!--
+          The values, **directly under the names that declare them** — the layout anchors this slot
+          after `secretEnv`, so it lands inside the process pane rather than at the page's end.
+          They still go through their own write-only route (the panel never sends a value back),
+          and the boxes are driven by the live draft, so a name appears as it is typed.
+        -->
+        <template #secret-values>
+          <SecretEnvBlock
+            v-if="server && config"
+            class="grid__full"
+            :server-id="server.id"
+            :declared="draftSecretNames"
+            :saved-declared="config.secretEnv ?? []"
+            :set-names="server.secretEnvSet ?? []"
+            :workspace-id="workspace.activeId.value"
+            @changed="workspace.refresh()"
+          />
+        </template>
+      </ServerFormFields>
 
       <div class="group">
         <div class="actions">

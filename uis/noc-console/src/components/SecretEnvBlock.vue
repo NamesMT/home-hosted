@@ -109,6 +109,15 @@ async function remove(name: string): Promise<void> {
     <p v-if="declared.length === 0" class="faint" style="font-size: 11px">
       this entry declares no secret names yet — add them in secret env names
     </p>
+    <!--
+      One line for the whole group rather than only the per-name badge: a name typed but not saved
+      cannot take a value, and saying why once beats repeating it on every row. The stock UI has the
+      same line; this one was missed when the disabled state was added.
+    -->
+    <p v-else-if="declared.some(name => unsaved(name))" class="note note--warn" style="font-size: 11px">
+      a new name can take a value once the config is saved — the panel refuses a value for a name the
+      stored entry does not declare
+    </p>
     <div v-for="name in declared" :key="name" class="field">
       <span class="field__label">
         <span class="mono">{{ name }}</span>
