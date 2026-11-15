@@ -154,6 +154,22 @@ export class WorkspaceStore {
     ].filter(error => error !== null).join('; ') || null
   }
 
+  /**
+   * The files behind `configError`, so a refusal can name the one to edit.
+   *
+   * `configError` concatenates both sides, and the startup guard used to print both paths whatever
+   * had failed — sending a person to edit `settings.json` for a defect that lived in
+   * `servers.config.json`. Empty when `configError` is null.
+   */
+  get brokenConfigFiles(): string[] {
+    const broken: string[] = []
+    if (this.settingsParseError !== null || this.settingsError !== null)
+      broken.push(this.settingsFile)
+    if (this.serversParseError !== null || this.serversError !== null)
+      broken.push(this.serversFile)
+    return broken
+  }
+
   get configWarnings(): string[] {
     return [...this.warnings]
   }

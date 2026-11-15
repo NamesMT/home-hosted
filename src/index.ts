@@ -84,7 +84,10 @@ function refuseUnusableWorkspace(id: string, store: WorkspaceStore): void {
   }
   if (store.configError !== null) {
     logger.error(`refusing to start: workspace "${id}": ${store.configError}`)
-    logger.info(`fix ${store.path} and ${store.settingsPath}, or install the release that wrote them`)
+    // Only the file that is actually broken. Naming both sent a person to edit `settings.json` for a
+    // defect in `servers.config.json` — a "fix" line that points at the wrong file is worse than none.
+    const broken = store.brokenConfigFiles
+    logger.info(`fix ${broken.join(' and ')}, or install the release that wrote ${broken.length === 1 ? 'it' : 'them'}`)
     process.exit(1)
   }
 }

@@ -179,7 +179,14 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
   }
 
   const done: string[] = []
+  // A job move **is** a change, and the summary has to count it. Without this the summary counted
+  // only schema files, so a home whose sole pending work was `kind: "job"` entries printed
+  // "moving 1 job(s)…" and then "every file is already what home-hosted X understands — nothing to
+  // migrate": a successful run that reads as a no-op, and invites a re-run that does nothing.
+  const jobCount = moves.reduce((sum, move) => sum + move.ids.length, 0)
   if (dryRun) {
+    if (jobCount > 0)
+      done.push(green(`${jobCount} job(s) would be moved`))
     if (lifts.length > 0)
       done.push(green(`${lifts.length} file(s) would be migrated`))
     if (restamps.length > 0)
@@ -229,6 +236,8 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
 
   // "nothing to migrate" has to mean nothing happened, and the line a person reads to decide
   // whether to re-run has to agree with the lines above it.
+  if (jobCount > 0)
+    done.push(green(`${jobCount} job(s) moved`))
   if (lifts.length > 0)
     done.push(green(`${lifts.length} file(s) migrated`))
   if (restamps.length > 0)

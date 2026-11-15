@@ -81,6 +81,31 @@ describe('migrate, with a job still in the servers file', () => {
     expect(fs.existsSync(jobs)).toBe(false)
   })
 
+  /**
+   * A move is a change, so the summary must count it.
+   *
+   * The summary counted only schema files, so a home whose sole pending work was a `kind: "job"`
+   * entry printed "moving 1 job(s)…", then the move, then "every file is already what home-hosted X
+   * understands — nothing to migrate" — the last line a person reads, contradicting the two above it
+   * and implying the command had done nothing and wanted re-running.
+   */
+  it('counts a moved job in its summary, rather than saying there was nothing to do', () => {
+    const { home } = homeWithJob()
+
+    const real = runCli(['migrate', '--yes'], { home, env: { HHOSTED_HOME: home } })
+    expect(real.output).toContain('moved 1 job(s)')
+    expect(real.output).not.toContain('nothing to migrate')
+    expect(real.output).toContain('1 job(s) moved')
+  })
+
+  it('counts a job a dry run would move, rather than saying there was nothing to do', () => {
+    const { home } = homeWithJob()
+
+    const rehearsal = runCli(['migrate', '--dry-run'], { home, env: { HHOSTED_HOME: home } })
+    expect(rehearsal.output).toContain('1 job(s) would be moved')
+    expect(rehearsal.output).not.toContain('nothing to migrate')
+  })
+
   it('leaves a home with no jobs alone', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-nojobs-'))
     dirs.push(home)

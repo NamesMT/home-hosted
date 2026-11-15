@@ -136,6 +136,12 @@ describe('startup guard: an unreadable file stops `up`', () => {
     expect(result.stderr).toContain('refusing to start')
     expect(result.stderr).toContain('workspace "default"')
     expect(result.stderr).toContain('cannot parse')
+    // The "fix …" line names the file that is actually broken, and it is printed at `info` level —
+    // on **stdout**, so it has to be read from both streams. It used to name both paths, sending a
+    // person to edit a `settings.json` that was fine.
+    const combined = `${result.stdout}${result.stderr}`
+    expect(combined).toContain('servers.config.json')
+    expect(combined).not.toContain('settings.json')
     // Nothing bound and no daemon identity written before the refusal.
     expect(fs.existsSync(path.join(home, '.hh', 'run.json'))).toBe(false)
   })
