@@ -13,7 +13,14 @@ import ServersView from '@/views/ServersView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 
 /** Pages that read the workspace in the URL. */
-const WORKSPACE_ROUTES = new Set(['servers', 'server-config', 'logs', 'settings'])
+/**
+ * The pages that belong to a workspace, so the guard may serve a deep link to one as it stands.
+ *
+ * **`jobs` missing from this set locks the renderer**: the guard falls through to its
+ * "replace the workspace" branch for a name it does not know, and a canonical URL is then redirected
+ * to itself — an infinite navigation loop. The stock UI had the same bug, found the same way.
+ */
+const WORKSPACE_ROUTES = new Set(['servers', 'server-config', 'jobs', 'logs', 'settings'])
 
 export type WorkspacePage = 'servers' | 'jobs' | 'logs' | 'settings'
 

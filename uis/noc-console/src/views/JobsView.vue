@@ -85,11 +85,11 @@ function when(ms: number | null | undefined): string {
 </script>
 
 <template>
-  <section class="page">
-    <h1>jobs</h1>
-    <p class="faint">
-      short-lived commands on a schedule. The exit code is the outcome.
-    </p>
+  <div class="view">
+    <div class="view__head">
+      <span class="view__title">jobs</span>
+      <span class="view__count">short-lived commands on a schedule — the exit code is the outcome</span>
+    </div>
 
     <p v-if="outcome" class="note">
       {{ outcome }}
@@ -144,5 +144,5 @@ function when(ms: number | null | undefined): string {
         </tr>
       </tbody>
     </table>
-  </section>
+  </div>
 </template>
