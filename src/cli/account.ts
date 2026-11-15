@@ -25,7 +25,7 @@ export const accountArgs = {
 } as const
 
 /**
- * What a new password's length means for this panel: a refusal when the config exposes it beyond
+ * What a new secret's length means for this panel: a refusal when the config exposes it beyond
  * loopback (its next start would refuse), a warning below 8 characters, a note below 12.
  */
 export async function passwordLengthVerdict(password: string, settings: { control: ControlConfig, proxy: ProxyConfig }): Promise<{ refusal: string | null, warning: string | null }> {
@@ -39,8 +39,8 @@ export async function passwordLengthVerdict(password: string, settings: { contro
   if (exposed !== null)
     return { refusal: `${length} characters is too short for this panel — ${exposed}`, warning: null }
   if (length < WEAK_PASSWORD_LENGTH)
-    return { refusal: null, warning: `${length} characters is short and easy to guess — and the panel can't listen beyond loopback until the password has at least ${EXPOSED_PASSWORD_MIN_LENGTH}` }
-  return { refusal: null, warning: `fine on this machine, but the panel can't listen beyond loopback until the password has at least ${EXPOSED_PASSWORD_MIN_LENGTH} characters` }
+    return { refusal: null, warning: `${length} characters is short and easy to guess — and the panel can't listen beyond loopback until the secret has at least ${EXPOSED_PASSWORD_MIN_LENGTH}` }
+  return { refusal: null, warning: `fine on this machine, but the panel can't listen beyond loopback until the secret has at least ${EXPOSED_PASSWORD_MIN_LENGTH} characters` }
 }
 
 export const accountCommand = defineCommand({
