@@ -10,6 +10,7 @@ import {
   deleteBackup,
   disableAuth,
   failureMessage,
+  fetchJobLog,
   fetchProxy,
   fetchSession,
   fetchSettings,
@@ -27,6 +28,7 @@ import {
   revertProxy,
   revertUi,
   revokeAccount,
+  setJobSecrets,
   setMySecret,
   startProxy,
   stopProxy,
@@ -310,6 +312,43 @@ describe('auth and backups', () => {
     await deleteBackup('a/b.zip')
     expect(lastCall(mock)[0]).toBe('/api/backups/a%2Fb.zip')
     expect(lastCall(mock)[1]?.method).toBe('DELETE')
+  })
+
+  /**
+   * A job's log takes a **server log's** filters, so the client builds the same query.
+   *
+   * The two must not drift: a page that offers a stream filter on a job has to send the parameter a
+   * page that offers one on a server sends, or the same control silently means two things.
+   */
+  it('asks for a job log with only the filters it was given', async () => {
+    const mock = stub({ jobId: 'backup', enabled: true, sizeBytes: 0, files: [], lines: [] })
+    await fetchJobLog('backup')
+    expect(lastCall(mock)[0]).toBe('/api/jobs/backup/log')
+
+    await fetchJobLog('a b', { tail: 100, stream: 'stderr', search: 'boom' })
+    const url = lastCall(mock)[0]
+    expect(url).toContain('/api/jobs/a%20b/log?')
+    expect(url).toContain('tail=100')
+    expect(url).toContain('stream=stderr')
+    expect(url).toContain('search=boom')
+
+    // An empty string is not a filter: the route reads it as one matching nothing, so it is omitted.
+    await fetchJobLog('backup', { search: '', stream: '' })
+    expect(lastCall(mock)[0]).toBe('/api/jobs/backup/log')
+  })
+
+  /**
+   * A job's secret values go through the **job's** route, keyed by its id — not the server one.
+   *
+   * The two stores are the same file, so a call sent to the wrong route would look like it worked and
+   * write under a key nothing reads.
+   */
+  it('writes a job\'s secret values through its own route', async () => {
+    const mock = stub({ ok: true })
+    await setJobSecrets('a/b', { set: { TOKEN: 'x' }, unset: ['OLD'] })
+    expect(lastCall(mock)[0]).toBe('/api/jobs/a%2Fb/secrets')
+    expect(lastCall(mock)[1]?.method).toBe('PUT')
+    expect(JSON.parse(lastCall(mock)[1]?.body as string)).toEqual({ set: { TOKEN: 'x' }, unset: ['OLD'] })
   })
 
   it('carries only the restore options that were given', async () => {

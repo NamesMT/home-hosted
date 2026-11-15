@@ -186,7 +186,7 @@ describe('running a job', () => {
     const { service } = await workspace([{ id: 'located' }])
     const [listed] = service.list()
     expect(listed?.logPath).toBeTypeOf('string')
-    expect(listed?.logPath.endsWith('located.log')).toBe(true)
+    expect(listed?.logPath?.endsWith('located.log')).toBe(true)
     service.dispose()
   })
 })
