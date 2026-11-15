@@ -201,7 +201,7 @@ export async function terminate(child: ChildProcess, options: TerminateOptions):
  */
 export async function killTreeWindows(pid: number): Promise<void> {
   try {
-    await execFileAsync('taskkill', ['/pid', String(pid), '/T', '/F'], { timeout: 5000 })
+    await execFileAsync('taskkill', ['/pid', String(pid), '/T', '/F'], { timeout: 5000, windowsHide: true })
   }
   catch {
     // Already gone, or taskkill is unavailable.
