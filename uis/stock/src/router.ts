@@ -20,7 +20,15 @@ const GlobalSettingsView = () => import('@/views/GlobalSettingsView.vue')
 const ProxyView = () => import('@/views/ProxyView.vue')
 
 /** Pages that read the workspace in the URL. */
-const WORKSPACE_ROUTES = new Set(['overview', 'servers', 'server-detail', 'logs', 'settings'])
+/**
+ * The pages that belong to a workspace, so the guard may serve a deep link to one as it stands.
+ *
+ * **`jobs` missing from this set is not a cosmetic omission**: the guard falls through to the
+ * "replace the workspace" branch for a name it does not know, and a route that is already canonical
+ * (`/w/default/jobs`) is redirected to itself — an infinite navigation loop that locks the renderer.
+ * Measured: the page never fired `load`, and Chrome stopped answering CDP reads.
+ */
+const WORKSPACE_ROUTES = new Set(['overview', 'servers', 'server-detail', 'jobs', 'logs', 'settings'])
 
 export const router = createRouter({
   history: createWebHistory(),

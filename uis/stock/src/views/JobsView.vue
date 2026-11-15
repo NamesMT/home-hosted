@@ -7,8 +7,10 @@ import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
 import TextField from '@/components/ui/TextField.vue'
+import { useControlPlane } from '@/composables/useControlPlane'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
+import { relativeFrom } from '@/lib/format'
 
 /**
  * The workspace's **jobs**: short-lived commands on cron schedules.
@@ -21,6 +23,9 @@ import * as api from '@/lib/api'
  * toast that said "started" would leave them believing a backup ran that did not.
  */
 const route = useRoute()
+// The shell's own tick, not `Date.now()` during render: a clock read in a template is a value that
+// changes on every frame, which is what made this page re-render without ever settling.
+const control = useControlPlane()
 const workspaceId = computed(() => String(route.params.workspaceId ?? ''))
 
 const jobs = ref<JobRow[]>([])
@@ -124,31 +129,32 @@ async function create(): Promise<void> {
   }
 }
 
-/** `Intl.RelativeTimeFormat`, per the UI rules — never a hand-assembled "in 4h". */
-function when(ms: number | null | undefined): string {
+/**
+ * When an instant is, relative to now — through the app's **cached** formatter.
+ *
+ * This used to build a fresh `Intl.RelativeTimeFormat` per call, per row, inside the render: that is
+ * the most expensive `Intl` constructor there is, and calling it for every cell of every row locked
+ * the renderer hard enough that the whole page stopped answering. `relativeFrom` builds one per
+ * locale and reuses it, and takes `now` from the tick the shell already drives rather than reading
+ * the clock during render — which is what made the output change on every frame.
+ */
+function when(ms: number | null | undefined, now: number): string {
   if (ms === null || ms === undefined)
     return t('jobs.noNextRun')
-  const delta = ms - Date.now()
-  const minutes = Math.round(delta / 60_000)
-  if (Math.abs(minutes) < 60)
-    return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(minutes, 'minute')
-  const hours = Math.round(minutes / 60)
-  if (Math.abs(hours) < 48)
-    return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(hours, 'hour')
-  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(Math.round(hours / 24), 'day')
+  return relativeFrom(ms, now)
 }
 
-function lastRun(job: JobRow): string {
+function lastRun(job: JobRow, now: number): string {
   if (job.lastRunAt === undefined)
     return t('jobs.neverRan')
-  return when(job.lastRunAt)
+  return relativeFrom(job.lastRunAt, now)
 }
 
 const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.command.trim().length > 0 && form.value.schedule.trim().length > 0)
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="mx-auto max-w-7xl space-y-4 p-4 sm:p-5">
     <div class="flex items-start justify-between gap-3">
       <div>
         <h1 class="text-sm font-semibold text-ink">
@@ -215,10 +221,10 @@ const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.c
             {{ job.schedule }}
           </td>
           <td class="py-1.5 pr-2 text-2xs">
-            {{ job.running ? t('jobs.running') : when(job.nextRunAt) }}
+            {{ job.running ? t('jobs.running') : when(job.nextRunAt, control.now.value) }}
           </td>
           <td class="py-1.5 pr-2 text-2xs text-faint">
-            {{ lastRun(job) }}
+            {{ lastRun(job, control.now.value) }}
             <span v-if="job.lastExitCode !== undefined && job.lastExitCode !== null" class="ml-1" :class="job.lastExitCode === 0 ? 'text-ok' : 'text-danger'">
               {{ t('jobs.exitCode', { code: job.lastExitCode }) }}
             </span>
