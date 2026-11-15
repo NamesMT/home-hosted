@@ -202,6 +202,7 @@ export function createJobsRoute(deps: AppDeps) {
           return c.json({
             ok: record.exitCode === 0 && !record.cancelled,
             exitCode: record.exitCode,
+            signal: record.signal,
             durationMs,
             cancelled: record.cancelled,
           })

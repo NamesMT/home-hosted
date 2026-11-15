@@ -46,7 +46,13 @@ describe('the jobs API', () => {
     const ran = await created.app.request('/api/jobs/bad/run', { method: 'POST' })
     // 200, not 409: the run happened. Its exit code is the answer, and a script branches on that.
     expect(ran.status).toBe(200)
-    expect(await ran.json()).toMatchObject({ ok: false, exitCode: 3 })
+    const body = await ran.json() as Record<string, unknown>
+    expect(body).toMatchObject({ ok: false, exitCode: 3 })
+    // The response is `jobRunResultSchema`, which requires `signal` beside `exitCode`: a run can end
+    // by a signal with no exit code at all, and a client reading only `exitCode` would call that
+    // "unknown". The route omitted it, so the documented shape and the answer disagreed.
+    expect(body).toHaveProperty('signal')
+    expect(body.signal).toBeNull()
     await created.cleanup()
   })
 

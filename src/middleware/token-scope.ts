@@ -235,10 +235,19 @@ export function createTokenScopeGuard() {
     }
     const rule = ruleFor(method, path)
     if (rule === null) {
-      throw new DetailedError(`${method} ${path} has no declared token scope`, {
-        statusCode: 403,
-        code: 'TOKEN_SCOPE',
-      })
+      // No rule names this path. `docs/API.md` promises that a path under `/api` matching no route is
+      // `404 NOT_FOUND`, but this guard runs **before** routing, so every typo answered
+      // `403 TOKEN_SCOPE … has no declared token scope` — a credential error for a URL that does not
+      // exist, sending a caller to check a token instead of their spelling. Only an authenticated
+      // caller ever saw it: the auth guard answers 401 first.
+      //
+      // `404` is the answer either way, and it stays fail-closed. The guard's job is that an
+      // undeclared route is never *reachable*, and a 404 reaches nothing. What is given up is the
+      // diagnostic: a route somebody adds without declaring it now looks like a missing route rather
+      // than saying "no declared token scope". That is the lesser harm, the spec walk in
+      // `test/middleware/token-scopes.test.ts` fails on the route before it ships, and
+      // `src/shared/error-codes.ts` already reserves `NOT_FOUND` for exactly this.
+      throw new DetailedError(`no route for ${method} ${path}`, { statusCode: 404, code: 'NOT_FOUND' })
     }
     if (!tokenAllows(account.scopes, rule.scope)) {
       throw new DetailedError(

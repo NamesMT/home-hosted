@@ -109,6 +109,66 @@ export function createControlRoute(deps: AppDeps) {
     )
 
     /**
+     * A workspace's jobs, over the local channel — `home-hosted job ls` while the panel runs.
+     *
+     * Jobs had a CLI (`job ls`, `job run`) whose only path was the **browser** client: `listJobs`
+     * built a relative `/api/jobs`, which a terminal cannot resolve, and `job run` posted to
+     * `/_hh/jobs/:id/run`, a route nobody had written. `job ls` died on the URL and `job run` on the
+     * 404, so the command's own doc comment described a working pair that did not exist. These two
+     * routes are the missing halves, on the channel the CLI already uses.
+     */
+    .get(
+      '/jobs',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Every job in one workspace, with what each is doing (local token required)',
+        responses: { 200: { description: 'The jobs', content: jsonBody(type({ jobs: 'unknown[]' })) }, 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      (c) => {
+        assertLocalCall(c, 'list jobs')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        return c.json({ jobs: runtime.jobs.list() })
+      },
+    )
+
+    /**
+     * Run one job now and wait for its exit code, over the local channel.
+     *
+     * `POST`, and it **waits**: a job's exit code is its outcome, and `job run` exits 1 on failure, so
+     * an "accepted" answer would leave a script believing a backup ran that it did not. The same
+     * service the `/api` route calls, so the history event and the notification cannot drift.
+     */
+    .post(
+      '/jobs/:id/run',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Run a job now and wait for its exit code (local token required)',
+        responses: { 200: { description: 'Ran', content: jsonBody(jobRunResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404], 409: ERROR_RESPONSES[409] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      async (c) => {
+        assertLocalCall(c, 'run a job')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        if (runtime.jobs.get(id) === null)
+          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+        const record = await runtime.jobs.run(id)
+        if (record === null)
+          throw new DetailedError(`job "${id}" is already running`, { statusCode: 409, code: 'JOB_RUNNING' })
+        const durationMs = record.endedAt === null ? 0 : record.endedAt - record.startedAt
+        return c.json({
+          ok: record.exitCode === 0 && !record.cancelled,
+          exitCode: record.exitCode,
+          signal: record.signal,
+          durationMs,
+          cancelled: record.cancelled,
+        })
+      },
+    )
+
+    /**
      * Run one entry's deploy steps, over the local channel — `home-hosted deploy` while the panel
      * runs.
      *

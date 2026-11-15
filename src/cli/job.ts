@@ -32,14 +32,30 @@ export const jobListCommand = defineCommand({
   },
   async run({ args }) {
     const workspace = typeof args.workspace === 'string' ? args.workspace.trim() : undefined
-    const { listJobs } = await import('#src/shared/api-client')
-    const { jobs } = await listJobs(workspace)
+    // Through `/_hh`, like every other CLI read. This used the **browser** client's `listJobs`,
+    // whose `/api/jobs` is a relative URL a terminal cannot resolve — the command died with
+    // "Failed to parse URL from /api/jobs" before it ever reached a panel.
+    const { readRuntime, requestControl, runtimeIsAlive } = await import('#src/helpers/daemon')
+    const runtime = readRuntime()
+    if (runtime === null || !await runtimeIsAlive(runtime))
+      fail(`home-hosted is not running — jobs live in the panel, so start it with \`${invocation()} up\``)
+
+    const where = workspace === undefined || workspace.length === 0 ? '' : `?workspace=${encodeURIComponent(workspace)}`
+    const answer = await requestControl(runtime, `/_hh/jobs${where}`, 15_000, 'GET')
+    if (answer === null)
+      fail(`the control panel is not answering on ${runtime.probeUrl}`)
+    if (answer.status !== 200) {
+      const body = (answer.body ?? {}) as { message?: string }
+      fail(body.message ?? `the panel answered ${answer.status}`)
+    }
+
+    const { jobs } = (answer.body ?? { jobs: [] }) as { jobs: Array<{ id: string, schedule: string, running: boolean, enabled: boolean }> }
     if (args.json === true) {
       process.stdout.write(`${JSON.stringify({ jobs })}\n`)
       return
     }
     if (jobs.length === 0) {
-      process.stdout.write(`${dim(`no jobs declared — \`${invocation()} job add\` is not a thing yet: declare one in jobs.config.json, or from the Jobs page`)}\n`)
+      process.stdout.write(`${dim(`no jobs declared — declare one in jobs.config.json, or from the Jobs page`)}\n`)
       return
     }
     for (const job of jobs) {
@@ -91,11 +107,18 @@ export const jobRunCommand = defineCommand({
     }
 
     if (json) {
-      process.stdout.write(`${JSON.stringify({ job: id, ok: true, exitCode: body.exitCode ?? null, signal: body.signal ?? null, durationMs: body.durationMs ?? 0, cancelled: body.cancelled === true })}\n`)
+      process.stdout.write(`${JSON.stringify({ job: id, ok: body.exitCode === 0 && body.cancelled !== true, exitCode: body.exitCode ?? null, signal: body.signal ?? null, durationMs: body.durationMs ?? 0, cancelled: body.cancelled === true })}\n`)
+      // A job's exit code **is** its outcome: `job run` promises to exit 1 on failure, and a backup
+      // script reads exactly that. The old code only set this when the *request* failed, so a job
+      // that ran and exited 1 printed "ran qa-fail — exit code 1" and then exited 0 itself.
+      if (body.exitCode !== 0 || body.cancelled === true)
+        process.exitCode = 1
       return
     }
     process.stdout.write(`${green('ran')} ${id} — ${jobRunLine(body)}\n`)
     process.stdout.write(`${dim(`its output is in the panel's log — \`${invocation()} logs\``)}\n`)
+    if (body.exitCode !== 0 || body.cancelled === true)
+      process.exitCode = 1
   },
 })
 

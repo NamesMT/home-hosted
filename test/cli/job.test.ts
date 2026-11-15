@@ -60,6 +60,36 @@ describe('run, a job now', () => {
     expect(result.stderr).toContain('start')
   })
 
+  it('exits 1 when the job itself exited non-zero, though the request succeeded', async () => {
+    // The run happened and the panel answered 200; the *job* is what failed. `job run` promises to
+    // exit 1 on failure, and a backup script reads exactly that, so the command must not report
+    // success just because the transport did.
+    const created = await panel(200, JSON.stringify({ ok: false, exitCode: 3, signal: null, durationMs: 1200, cancelled: false }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'run', 'nightly'])
+    expect(result.status, result.stdout).toBe(1)
+    expect(result.stdout).toContain('exit code 3')
+  })
+
+  it('says the run failed in its --json document, and still exits 1', async () => {
+    const created = await panel(200, JSON.stringify({ ok: false, exitCode: 3, signal: null, durationMs: 1200, cancelled: false }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'run', 'nightly', '--json'])
+    expect(result.status).toBe(1)
+    expect(JSON.parse(result.stdout.trim())).toMatchObject({ job: 'nightly', ok: false, exitCode: 3 })
+  })
+
+  it('exits 1 for a run that was cancelled, whatever its exit code', async () => {
+    const created = await panel(200, JSON.stringify({ ok: false, exitCode: 0, signal: null, durationMs: 900, cancelled: true }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'run', 'nightly'])
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('stopped')
+  })
+
   it('prints one document with --json, so a script reads the exit code', async () => {
     const created = await panel(200, JSON.stringify(SUCCESS))
     writeRuntime(created.url)
@@ -84,6 +114,64 @@ describe('run, a job now', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('is not running')
     expect(result.stderr).toContain('up')
+  })
+})
+
+describe('ls lists the workspace\'s jobs', () => {
+  /**
+   * `job ls` had no test at all, and it did not work: it called the **browser** client's `listJobs`,
+   * whose `/api/jobs` is a relative URL, so it died with "Failed to parse URL from /api/jobs" before
+   * it ever reached a panel. It reads `/_hh/jobs` now, like every other CLI read.
+   */
+  it('reads the jobs over the local channel, not the browser client', async () => {
+    const created = await panel(200, JSON.stringify({
+      jobs: [
+        { id: 'nightly', schedule: '0 3 * * *', enabled: true, running: false, command: '/bin/echo', args: [] },
+        { id: 'hourly', schedule: '0 * * * *', enabled: false, running: false, command: '/bin/echo', args: [] },
+      ],
+    }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'ls'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(created.seen.path).toBe('/_hh/jobs')
+    expect(result.stdout).toContain('nightly')
+    expect(result.stdout).toContain('scheduled')
+    expect(result.stdout).toContain('disabled')
+  })
+
+  it('carries the workspace through', async () => {
+    const created = await panel(200, JSON.stringify({ jobs: [] }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'ls', '--workspace', 'staging'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(created.seen.path).toBe('/_hh/jobs?workspace=staging')
+  })
+
+  it('prints one document with --json', async () => {
+    const jobs = [{ id: 'nightly', schedule: '0 3 * * *', enabled: true, running: false, command: '/bin/echo', args: [] }]
+    const created = await panel(200, JSON.stringify({ jobs }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'ls', '--json'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual({ jobs })
+  })
+
+  it('says there are none, rather than printing an empty table', async () => {
+    const created = await panel(200, JSON.stringify({ jobs: [] }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'ls'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('no jobs declared')
+  })
+
+  it('refuses without a panel, since jobs live in the scheduler', async () => {
+    const result = await runCli(['job', 'ls'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('is not running')
   })
 })
 

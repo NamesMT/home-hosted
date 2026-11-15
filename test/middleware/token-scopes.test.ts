@@ -94,11 +94,14 @@ describe('an account with config', () => {
       body: JSON.stringify({ label: 'renamed' }),
     })).status).toBe(200)
 
-    // Minting is `admin`, and the session-only rule still answers first for a token.
-    const minted = await created.app.request('/api/auth/tokens', {
+    // Minting an account is `admin`, and the session-only rule still answers first for a credential.
+    // This used to post to `/api/auth/tokens`, a route the accounts refactor removed — the assertion
+    // passed because the scope guard refused an *undeclared* path with 403, so a test for a route
+    // that no longer exists kept passing. It names the live route now.
+    const minted = await created.app.request('/api/auth/accounts', {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'child', scopes: ['read'] }),
+      body: JSON.stringify({ id: 'child' }),
     })
     expect(minted.status).toBe(403)
   })
@@ -155,5 +158,24 @@ describe('the declaration', () => {
     expect(tokenScopesFor('POST', '/api/servers/:id/start')).toBe('lifecycle')
     expect(tokenScopesFor('PATCH', '/api/settings')).toBe('config')
     expect(tokenScopesFor('POST', '/api/auth/accounts')).toBe('admin')
+  })
+
+  /**
+   * An unknown path is `404 NOT_FOUND`, as `docs/API.md` promises — not a credential error.
+   *
+   * The scope guard runs before routing, so an undeclared path fell into its "no declared token
+   * scope" branch and answered `403 TOKEN_SCOPE`. A caller who mistyped a URL was told to check their
+   * token. Only an authenticated caller ever saw it (the auth guard answers 401 first), which is why
+   * nothing caught it — the documented contract simply was not tested.
+   */
+  it('answers an undeclared path as 404 NOT_FOUND, not a scope refusal', async () => {
+    const created = await fixture()
+    const account = mint(created, ['admin'])
+
+    for (const [method, path] of [['GET', '/api/totally-bogus'], ['POST', '/api/nope']] as const) {
+      const answer = await created.app.request(path, { method, headers: account.headers })
+      expect(answer.status, `${method} ${path}`).toBe(404)
+      expect(await answer.json()).toMatchObject({ code: 'NOT_FOUND' })
+    }
   })
 })

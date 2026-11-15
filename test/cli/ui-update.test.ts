@@ -150,11 +150,13 @@ function installedMeta(root: string): Record<string, unknown> {
 async function stubRelease(
   tag: string,
   assets: Array<{ name: string, url: string }>,
-  options: { status?: number, archive?: 'zip' | 'garbage' } = {},
+  options: { status?: number, archive?: 'zip' | 'garbage', bytes?: string } = {},
 ): Promise<Array<{ url: string, init: RequestInit | undefined }>> {
-  const archive = options.archive === 'garbage'
-    ? Buffer.from('this is not a zip')
-    : fs.readFileSync(await uiZip(assets[0]?.name ?? 'official-ui.zip'))
+  const archive = options.bytes !== undefined
+    ? fs.readFileSync(options.bytes)
+    : options.archive === 'garbage'
+      ? Buffer.from('this is not a zip')
+      : fs.readFileSync(await uiZip(assets[0]?.name ?? 'official-ui.zip'))
   const calls: Array<{ url: string, init: RequestInit | undefined }> = []
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
@@ -228,9 +230,13 @@ describe('syncOfficialUi', () => {
 
   it('installs an asset whose bytes match the release digest', async () => {
     const root = homeWith(official)
+    // The **same** bytes have to be hashed and then served. `uiZip` writes a real zip through
+    // `@zip.js/zip.js`, which stamps the current time into every entry — so two calls a second apart
+    // produce different bytes, and this test hashed one zip while the stub downloaded another. It
+    // passed only when both landed in the same DOS timestamp tick and failed at random otherwise.
     const file = await uiZip('home-hosted-ui-noc-console.zip')
     const digest = `sha256:${createHash('sha256').update(fs.readFileSync(file)).digest('hex')}`
-    await stubRelease('v1.2.3', [{ name: 'home-hosted-ui-noc-console.zip', url: 'https://api.github.com/asset/1', digest } as { name: string, url: string }])
+    await stubRelease('v1.2.3', [{ name: 'home-hosted-ui-noc-console.zip', url: 'https://api.github.com/asset/1', digest } as { name: string, url: string }], { bytes: file })
 
     await expect(syncOfficialUi(uiAt(root), '1.2.3')).resolves.toEqual({ kind: 'updated', tag: 'v1.2.3' })
   })
