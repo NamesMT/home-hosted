@@ -192,3 +192,64 @@ describe('ls lists services, and only services', () => {
     expect(lines[1]).toContain('web')
   })
 })
+
+describe('log reads a job\'s own output', () => {
+  /**
+   * `job log <id>` reads the job's **own** file, over `/_hh`.
+   *
+   * A run's output is no longer in the panel log — it goes to a JSONL file per job id — so `job run`
+   * used to send a person to a file their script's output was not in. This is the way in.
+   */
+  it('reads the job\'s own log over the local channel', async () => {
+    const created = await panel(200, JSON.stringify({
+      jobId: 'nightly',
+      enabled: true,
+      sizeBytes: 120,
+      files: ['nightly.log'],
+      lines: [
+        { ts: 1_700_000_000_000, stream: 'stdout', text: 'backup starting' },
+        { ts: 1_700_000_000_500, stream: 'stderr', text: 'disk full' },
+      ],
+    }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'log', 'nightly'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(created.seen.path).toBe('/_hh/jobs/nightly/log')
+    expect(result.stdout).toContain('backup starting')
+    expect(result.stdout).toContain('disk full')
+    // The stream is named on every line, so `err` is not just a colour.
+    expect(result.stdout).toContain('stderr')
+  })
+
+  it('prints one document with --json, and an empty log is an empty list rather than silence', async () => {
+    const created = await panel(200, JSON.stringify({ jobId: 'idle', enabled: true, sizeBytes: 0, files: [], lines: [] }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'log', 'idle', '--json'])
+    expect(result.status, result.stderr).toBe(0)
+    const body = JSON.parse(result.stdout.trim()) as { job: string, lines: unknown[] }
+    expect(body.job).toBe('idle')
+    // `--json` prints one document on stdout or nothing, and "no output yet" is a document.
+    expect(body.lines).toEqual([])
+  })
+
+  it('says the panel keeps nothing when persistence is off, instead of showing an empty log', async () => {
+    const created = await panel(200, JSON.stringify({ jobId: 'nightly', enabled: false, sizeBytes: 0, files: [], lines: [] }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'log', 'nightly'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('persist')
+  })
+
+  it('needs an id, and refuses without a panel', async () => {
+    const noId = await runCli(['job', 'log'])
+    expect(noId.status).toBe(1)
+    expect(noId.stderr).toContain('needs a job id')
+
+    const noPanel = await runCli(['job', 'log', 'nightly'])
+    expect(noPanel.status).toBe(1)
+    expect(noPanel.stderr).toContain('is not running')
+  })
+})
