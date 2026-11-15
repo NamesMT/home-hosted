@@ -71,7 +71,7 @@ missing file, so a command that promises to look (`backup list`, a backup plan, 
 ## Commands
 
 ```sh
-pnpm dev                       # panel :6000 + stock UI dev server :6001, state in .dev-state/, password `dev`
+pnpm dev                       # panel :6600 + stock UI dev server :6601, state in .dev-state/, password `dev`
 pnpm dev --ui noc-console      # another UI; --home/--port/--ui-port override
 pnpm run cli <command>         # any CLI command against .dev-state/ — never ~/.home-hosted
 pnpm run quickcheck            # eslint + tsc + vue-tsc + doc links, in parallel and cached (~10 s warm)

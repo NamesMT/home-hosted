@@ -444,7 +444,15 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   logger.box(`home-hosted ${runtime.version}\n${endpoint.url}`)
   logger.info(`state:   ${hhDir}`)
   logger.info(`settings: ${settings.path}${auth.passwordSet ? '' : ' (no password set)'}`)
-  logger.info(`auth:    ${auth.isRequired() ? 'required' : 'disabled'}${auth.usingDefaultPassword ? ' (first-run password)' : ''}${auth.apiTokenSet ? ' · API token set' : ''}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
+  // Accounts replaced the password and the token: one credential does both jobs, so a panel either
+  // has an account or it does not, and "API token set" no longer names anything a person can hold.
+  const accountState = (): string => {
+    if (!auth.isRequired())
+      return 'disabled'
+    const count = auth.listAccounts().filter(account => account.enabled).length
+    return `required (${count} account${count === 1 ? '' : 's'}${auth.usingDefaultPassword ? ', first-run secret' : ''})`
+  }
+  logger.info(`auth:    ${accountState()}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
   logger.info(`project: ${projectDir}`)
   for (const workspace of panel.workspaces()) {
     logger.info(`workspace ${workspace.id} "${workspace.label}" — ${workspace.store.servers.length} server(s) · ${workspace.logsDir}`)

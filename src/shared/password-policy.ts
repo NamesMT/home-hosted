@@ -5,7 +5,7 @@
  */
 export const EXPOSED_PASSWORD_MIN_LENGTH = 12
 
-/** Below this, `set-password` warns even for a loopback-only panel. */
+/** Below this, a secret is flagged short even for a loopback-only panel. */
 export const WEAK_PASSWORD_LENGTH = 8
 
 /** Characters, not UTF-16 units: an emoji is one character to the person typing it. */

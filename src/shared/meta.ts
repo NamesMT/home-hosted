@@ -44,8 +44,8 @@ export const REFUSED_TO_TOKEN: readonly string[] = [
  * What this credential may not take.
  *
  * A session, and this machine with auth unarmed, are refused none of the above — that is the honest
- * answer, not an oversight: the person at the machine can run `home-hosted set-password --clear` or
- * `set-token --generate` instead, so listing those as refused would be false for them.
+ * answer, not an oversight: the person at the machine can run `home-hosted account disable-auth` or
+ * `home-hosted account create` instead, so listing those as refused would be false for them.
  */
 export function credentialRefusals(kind: CredentialKind): string[] {
   return kind === 'token' ? [...REFUSED_TO_TOKEN] : []

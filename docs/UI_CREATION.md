@@ -152,7 +152,7 @@ and a two-line `vite.config.ts` calling `createUiConfig` from `uis/vite.shared.t
 `public/ui.json` naming it. Yours does not have to be Vite — only the output matters.
 
 ```sh
-pnpm dev --ui <name>                      # panel on :6000, your UI's dev server on :6001, /api proxied
+pnpm dev --ui <name>                      # panel on :6600, your UI's dev server on :6601, /api proxied
 node scripts/build-uis.mjs <name> --zip   # → uis/dist/home-hosted-ui-<name>.zip
 ```
 
@@ -170,7 +170,7 @@ cd dist && zip -r ../my-panel.zip . && cd ..
 ```
 
 For development, proxy `/api` from your dev server to a panel (`pnpm dev` in this repo runs one on
-`http://127.0.0.1:6000`, password `dev`). Two settings matter, and both are visible only in the dev
+`http://127.0.0.1:6600`, password `dev`). Two settings matter, and both are visible only in the dev
 server:
 
 - **`changeOrigin: false`.** The panel's host guard answers `421 HOST_NOT_ALLOWED` to a `Host` it does

@@ -34,7 +34,7 @@ export type {
 export interface ClientOptions {
   /** Where the panel listens, e.g. `http://127.0.0.1:3999`. */
   baseUrl: string
-  /** An API token (`home-hosted set-token --generate`); omit it for a cookie session in a browser. */
+  /** `<id>:<secret>` from `home-hosted account create`; omit it for a cookie session in a browser. */
   token?: string
   /** A `fetch` to use instead of the global one (tests, proxies, custom TLS). */
   fetch?: typeof fetch

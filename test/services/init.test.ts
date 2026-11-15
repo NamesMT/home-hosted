@@ -180,8 +180,8 @@ describe('the Next block init hands over', () => {
   it('names the page the panel actually has, not one invented here', () => {
     for (const install of [true, false]) {
       const prose = nextSteps('npm', install, '').filter(step => step.command === null).map(step => step.text)
-      const hint = prose.find(text => text.includes('password'))
-      expect(hint, 'the password hint must survive').toBeDefined()
+      const hint = prose.find(text => text.includes('secret'))
+      expect(hint, 'the secret hint must survive').toBeDefined()
       expect(hint).toContain('Global settings')
       // The defect: a page label nothing in the UI uses.
       expect(hint, 'there is no page called Settings').not.toMatch(/(^|[^l]) Settings/)
@@ -189,27 +189,31 @@ describe('the Next block init hands over', () => {
   })
 
   /**
-   * `init` must not name a password, because a fresh scaffold has none to name.
+   * `init` must not name a secret, because a fresh scaffold has none to name.
    *
-   * The `up` line promised "default password `hh`" — the shared pre-0.12 boot password. A 0.12
-   * install generates a **random** first-run password and prints it once, on `up` itself, so a
+   * The `up` line promised "default password `hh`" — the shared pre-0.12 boot password. A fresh
+   * install generates a **random** first-run secret and prints it once, on `up` itself, so a
    * person following the scaffold's own handover typed `hh` at a login screen and got a 401. The
-   * fix is not a new literal: any fixed password in this text is the same defect, because the text
-   * is written before the password exists.
+   * fix is not a new literal: any fixed secret in this text is the same defect, because the text
+   * is written before the secret exists.
    */
   it('does not promise a password it cannot know', () => {
     for (const install of [true, false]) {
       for (const step of nextSteps('pnpm', install, '')) {
-        expect(step.text, `"${step.text}" names a password this scaffold did not create`)
+        expect(step.text, `"${step.text}" names a secret this scaffold did not create`)
           .not
           .toContain('`hh`')
+        // The account refactor removed `set-token`; a scaffold that names it sends a new project at
+        // a command the CLI does not have.
+        expect(step.text, 'set-token no longer exists').not.toContain('set-token')
+        expect(step.command ?? '', 'set-token no longer exists').not.toContain('set-token')
         expect(step.text).not.toMatch(/default password/i)
       }
     }
     // Anti-vacuity: the line it replaced is still there, and still points at `up`.
     const up = nextSteps('pnpm', true, '').find(step => step.command?.endsWith('pnpm run up'))
     expect(up, 'the up step must survive').toBeDefined()
-    expect(up!.text, 'and it says where the password comes from').toContain('first-run password')
+    expect(up!.text, 'and it says where the secret comes from').toContain('first-run secret')
   })
 
   it('reaches the project on the first step, and does not repeat the cd', () => {

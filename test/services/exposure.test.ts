@@ -58,30 +58,35 @@ describe('control panel exposure', () => {
     // Asserted against `null` first: `.toContain` on a null reason reports a vitest argument error
     // rather than the property that failed.
     expect(state.blockedReason, 'an armed panel on the boot password is still a way in').not.toBeNull()
-    expect(state.blockedReason!).toContain('first-run password')
+    expect(state.blockedReason!).toContain('first-run secret')
 
     // And it does not fire where the other two guards would, so the ordering is real.
     expect(checkExposure(control('local'), true, true).blockedReason).toBeNull()
     const noPassword = checkExposure(control('lan', { enabled: true }), false, true).blockedReason
     expect(noPassword).not.toBeNull()
-    expect(noPassword!).toContain('no password')
+    expect(noPassword!).toContain('no account can sign in')
   })
 
   it('names the missing piece in the reason', () => {
-    expect(checkExposure(control('lan', { enabled: true }), false).blockedReason).toContain('no password')
+    expect(checkExposure(control('lan', { enabled: true }), false).blockedReason).toContain('no account can sign in')
     expect(checkExposure(control('lan', { enabled: false }), false).blockedReason).toContain('authentication is disabled')
   })
 
   /**
    * The sentence a person reads on their own settings page tells them what to do, so it has to name
-   * a command that exists. It said `pnpm run set-password`, which is this *repository's* shorthand:
-   * `pnpm run set-password` answers `ERR_PNPM_NO_SCRIPT` (measured), and a person who installed the
-   * package has no such script at all — the bin is `home-hosted`, with `hh` as its alias.
+   * a command that exists — and, since accounts replaced the password, one that **still** exists.
+   *
+   * This test has now caught the same bug twice: it once named `pnpm run set-password`, which is this
+   * repository's shorthand and not a command an installed package has (the bin is `home-hosted`, with
+   * `hh` as its alias); then `home-hosted set-password`, a command the account refactor deleted. A
+   * refusal that points at a missing command is worse than no refusal — the person is stuck and told
+   * to do something impossible.
    */
   it('tells the person a command that exists', () => {
     const reason = checkExposure(control('lan', { enabled: true }), false).blockedReason!
-    expect(reason).toMatch(/`home-hosted( --home \S+)? set-password`/)
+    expect(reason).toMatch(/`home-hosted( --home \S+)? account secret <id>`/)
     expect(reason, 'a repository script is not a command a user has').not.toContain('pnpm run')
+    expect(reason, 'set-password was removed with the password model').not.toContain('set-password')
   })
 
   it('defaults to a local bind with authentication on', () => {
@@ -98,7 +103,7 @@ describe('control panel exposure', () => {
   it('blocks exposure while the default password is still in use', () => {
     const state = checkExposure(control('lan', { enabled: true }), true, true)
     expect(state.exposed).toBe(true)
-    expect(state.blockedReason).toContain('first-run password')
+    expect(state.blockedReason).toContain('first-run secret')
   })
 
   /**
@@ -110,14 +115,14 @@ describe('control panel exposure', () => {
     expect(state.exposed).toBe(true)
     expect(state.blockedReason).not.toBeNull()
     expect(state.blockedReason!).toContain('shorter than 12 characters')
-    expect(state.blockedReason!).toContain('set-password')
+    expect(state.blockedReason!).toContain('account secret')
     // On loopback any length is fine.
     expect(checkExposure(control('local'), true, false, true).blockedReason).toBeNull()
   })
 
-  it('names the fix for the first-run password in one sentence', () => {
+  it('names the fix for the first-run secret in one sentence', () => {
     const reason = checkExposure(control('lan', { enabled: true }), true, true).blockedReason!
-    expect(reason).toMatch(/^can't listen on lan while the panel still has its first-run password — run `.+ set-password` or change it in Global settings → Authentication$/)
+    expect(reason).toMatch(/^can't listen on lan while the panel still has its first-run secret — run `.+ account secret <id>` or change it in Global settings → Accounts$/)
   })
 
   it('rejects unknown auth keys', () => {
@@ -169,10 +174,10 @@ describe('reverse proxy exposure', () => {
   it('holds a panel route to the same bar as a non-loopback bind', () => {
     const on = proxy({ enabled: true, routes: [panelRoute] })
     expect(checkProxyExposure(on, true, true, false)).toBeNull()
-    expect(checkProxyExposure(on, false, false)).toContain('authentication is disabled and no password is set')
+    expect(checkProxyExposure(on, false, false)).toContain('authentication is disabled and no account can sign in')
     expect(checkProxyExposure(on, false, true)).toContain('authentication is disabled')
-    expect(checkProxyExposure(on, true, false)).toContain('no password is set')
-    expect(checkProxyExposure(on, true, true, true)).toContain('first-run password')
+    expect(checkProxyExposure(on, true, false)).toContain('no account can sign in')
+    expect(checkProxyExposure(on, true, true, true)).toContain('first-run secret')
     expect(checkProxyExposure(on, true, true, false, [], true)).toContain('shorter than 12 characters')
     // The hostname is named, so the message points at the route to change.
     expect(checkProxyExposure(on, true, false)).toContain('panel.example.com')
@@ -188,9 +193,9 @@ describe('reverse proxy exposure', () => {
     // reached that hostname — the same exposure as an `auto` one, in the clear. The bar is about who
     // can reach the panel, not about whether the hop is encrypted.
     const plain = proxy({ enabled: true, routes: [{ ...panelRoute, tls: 'off' }] })
-    expect(checkProxyExposure(plain, false, false)).toContain('authentication is disabled and no password is set')
+    expect(checkProxyExposure(plain, false, false)).toContain('authentication is disabled and no account can sign in')
     expect(checkProxyExposure(plain, true, true, false)).toBeNull()
-    expect(checkProxyExposure(plain, true, false)).toContain('no password is set')
+    expect(checkProxyExposure(plain, true, false)).toContain('no account can sign in')
   })
 
   /**
@@ -200,7 +205,7 @@ describe('reverse proxy exposure', () => {
   it('counts an external route dialing the panel listener as a panel route', () => {
     for (const url of ['http://127.0.0.1:6123', '127.0.0.1:6123', 'http://localhost:6123', 'http://[::1]:6123', 'http://0.0.0.0:6123', 'http://127.1:6123', 'https://localhost.:6123', 'http://[::ffff:127.0.0.1]:6123']) {
       const on = proxy({ enabled: true, routes: [{ id: 'sneaky', host: 'panel.lan', target: 'external', url }] })
-      expect(checkProxyExposure(on, true, false, false, [6123]), url).toContain('no password is set')
+      expect(checkProxyExposure(on, true, false, false, [6123]), url).toContain('no account can sign in')
       expect(checkProxyExposure(on, true, true, false, [6123]), url).toBeNull()
     }
     // Another port, or another machine, is an ordinary upstream.
@@ -275,7 +280,7 @@ describe('an upstream named by a hostname, not spelled by an address', () => {
     await primeUpstreamResolutions(on)
 
     // Every one of them is a panel route, so the exposure bar applies to the whole table.
-    expect(checkProxyExposure(on, true, false, false, [6123])).toContain('no password is set')
+    expect(checkProxyExposure(on, true, false, false, [6123])).toContain('no account can sign in')
     expect(checkProxyExposure(on, true, true, false, [6123])).toBeNull()
     // And the predicate itself, so a caller that asks directly gets the same answer.
     for (const url of ['http://panel.attacker.example:6123', 'http://127.0.0.1.nip.io:6123', 'http://v6.example:6123', 'http://mixed.example:6123'])
@@ -303,7 +308,7 @@ describe('an upstream named by a hostname, not spelled by an address', () => {
     await primeUpstreamResolutions(on)
 
     expect(dialsPanel('http://ghost.example.com:6123', [6123]), 'an unknown destination is treated as the panel').toBe(true)
-    expect(checkProxyExposure(on, true, false, false, [6123])).toContain('no password is set')
+    expect(checkProxyExposure(on, true, false, false, [6123])).toContain('no account can sign in')
   })
 
   /** The predicate is synchronous and cached: a save must never wait on a resolver. */

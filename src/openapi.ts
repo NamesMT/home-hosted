@@ -189,7 +189,7 @@ export function setupOpenAPI(app: Parameters<typeof generateSpecs>[0]) {
                 bearerAuth: {
                   type: 'http',
                   scheme: 'bearer',
-                  description: 'An API token from `home-hosted set-token --generate`. It never expires.',
+                  description: '`<id>:<secret>` for a panel account, from `home-hosted account create`. It never expires until the secret is rotated or the account revoked.',
                 },
                 sessionCookie: {
                   type: 'apiKey',

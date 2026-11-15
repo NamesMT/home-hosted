@@ -122,7 +122,7 @@ export function createSettingsRoute(deps: AppDeps) {
        * Turning it *on* stays open to a token: that only adds protection.
        */
       if (patch.control?.auth?.enabled === false && requestIdentity(c, deps.auth).method !== 'cookie') {
-        throw new DetailedError('switching authentication off needs a signed-in session, not an API token — sign in, or run `home-hosted set-password --clear` on the machine', {
+        throw new DetailedError('switching authentication off needs a signed-in session, not a bearer credential — sign in, or run `home-hosted account disable-auth` on the machine', {
           statusCode: 403,
           code: 'SESSION_REQUIRED',
         })

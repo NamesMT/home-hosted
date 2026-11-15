@@ -14,8 +14,9 @@ export interface ExposureState {
 }
 
 /** The command that sets the password, spelled the way this process was invoked (`--home` included). */
-function setPasswordCommand(): string {
-  return `\`${invocation()} set-password\``
+/** The command a refusal should name. `set-password` is gone: an account's secret is the credential. */
+function setSecretCommand(): string {
+  return `\`${invocation()} account secret <id>\``
 }
 
 /**
@@ -35,7 +36,7 @@ export function checkExposure(control: ControlConfig, passwordSet: boolean, usin
   if (!control.auth.enabled && !passwordSet) {
     return {
       exposed,
-      blockedReason: `the control panel is bound to ${control.host} but authentication is disabled and no password is set`,
+      blockedReason: `the control panel is bound to ${control.host} but authentication is disabled and no account can sign in`,
     }
   }
   if (!control.auth.enabled) {
@@ -44,19 +45,19 @@ export function checkExposure(control: ControlConfig, passwordSet: boolean, usin
   if (!passwordSet) {
     return {
       exposed,
-      blockedReason: `the control panel is bound to ${control.host} but no password is set (run ${setPasswordCommand()})`,
+      blockedReason: `the control panel is bound to ${control.host} but no account can sign in (run ${setSecretCommand()})`,
     }
   }
   if (usingDefaultPassword) {
     return {
       exposed,
-      blockedReason: `can't listen on ${control.host} while the panel still has its first-run password — run ${setPasswordCommand()} or change it in Global settings → Authentication`,
+      blockedReason: `can't listen on ${control.host} while the panel still has its first-run secret — run ${setSecretCommand()} or change it in Global settings → Accounts`,
     }
   }
   if (passwordTooShort) {
     return {
       exposed,
-      blockedReason: `can't listen on ${control.host} with a password shorter than ${EXPOSED_PASSWORD_MIN_LENGTH} characters — set a longer one with ${setPasswordCommand()} or in Global settings → Authentication`,
+      blockedReason: `can't listen on ${control.host} with a secret shorter than ${EXPOSED_PASSWORD_MIN_LENGTH} characters — set a longer one with ${setSecretCommand()} or in Global settings → Accounts`,
     }
   }
   return { exposed, blockedReason: null }
@@ -94,15 +95,15 @@ export function checkProxyExposure(
 
   const hosts = panelRoutes.map(route => route.host).join(', ')
   if (!authEnabled && !passwordSet)
-    return `the reverse proxy would serve the control panel at ${hosts} but authentication is disabled and no password is set`
+    return `the reverse proxy would serve the control panel at ${hosts} but authentication is disabled and no account can sign in`
   if (!authEnabled)
     return `the reverse proxy would serve the control panel at ${hosts} but authentication is disabled`
   if (!passwordSet)
-    return `the reverse proxy would serve the control panel at ${hosts} but no password is set (run ${setPasswordCommand()})`
+    return `the reverse proxy would serve the control panel at ${hosts} but no account can sign in (run ${setSecretCommand()})`
   if (usingDefaultPassword)
-    return `the reverse proxy can't serve the control panel at ${hosts} while it still has its first-run password — run ${setPasswordCommand()} or change it in Global settings → Authentication`
+    return `the reverse proxy can't serve the control panel at ${hosts} while it still has its first-run secret — run ${setSecretCommand()} or change it in Global settings → Accounts`
   if (passwordTooShort)
-    return `the reverse proxy can't serve the control panel at ${hosts} with a password shorter than ${EXPOSED_PASSWORD_MIN_LENGTH} characters — set a longer one with ${setPasswordCommand()} or in Global settings → Authentication`
+    return `the reverse proxy can't serve the control panel at ${hosts} with a secret shorter than ${EXPOSED_PASSWORD_MIN_LENGTH} characters — set a longer one with ${setSecretCommand()} or in Global settings → Accounts`
   return null
 }
 

@@ -3,16 +3,22 @@
  * Dev runner: the control plane (tsx watch) and the Vite dev server for one UI,
  * so UI edits hot-reload while the API keeps running.
  *
- * Both default to the 6xxx range (panel 6000, UI 6001): an installed panel or
- * another dev instance may already hold 3999, and the panel's port preflight runs
- * before it refuses a broken config, so a busy default port fails unrelated tests
- * for the wrong reason.
+ * Both default to the 66xx range (panel 6600, UI 6601). Two separate reasons, and the second one is
+ * why the range is 66xx rather than 60xx:
  *
- *   pnpm dev                          # panel 6000 + stock UI 6001
- *   pnpm dev --ui noc-console         # panel 6000 + noc-console on 6001
- *   pnpm dev --port 6010 --ui-port 6011
- *   pnpm dev --home /tmp/hh-dev       # a state directory of your own
- *   HHOSTED_DEV_PANEL_PORT=6010 pnpm dev
+ *  - An installed panel or another dev instance may already hold 3999, and the panel's port preflight
+ *    runs before it refuses a broken config, so a busy default port fails unrelated tests for the
+ *    wrong reason.
+ *  - **6000 is held on some hosts before anything asks for it.** Measured on WSL2: `net.listen` on
+ *    127.0.0.1:6000 answers `EADDRINUSE` with no process to name — Windows reserves the range for its
+ *    own use and the guest inherits the refusal. A default nobody can bind is worse than a default
+ *    that occasionally collides, so the range starts above it.
+ *
+ *   pnpm dev                            # panel 6600 + stock UI 6601
+ *   pnpm dev --ui noc-console           # panel 6600 + noc-console on 6601
+ *   pnpm dev --port 6610 --ui-port 6611
+ *   pnpm dev --home /tmp/hh-dev         # a state directory of your own
+ *   HHOSTED_DEV_PANEL_PORT=6610 pnpm dev
  *
  * **State is `.dev-state/` unless you say otherwise, and never inherited silently.** An exported
  * `HHOSTED_HOME` (a shell profile, a container image) used to win here, so `pnpm dev` ran against
@@ -30,8 +36,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 
-const DEFAULT_PANEL_PORT = 6000
-const DEFAULT_UI_PORT = 6001
+const DEFAULT_PANEL_PORT = 6600
+const DEFAULT_UI_PORT = 6601
 // `pnpm` is a `.cmd` shim on Windows and cannot be spawned without a shell. `scripts/build-uis.mjs`
 // resolves the same way for the same reason.
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'

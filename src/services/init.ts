@@ -26,13 +26,11 @@ export interface InitResult {
 export function projectScripts(): Record<string, string> {
   const withState = (args: string): string => `home-hosted ${args} --home ./state`
   return {
-    'up': withState('up'),
-    'down': withState('down'),
-    'restart': withState('restart'),
-    'status': withState('status'),
-    'set-password': withState('set-password'),
-    'set-token': withState('set-token'),
-    'migrate': withState('migrate'),
+    up: withState('up'),
+    down: withState('down'),
+    restart: withState('restart'),
+    status: withState('status'),
+    migrate: withState('migrate'),
   }
 }
 
@@ -172,9 +170,9 @@ export function nextSteps(pm: PackageManager, install: boolean, cd: string): Nex
    * this hint answered 401 at a login screen that names no credential. Naming any fixed password is
    * the same defect in a new spelling — there is none to name.
    */
-  steps.push({ command: lead(runCommand(pm, 'up')), text: 'start the panel — it prints the first-run password once, on this line' })
-  steps.push({ command: null, text: 'then change that password under Global settings → Authentication, and add your servers' })
-  steps.push({ command: `${runCommand(pm, 'set-token')} --generate`, text: 'for scripts and agents' })
+  steps.push({ command: lead(runCommand(pm, 'up')), text: 'start the panel — it prints the first-run secret once, on this line' })
+  steps.push({ command: null, text: 'then change that secret under Global settings → Accounts, and add your servers' })
+  steps.push({ command: `${runCommand(pm, 'account')} create agent --scope read`, text: 'an account for scripts and agents, with the least it needs' })
   return steps
 }
 

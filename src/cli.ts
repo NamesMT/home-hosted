@@ -85,8 +85,6 @@ const SUMMARIES: Record<string, string> = {
   'start': 'start one server, leaving the panel up',
   'stop': 'stop one server, leaving the panel up',
   'free-port': 'free the port a server needs, so it can start',
-  'set-password': 'set the panel password without the API',
-  'set-token': 'set the API token that scripts and agents use',
   'setup-temp': 'teach the panel how to read this machine\'s CPU temperature',
   'migrate': 'bring the config up to this release\'s schema',
   'init': 'scaffold a project that keeps its state in the repo',
@@ -101,6 +99,7 @@ const SUMMARIES: Record<string, string> = {
   'token': 'named, scoped API tokens — create, list or revoke',
   'deploy': 'run an entry\'s deploy steps and report the outcome',
   'job': 'a workspace\'s jobs: `ls` what is scheduled, `run` one now',
+  'account': 'the panel\'s accounts: create, list, set a secret, revoke',
 }
 
 /** One option line, as the left column and the description that follows it. */
