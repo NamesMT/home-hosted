@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.13.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.13.0...v0.13.1)
+
+### 🩹 Fixes
+
+- **windows:** Hide the console window of every helper process ([#1](https://github.com/NamesMT/home-hosted/pull/1))
+
+### 📖 Documentation
+
+- **upgrading:** Drop the 0.13.0 section now that it has shipped ([2ded2f2](https://github.com/NamesMT/home-hosted/commit/2ded2f2))
+
+### ❤️ Contributors
+
+- Trung Dang ([@NamesMT](https://github.com/NamesMT))
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.13.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.12.0...v0.13.0)
