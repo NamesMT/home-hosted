@@ -461,7 +461,19 @@ const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : 
         <AppButton size="sm" variant="ghost" @click="sheetOpen = false">
           {{ t('common.cancel') }}
         </AppButton>
-        <AppButton size="sm" variant="primary" :loading="busy === 'new' || busy === editingId" :disabled="!canSubmit" @click="submit">
+        <!--
+          `busy === editingId` alone was the bug: while nothing is saving, `busy` is `null` and so is
+          `editingId` in create mode, so `null === null` is true and the button rendered permanently
+          loading — disabled, with its spinner turning, on a sheet with valid fields. The mode is part
+          of the test precisely because the two nulls are not the same "nothing".
+        -->
+        <AppButton
+          size="sm"
+          variant="primary"
+          :loading="busy === 'new' || (busy !== null && busy === editingId)"
+          :disabled="!canSubmit"
+          @click="submit"
+        >
           {{ mode === 'create' ? t('jobs.create') : t('jobs.save') }}
         </AppButton>
       </template>

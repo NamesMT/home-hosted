@@ -174,4 +174,39 @@ describe('the Jobs page edits a job', () => {
     })
     wrapper.unmount()
   })
+
+  /**
+   * The create sheet's submit is usable with valid fields.
+   *
+   * It was `:loading="busy === 'new' || busy === editingId"`, and in create mode `editingId` is `null`
+   * while `busy` is `null` too — so `null === null` held and the button rendered **permanently
+   * loading**, disabled with its spinner turning. A sheet nobody could submit, with no error to
+   * explain it, on the one flow that had always worked.
+   */
+  it('can submit the create sheet once its required fields are filled', async () => {
+    sent.length = 0
+    const wrapper = await mountJobs()
+    await wrapper.vm.$nextTick()
+
+    const create = wrapper.findAll('button').find(node => node.text() === 'New job')
+    expect(create, 'the page offers a create action').toBeDefined()
+    await create!.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const submit = (): HTMLButtonElement | undefined => inBody<HTMLButtonElement>('button').find(node => node.textContent?.trim() === 'New job')
+    // An empty sheet cannot submit — that is `canSubmit`, not the bug.
+    expect(submit()?.disabled, 'an empty create sheet must not submit').toBe(true)
+
+    field('Job id').value = 'nightly-backup'
+    field('Job id').dispatchEvent(new Event('input'))
+    field('Command').value = '/bin/echo'
+    field('Command').dispatchEvent(new Event('input'))
+    field('Schedule').value = '0 3 * * *'
+    field('Schedule').dispatchEvent(new Event('input'))
+    await wrapper.vm.$nextTick()
+
+    expect(submit()?.getAttribute('aria-busy'), 'a filled sheet must not render as loading').toBeNull()
+    expect(submit()?.disabled, 'a filled create sheet must submit').toBe(false)
+    wrapper.unmount()
+  })
 })
