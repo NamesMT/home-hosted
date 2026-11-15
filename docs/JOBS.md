@@ -71,6 +71,18 @@ job's values are the same store a server's use, keyed by id, so the two cannot d
 name means. **A changed `secretEnv` takes effect on the next run**; a run in flight keeps the
 environment it started with.
 
+## Editing one
+
+The Jobs page creates a job and edits it in the same sheet — the fields are the same ones, so a
+second form would be a copy that drifts. One field it will not change: **`id`**. The id names the
+job's log file, its run history and its stored secret values, so renaming it in place would orphan
+all three under a name nothing points at any more. The box is disabled with that reason beside it;
+the way to a different id is to remove the job and declare it again.
+
+`PATCH /api/jobs/:id` is what the sheet sends. It carries no `id`, and it carries **every field the
+sheet shows**, not only the changed ones — a patch is whole-field, so omitting one means "keep
+whatever is stored", which is what the form displayed.
+
 ## Running one
 
 Three ways, and all three are the same run — same spawn, same log lines, same history event, same

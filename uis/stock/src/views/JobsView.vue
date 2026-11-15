@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { JobRow } from '@shared/api-client'
+import { secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
+import NumberField from '@/components/ui/NumberField.vue'
 import TextField from '@/components/ui/TextField.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
@@ -21,6 +24,11 @@ import { relativeFrom } from '@/lib/format'
  *
  * The run button waits: the answer is the exit code, which is the one thing a person needs, and a
  * toast that said "started" would leave them believing a backup ran that did not.
+ *
+ * One sheet creates and edits, chosen by `mode` rather than by a second component: the fields are the
+ * same ones, and a copy of them is how the two drift apart. **`id` is the one field the sheet cannot
+ * change** — it names the log file, the run history and the secret store — so editing shows it
+ * disabled with the reason, and the way to a new id is to remove the job and declare it again.
  */
 const route = useRoute()
 // The shell's own tick, not `Date.now()` during render: a clock read in a template is a value that
@@ -35,8 +43,20 @@ const busy = ref<string | null>(null)
 /** The outcome of the last run this page started, kept visible beside the row that produced it. */
 const outcome = ref<{ id: string, text: string, ok: boolean } | null>(null)
 
-const creating = ref(false)
-const form = ref({ id: '', command: '', args: '', schedule: '', label: '' })
+/** Which sheet is open, and what it is doing: one Modal, two modes. */
+const sheetOpen = ref(false)
+const mode = ref<'create' | 'edit'>('create')
+/** The job being edited, by id. `null` while creating. */
+const editingId = ref<string | null>(null)
+
+const form = ref(blankForm())
+
+/** How long a new job may run: the schema's own default, in the seconds the box shows. */
+const DEFAULT_TIMEOUT_SECONDS = 3600
+
+function blankForm(): { id: string, label: string, command: string, args: string, schedule: string, cwd: string, timeoutSeconds: number | null, enabled: boolean } {
+  return { id: '', label: '', command: '', args: '', schedule: '', cwd: '', timeoutSeconds: DEFAULT_TIMEOUT_SECONDS, enabled: true }
+}
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -106,19 +126,83 @@ async function remove(job: JobRow): Promise<void> {
   }
 }
 
-async function create(): Promise<void> {
-  busy.value = 'new'
+function startCreate(): void {
+  mode.value = 'create'
+  editingId.value = null
+  form.value = blankForm()
+  error.value = null
+  sheetOpen.value = true
+}
+
+/**
+ * Open the sheet on an existing job.
+ *
+ * Everything the stored entry carries is filled in from **it**, not from the form defaults: a save
+ * that sent the defaults would quietly reset a `cwd`, a timeout or an `enabled` the person never
+ * touched. Its `secretEnv` names are not patched from here: a field this sheet does not draw must
+ * not be sent, and leaving it out of the body is what keeps the stored names.
+ */
+function startEdit(job: JobRow): void {
+  mode.value = 'edit'
+  editingId.value = job.id
+  form.value = {
+    id: job.id,
+    label: job.label ?? '',
+    command: job.command,
+    args: job.args.join('\n'),
+    schedule: job.schedule,
+    cwd: job.cwd ?? '',
+    timeoutSeconds: job.timeoutMs === undefined ? DEFAULT_TIMEOUT_SECONDS : Math.round(job.timeoutMs / 1000),
+    enabled: job.enabled,
+  }
+  error.value = null
+  sheetOpen.value = true
+}
+
+/** The args box as the array the config stores: one argument per line, no shell parsing. */
+function argsOf(text: string): string[] {
+  return text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+}
+
+function labelOf(text: string): string | null {
+  const trimmed = text.trim()
+  return trimmed.length === 0 ? null : trimmed
+}
+
+function timeoutOf(): number {
+  return secondsToMsOr(form.value.timeoutSeconds, DEFAULT_TIMEOUT_SECONDS * 1000)
+}
+
+async function submit(): Promise<void> {
+  busy.value = mode.value === 'create' ? 'new' : editingId.value
   error.value = null
   try {
-    await api.createJob({
-      id: form.value.id.trim(),
-      command: form.value.command.trim(),
-      args: form.value.args.split('\n').map(line => line.trim()).filter(line => line.length > 0),
-      schedule: form.value.schedule.trim(),
-      ...(form.value.label.trim().length === 0 ? {} : { label: form.value.label.trim() }),
-    }, workspaceId.value)
-    creating.value = false
-    form.value = { id: '', command: '', args: '', schedule: '', label: '' }
+    if (mode.value === 'create') {
+      await api.createJob({
+        id: form.value.id.trim(),
+        command: form.value.command.trim(),
+        args: argsOf(form.value.args),
+        schedule: form.value.schedule.trim(),
+        cwd: form.value.cwd.trim().length === 0 ? '.' : form.value.cwd.trim(),
+        timeoutMs: timeoutOf(),
+        enabled: form.value.enabled,
+        ...(labelOf(form.value.label) === null ? {} : { label: labelOf(form.value.label) }),
+      }, workspaceId.value)
+    }
+    else if (editingId.value !== null) {
+      // The id is not in the patch: the route keys on it, and a changed id would orphan the log,
+      // the history and the stored secret values under a name nothing points at any more.
+      await api.updateJob(editingId.value, {
+        label: labelOf(form.value.label),
+        command: form.value.command.trim(),
+        args: argsOf(form.value.args),
+        schedule: form.value.schedule.trim(),
+        cwd: form.value.cwd.trim().length === 0 ? '.' : form.value.cwd.trim(),
+        timeoutMs: timeoutOf(),
+        enabled: form.value.enabled,
+      }, workspaceId.value)
+    }
+    sheetOpen.value = false
     await refresh()
   }
   catch (caught) {
@@ -150,7 +234,8 @@ function lastRun(job: JobRow, now: number): string {
   return relativeFrom(job.lastRunAt, now)
 }
 
-const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.command.trim().length > 0 && form.value.schedule.trim().length > 0)
+const canSubmit = computed(() => form.value.id.trim().length > 0 && form.value.command.trim().length > 0 && form.value.schedule.trim().length > 0)
+const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : t('jobs.editTitle', { id: editingId.value ?? '' })))
 </script>
 
 <template>
@@ -164,7 +249,7 @@ const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.c
           {{ t('jobs.subtitle') }}
         </p>
       </div>
-      <AppButton size="xs" variant="secondary" @click="creating = true">
+      <AppButton size="xs" variant="secondary" @click="startCreate">
         {{ t('jobs.create') }}
       </AppButton>
     </div>
@@ -234,6 +319,9 @@ const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.c
               <AppButton size="xs" variant="primary" :loading="busy === job.id" :disabled="job.running" @click="run(job.id)">
                 {{ job.running ? t('jobs.running') : t('jobs.runNow') }}
               </AppButton>
+              <AppButton size="xs" variant="ghost" :disabled="busy === job.id" @click="startEdit(job)">
+                {{ t('common.edit') }}
+              </AppButton>
               <ConfirmButton
                 v-if="job.enabled"
                 :label="t('jobs.disable')"
@@ -270,20 +358,43 @@ const canCreate = computed(() => form.value.id.trim().length > 0 && form.value.c
       created was already in the table. The job was stored correctly the whole time; only the sheet
       lied. `test/shared/ui-modal-binding.test.ts` now holds every view to `v-model:open`.
     -->
-    <Modal v-model:open="creating" :title="t('jobs.create')">
+    <Modal v-model:open="sheetOpen" :title="sheetTitle">
       <div class="flex flex-col gap-2">
-        <TextField v-model="form.id" :label="t('jobs.id')" placeholder="nightly-backup" :hint="t('jobs.idHint')" />
+        <!--
+          One field the sheet cannot change: the id names this job's log, its history and its stored
+          secret values. A change would orphan all three under a name nothing points at, so the box is
+          disabled in edit mode and the reason is on the page rather than in a 400.
+        -->
+        <TextField
+          v-model="form.id"
+          :label="t('jobs.id')"
+          placeholder="nightly-backup"
+          :hint="t('jobs.idHint')"
+          :disabled="mode === 'edit'"
+        />
+        <p v-if="mode === 'edit'" class="text-2xs leading-4 text-faint">
+          {{ t('jobs.idImmutable') }}
+        </p>
         <TextField v-model="form.label" :label="t('common.label')" />
         <TextField v-model="form.command" :label="t('common.command')" placeholder="node" />
         <TextField v-model="form.args" :label="t('jobs.args')" placeholder="backup.js" :hint="t('jobs.argsHint')" />
         <TextField v-model="form.schedule" :label="t('jobs.schedule')" placeholder="0 3 * * *" :hint="t('jobs.scheduleHint')" />
+        <TextField v-model="form.cwd" :label="t('jobs.cwd')" placeholder="." />
+        <NumberField
+          v-model="form.timeoutSeconds"
+          :label="t('jobs.timeout')"
+          :min="1"
+          :step="60"
+          :hint="t('jobs.timeoutHint')"
+        />
+        <ToggleSwitch v-model="form.enabled" :label="t('common.enabled')" />
       </div>
       <template #footer>
-        <AppButton size="sm" variant="ghost" @click="creating = false">
+        <AppButton size="sm" variant="ghost" @click="sheetOpen = false">
           {{ t('common.cancel') }}
         </AppButton>
-        <AppButton size="sm" variant="primary" :loading="busy === 'new'" :disabled="!canCreate" @click="create">
-          {{ t('jobs.create') }}
+        <AppButton size="sm" variant="primary" :loading="busy === 'new' || busy === editingId" :disabled="!canSubmit" @click="submit">
+          {{ mode === 'create' ? t('jobs.create') : t('jobs.save') }}
         </AppButton>
       </template>
     </Modal>

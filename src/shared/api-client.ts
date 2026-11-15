@@ -762,7 +762,14 @@ export function runJob(id: string, workspace?: string | null): Promise<JobRunRes
   return request<JobRunResultBody>(scoped(`/api/jobs/${encodeURIComponent(id)}/run`, workspace), { method: 'POST' })
 }
 
-/** A row in the Jobs page: the record, plus what it is doing. */
+/**
+ * A row in the Jobs page: the record, plus what it is doing.
+ *
+ * The optional tail is what an **edit form** fills itself from: a page that only had `id`, `command`,
+ * `args` and `schedule` would reset a job's `cwd`, `timeoutMs`, `enabled` or `secretEnv` on the first
+ * save, because the patch it built could not say what the stored entry already held. Optional
+ * throughout so a UI one release ahead of an older panel still renders.
+ */
 export interface JobRow {
   id: string
   label?: string
@@ -774,6 +781,15 @@ export interface JobRow {
   lastRunAt?: number
   lastExitCode?: number | null
   running: boolean
+  /** The secret environment **names** this job declares — never a value. */
+  secretEnv?: string[]
+  /** Which of `secretEnv` have a stored value. Names only, exactly as `serverView.secretEnvSet`. */
+  secretEnvSet?: string[]
+  timeoutMs?: number
+  cwd?: string
+  env?: Record<string, string>
+  /** The file this job's runs write their output to, when the panel keeps one. */
+  logPath?: string
 }
 
 export function listJobs(workspace?: string | null): Promise<{ jobs: JobRow[] }> {
@@ -783,10 +799,16 @@ export function listJobs(workspace?: string | null): Promise<{ jobs: JobRow[] }>
 export function createJob(input: {
   id: string
   label?: string | null
+  /**
+   * Off declares the job without scheduling it — `jobCreateSchema` accepts it, and the create form
+   * offers it, so a client could not express a choice the panel already supports.
+   */
+  enabled?: boolean
   command: string
   args?: string[]
   cwd?: string
   env?: Record<string, string>
+  secretEnv?: string[]
   schedule: string
   timeoutMs?: number
 }, workspace?: string | null): Promise<{ job: JobRow }> {
@@ -800,6 +822,7 @@ export function updateJob(id: string, patch: {
   args?: string[]
   cwd?: string
   env?: Record<string, string>
+  secretEnv?: string[]
   schedule?: string
   timeoutMs?: number
 }, workspace?: string | null): Promise<{ job: JobRow }> {
