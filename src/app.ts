@@ -91,7 +91,7 @@ export function createRootApp(deps: AppDeps) {
     .use('/api/*', createAuthGuard({ auth: deps.auth }))
     // After the guard, so the identity is resolved: a token's scopes are checked against the one
     // declaration in `src/middleware/token-scope.ts`, and a session or a local caller passes through.
-    .use('/api/*', createTokenScopeGuard())
+    .use('/api/*', createTokenScopeGuard({ defaultWorkspaceId: () => deps.panel.defaultId() }))
 
     .route('/api', createAuthRoute(deps))
     .route('/api', createStateRoute(deps))

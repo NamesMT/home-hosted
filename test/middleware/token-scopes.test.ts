@@ -131,6 +131,62 @@ describe('an account limited to one workspace', () => {
     expect(other.status).toBe(403)
     expect(await other.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
   })
+
+  /**
+   * Omitting the key resolves to the panel's **default** workspace, and that resolution is what the
+   * limit has to be applied to.
+   *
+   * The guard used to check `?workspace=` only when the query string carried one, so a token limited
+   * to `staging` that sent no key fell through to `default` — a workspace it does not name — and
+   * changed it. Measured before this test: `GET /api/servers` answered `200` with the default
+   * workspace's servers, and `POST /api/servers/web/start` answered `200` having started `default`'s
+   * `web`, for an account limited to `staging`. A limit that only binds when the client remembers to
+   * spell it is not a limit: the default is the one workspace such a client reaches by *omitting* the
+   * key, so it is the one that has to be refused. Fail closed and name the workspaces it holds.
+   *
+   * An empty `?workspace=` is the same request: `PanelService.requireWorkspace` treats `''` exactly
+   * as it treats an absent key, so the guard has to as well or the limit is bypassed by sending it.
+   */
+  it('is refused a workspace-scoped route that names none, because that is the default workspace', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }], servers: [{ id: 'web', command: 'node' }] })
+    fixtures.push(created)
+    // Limited to `staging`, and the panel's default workspace is `default` — not in the list.
+    const { headers } = mint(created, ['admin'], ['staging'])
+
+    for (const [method, url] of [
+      ['GET', '/api/servers'],
+      ['GET', '/api/servers/web'],
+      ['GET', '/api/logs'],
+      ['GET', '/api/jobs'],
+      ['POST', '/api/servers/web/start'],
+      ['POST', '/api/servers/web/stop'],
+      ['PATCH', '/api/servers/web'],
+      ['DELETE', '/api/servers/web'],
+    ] as const) {
+      const response = await created.app.request(url, { method, headers })
+      expect(response.status, `${method} ${url} must not fall through to the default workspace`).toBe(403)
+      expect(await response.json(), `${method} ${url}`).toMatchObject({ code: 'TOKEN_SCOPE' })
+    }
+
+    // An explicitly empty `?workspace=` resolves the same way, so it is refused the same way.
+    const empty = await created.app.request('/api/servers?workspace=', { headers })
+    expect(empty.status).toBe(403)
+
+    // The workspace it does name still works, unqualified and named.
+    expect((await created.app.request('/api/servers?workspace=staging', { headers })).status).toBe(200)
+    expect((await created.app.request('/api/jobs?workspace=staging', { headers })).status).toBe(200)
+  })
+
+  /** A panel-wide route has no workspace to narrow, so the limit must not refuse it. */
+  it('still reaches the panel-wide routes, which name no workspace at all', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging' }] })
+    fixtures.push(created)
+    const { headers } = mint(created, ['read'], ['staging'])
+
+    expect((await created.app.request('/api/state', { headers })).status).toBe(200)
+    expect((await created.app.request('/api/workspaces', { headers })).status).toBe(200)
+    expect((await created.app.request('/api/backups', { headers })).status).toBe(200)
+  })
 })
 
 describe('the declaration', () => {

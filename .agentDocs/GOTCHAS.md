@@ -143,6 +143,12 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **An unstamped file is pending only the migration steps for its own kind** — the chain is filtered
   by `ConfigMigration.kinds`, so a `servers.config.json` is not asked for a notification migration it
   never needed. (`src/config/migrations.ts`; `test/config/compat.test.ts`)
+- **A query key the caller leaves out is not "no value"** — `requireWorkspace` resolves an omitted
+  `?workspace=` to the panel's default, so a guard that reads only the key the client sent checks
+  nothing on the requests that resolve to the one workspace it was meant to refuse. The workspace
+  limit was advisory this way: a `staging`-limited account sent no key, fell through to `default`, and
+  started that workspace's entry. Resolve the default in the guard and check *that*.
+  (`src/middleware/token-scope.ts`; `test/middleware/token-scopes.test.ts`)
 
 ## Proxy
 

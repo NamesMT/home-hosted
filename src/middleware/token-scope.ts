@@ -213,6 +213,18 @@ export function declaredTokenScopes(): Array<{ route: string, scope: ApiTokenSco
   return Object.entries(RULES).map(([route, rule]) => ({ route, scope: rule.scope, workspaceScoped: rule.workspaceScoped }))
 }
 
+export interface TokenScopeGuardDeps {
+  /**
+   * The workspace a request without `?workspace=` resolves to.
+   *
+   * The guard needs it because an **omitted** key is not "no workspace": `requireWorkspace`
+   * resolves it to the panel's default, so that is the workspace the request will act on. A limit
+   * checked only against a query key the caller remembered to send is not a limit — see the
+   * refusal below.
+   */
+  defaultWorkspaceId: () => string
+}
+
 /**
  * The guard: refuses a token whose scopes do not cover the route, and a route with no declaration.
  *
@@ -224,7 +236,7 @@ export function declaredTokenScopes(): Array<{ route: string, scope: ApiTokenSco
  * somebody forgot is the one every token can use. The spec walk in the test is what keeps that from
  * being reachable in practice.
  */
-export function createTokenScopeGuard() {
+export function createTokenScopeGuard(deps: TokenScopeGuardDeps) {
   return async (c: Context, next: Next) => {
     const identity = c.get('identity') as AuthIdentity | undefined
     const account = identity?.account
@@ -264,13 +276,24 @@ export function createTokenScopeGuard() {
       )
     }
 
-    // A workspace-limited token is confined to the workspaces it names, on the routes that are
+    // A workspace-limited account is confined to the workspaces it names, on the routes that are
     // scoped to one. A panel-wide route has no workspace to narrow, so the limit does not apply.
+    //
+    // **An omitted key is not "no workspace".** `requireWorkspace` resolves it to the panel's
+    // default, so that is the workspace the route will act on, and it has to be the one the limit is
+    // checked against. Checking only a key the caller sent made the limit advisory: measured, an
+    // account limited to `staging` sent no key, fell through to `default`, and
+    // `POST /api/servers/web/start` answered `200` having started that workspace's entry — a
+    // destructive act on a workspace the account does not name, by leaving a query key out. An empty
+    // `?workspace=` resolves identically, so it is treated identically.
     if (rule.workspaceScoped && account.workspaces !== undefined) {
       const asked = c.req.query('workspace')
-      if (asked !== undefined && !account.workspaces.includes(asked)) {
+      const target = asked !== undefined && asked.length > 0 ? asked : deps.defaultWorkspaceId()
+      if (!account.workspaces.includes(target)) {
         throw new DetailedError(
-          `this account is limited to ${account.workspaces.join(', ')} — it cannot act on "${asked}"`,
+          asked === undefined || asked.length === 0
+            ? `this account is limited to ${account.workspaces.join(', ')} — a request naming no workspace acts on "${target}", which it may not use`
+            : `this account is limited to ${account.workspaces.join(', ')} — it cannot act on "${asked}"`,
           { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: account.workspaces } },
         )
       }
