@@ -2,6 +2,7 @@
 import type { ServerView } from '@shared/contracts'
 import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from '@lucide/vue'
 import { cpuCapacity } from '@shared/cpu-scale'
+import { existingLogFile } from '@shared/log-download'
 import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
@@ -186,7 +187,51 @@ async function killPortHolder(): Promise<void> {
   }
 }
 
-const downloadUrl = computed(() => api.logDownloadUrl(serverId.value, `${serverId.value}.log`, workspace.activeId.value))
+/**
+ * The file this page may offer for download, or `null` when the panel holds none.
+ *
+ * The link used to be gated on `config.logBufferLines > 0`, which describes the in-memory buffer and
+ * says nothing about disk, so an entry that had never written a line still offered "Download the
+ * persisted file". `GET /api/logs/:id/download` refuses an unknown name with `404 UNKNOWN_LOG_FILE` —
+ * measured on the dev panel, the 32×32 link on `/w/default/servers/python` pointed at a URL that
+ * answered **404** while the API reported `files: []`. The file list is the only signal that the
+ * panel can serve the name.
+ */
+const downloads = ref<string[]>([])
+watch(
+  [() => workspace.activeId.value, serverId],
+  async ([workspaceId, id]) => {
+    if (workspaceId === null || id.length === 0) {
+      downloads.value = []
+      return
+    }
+    try {
+      const list = await api.fetchLogServers(workspaceId)
+      // A late answer for an entry we already left must not put a link on the new one.
+      if (workspaceId !== workspace.activeId.value || id !== serverId.value)
+        return
+      downloads.value = list.find(entry => entry.serverId === id)?.files.map(file => file.name) ?? []
+    }
+    catch {
+      // The link is an extra; a panel that cannot list files simply does not offer it.
+      downloads.value = []
+    }
+  },
+  { immediate: true },
+)
+
+/**
+ * The name and link to offer, or `null` when the panel holds no file for this entry.
+ *
+ * Built in script rather than in the template: the URL is one derivation of the same facts, and
+ * computing it in markup reaches into the API namespace on every render.
+ */
+const download = computed(() => {
+  const file = existingLogFile(downloads.value.map(name => ({ name })), `${serverId.value}.log`)
+  if (file === null)
+    return null
+  return { file, href: api.logDownloadUrl(serverId.value, file, workspace.activeId.value) }
+})
 
 const SECTIONS = [
   { value: 'output', labelKey: 'views.serverDetail.sectionOutput' },
@@ -436,8 +481,8 @@ const SECTIONS = [
       :version="liveVersion"
       live
       clearable
-      :download-url="server.config.logBufferLines > 0 ? downloadUrl : undefined"
-      :download-name="`${server.id}.log`"
+      :download-url="download?.href"
+      :download-name="download?.file"
       :empty-hint="isRunning ? t('views.serverDetail.waitingFirstLine') : t('views.serverDetail.neverWritten')"
       min-height="22rem"
       @clear="workspace.clearLogs(server.id)"

@@ -2,6 +2,7 @@
 import type { LogLine } from '@shared/contracts'
 import type { LogServerInfo } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
+import { existingLogFile } from '@shared/log-download'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import LogPane from '@/components/LogPane.vue'
@@ -34,6 +35,33 @@ let liveRef: { workspaceId: string, serverId: string } | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const current = computed(() => servers.value.find(server => server.serverId === selectedId.value) ?? null)
+
+/**
+ * The file the header's download names, or `null` when there is nothing to download.
+ *
+ * The link was gated on `enabled` — the workspace's `logs.persist` setting — and named
+ * `<id>.log` by convention. With persistence on and no file written yet, that rendered
+ * "download python.log" for a URL the panel answers `404 UNKNOWN_LOG_FILE`; measured on the dev
+ * panel at 1280 px, the same page reported `files: []` and listed no row on disk. Gate on the list,
+ * which the panel builds from the files that are actually there.
+ */
+const currentFile = computed(() => {
+  const server = current.value
+  if (server === null)
+    return null
+  const file = existingLogFile(server.files, `${server.serverId}.log`)
+  return file === null ? null : { file, href: api.logDownloadUrl(server.serverId, file, activeId.value) }
+})
+
+/**
+ * The rotations, each with its link. Built here rather than in the template so the URL is computed
+ * once per render and the component never reaches into the API namespace from markup.
+ */
+const fileLinks = computed(() => (current.value?.files ?? []).map(file => ({
+  name: file.name,
+  sizeBytes: file.sizeBytes,
+  href: api.logDownloadUrl(current.value!.serverId, file.name, activeId.value),
+})))
 
 function message(caught: unknown): string {
   return errorMessage(caught)
@@ -311,12 +339,12 @@ onScopeDispose(() => {
             <span v-if="loading">· loading…</span>
           </template>
           <span class="view__spacer" />
-          <a v-if="current?.enabled" :href="api.logDownloadUrl(current.serverId, `${current.serverId}.log`, activeId)">download {{ current.serverId }}.log</a>
+          <a v-if="currentFile" :href="currentFile.href">download {{ currentFile.file }}</a>
         </div>
 
-        <div v-if="current && current.files.length > 0" class="filelist">
-          <div v-for="file in current.files" :key="file.name" class="filelist__row">
-            <a :href="api.logDownloadUrl(current.serverId, file.name, activeId)">{{ file.name }}</a>
+        <div v-if="fileLinks.length > 0" class="filelist">
+          <div v-for="file in fileLinks" :key="file.name" class="filelist__row">
+            <a :href="file.href">{{ file.name }}</a>
             <span class="size">{{ formatBytes(file.sizeBytes) }}</span>
           </div>
         </div>
