@@ -211,6 +211,28 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   (`execCommand` fallback) and report the verdict. (`uis/stock/src/lib/clipboard.ts`)
 - **`pointer: coarse` raises icon targets to 44 px** — check a header change in a real browser at
   320 px with a coarse pointer; a class test cannot measure layout.
+- **A countdown and an elapsed time are different formatters, and the types cannot tell them apart** —
+  `relativeFrom` is forward-only (it clamps `Math.max(0, ts - now)` and returns the `now` word for
+  anything under a second), so handing it a **past** timestamp renders `now` for every row. Both take
+  `(ms, now) => string`, so a wrong choice type-checks; use `relativeFrom` for `nextRunAt` and
+  `formatAgo` for `lastRunAt`/`lastCrashAt`/`sampledAt`. (`src/shared/ui-format.ts`;
+  `uis/stock/test/jobs-edit.test.ts`, "puts the previous run in the past")
+- **A formatter's unit ladder is half the format** — `relativeFrom` stopped at minutes, so a job due
+  tomorrow read `in 694m` while the other UI said `in 12 hours`; two UIs, one API number, two
+  answers. Keep the forward ladder as wide as `formatAgo`'s (s/m/h/d) and widen
+  `DurationWords.ahead` with it — it was typed `'s' | 'm'`, the same assumption in the interface.
+  (`src/shared/ui-format.ts`; `test/shared/ui-format.test.ts`)
+- **A contrast token is validated on the surface it is used on, and there is more than one** — the
+  light theme's `--faint` claimed `≥4.5:1 on --panel` (4.76) and measured **4.13 on `--page`**, where
+  the same 11 px labels actually sit; noc-console's was **2.42–3.10**. Compute the ratio per surface
+  and per theme block from the tokens themselves, and keep the quiet tones *ordered* —
+  raising `--faint` to the AA floor alone left it 0.33 from `--dim`, collapsing a three-step
+  hierarchy. (`uis/*/test/contrast.test.ts`)
+- **`(s)` is an unfinished plural, not a neutral one** — `1 server(s)` in a header and
+  `restored 1 item(s)` in a toast are the placeholder an author leaves; the same sentence is spelled
+  right a dozen other times in the same file (`{{ n }} server{{ n === 1 ? '' : 's' }}`). A
+  **parenthesised unit** (`timeout (s)`, `cooldown (s)`) is not a count and must be left alone.
+  (`uis/noc-console/test/plural-counts.test.ts`)
 - **A page rendered only through a CDN is blank offline** — render from `spec.json` first, enhance
   optionally, pin the enhancement to an exact version, and measure a library offline before blaming
   it. (`src/openapi-reference.ts`; `test/api/panel.test.ts`)
