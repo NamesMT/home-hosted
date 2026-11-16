@@ -270,7 +270,7 @@ describe('log reads a job\'s own output', () => {
     // it must not have reached the panel at all.
     for (const argv of [['job', 'ls', '--jsn'], ['job', 'run', 'nightly', '--jsn'], ['job', 'log', 'nightly', '--jsn']]) {
       const result = await runCli(argv)
-      expect(result.status, `${argv.join(' ')} — ${result.output}`).toBe(1)
+      expect(result.status, `${argv.join(' ')} — ${result.stdout}${result.stderr}`).toBe(1)
       expect(result.stderr).toContain('Unknown option')
       // The near miss names the flag it meant, as every other command's does.
       expect(result.stderr, argv.join(' ')).toContain('did you mean `--json`?')
@@ -284,7 +284,7 @@ describe('log reads a job\'s own output', () => {
     writeRuntime(created.url)
 
     const result = await runCli(['job', 'ls', 'extra'])
-    expect(result.status, result.output).toBe(1)
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(1)
     expect(result.stderr).toContain('Unexpected argument')
     expect(created.seen.path).toBeUndefined()
   })

@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { defineCommand } from 'citty'
+import { defineCommand, parseArgs } from 'citty'
 import { dim, fail, green, invocation } from '#src/cli/io'
 import { errorMessage } from '#src/shared/error-message'
 
@@ -70,6 +70,25 @@ export function buildServerEntry(input: AddInput): { entry: Record<string, unkno
 export function commandAfterDashes(rawArgs: readonly string[]): string[] {
   const index = rawArgs.indexOf('--')
   return index === -1 ? [] : rawArgs.slice(index + 1)
+}
+
+/**
+ * The words before the first `--` — the part that declares *which* server, as opposed to what it runs.
+ *
+ * `add <id> -- <command>` is the documented shape, and the `--` is what separates the declaration
+ * from the payload. citty does not make that separation: its positional filler reads the whole argv,
+ * so `add -- node server.js` bound `id = "node"` — the **program name** — and created a server called
+ * `node` running `node server.js`, exiting 0. `add --port 4000 -- node server.js` then failed with
+ * `server "node" already exists`, which is how a person discovers it. The refusal
+ * ("add needs a server id") was written and correct; the argument it was given never reached it.
+ *
+ * Everything citty gets right is kept: the flags before `--` are the ones it parsed (a `--port` after
+ * the separator belongs to the command, not to `add`), and `commandAfterDashes` still owns the
+ * payload.
+ */
+export function declarationAfterDashes(rawArgs: readonly string[]): string[] {
+  const index = rawArgs.indexOf('--')
+  return index === -1 ? [...rawArgs] : rawArgs.slice(0, index)
 }
 
 export async function runAdd(input: AddInput, workspace?: string): Promise<void> {
@@ -155,8 +174,15 @@ export const addCommand = defineCommand({
   args: addArgs,
   run: async ({ args, rawArgs }) => {
     const workspace = typeof args.workspace === 'string' ? args.workspace.trim() : undefined
+    // The id comes from the declaration, never from citty's whole-argv fill: `add -- node server.js`
+    // bound the program name as the id and created a server called `node`. Flags are still citty's
+    // (`args.port` and the rest); only the positional is ambiguous without the separator, and it is
+    // re-parsed from the pre-`--` words **with the same flag definitions** — declaring only `id` here
+    // made `--port 4000`'s own value the positional, and `add --port 4000 -- node server.js` created a
+    // server called `4000`.
+    const declared = parseArgs(declarationAfterDashes(rawArgs), addArgs)
     await runAdd({
-      id: typeof args.id === 'string' ? args.id : undefined,
+      id: typeof declared.id === 'string' ? declared.id : undefined,
       port: args.port,
       cwd: args.cwd,
       persistent: args.persistent,

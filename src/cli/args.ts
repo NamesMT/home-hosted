@@ -247,9 +247,12 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
  * and the variance between one command's literal args and another's makes the two unassignable to
  * each other. Every field this reads is structural, so the narrow local type is the honest one.
  */
+/** A group's subcommands, possibly lazy at either level, as citty takes them. */
+type SubCommandsShape = Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)>
+
 export interface CommandShape {
   args?: ArgsDef | (() => ArgsDef | Promise<ArgsDef>) | Promise<ArgsDef>
-  subCommands?: Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)> | (() => Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)>)
+  subCommands?: SubCommandsShape | (() => SubCommandsShape | Promise<SubCommandsShape>) | Promise<SubCommandsShape>
 }
 
 /** A possibly-lazy value, as citty's `Resolvable`. */
