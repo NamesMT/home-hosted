@@ -72,7 +72,18 @@ defineExpose({ focus: () => input.value?.focus() })
     >
     <span class="field__label">{{ label }}</span>
 
-    <template v-if="control === 'textarea'">
+    <!--
+      A `check` field is the tick and its label, and nothing else.
+
+      Without this branch the chain below fell through to its `v-else`: every checkbox was drawn
+      *beside a text box bound to the same boolean*, so the config page showed `enabled [x] enabled
+      [true]` — and that box accepted edits that went nowhere, because `asText` writes the raw
+      string into a field the schema types as a boolean. The hint was also squeezed into the 41 px
+      left over after the two inputs, which is what wrapped `keeps running when the panel stops…`
+      into thirteen lines in a 1084 px row.
+    -->
+    <template v-if="control === 'check'" />
+    <template v-else-if="control === 'textarea'">
       <textarea
         v-model="asText"
         :rows="rows"

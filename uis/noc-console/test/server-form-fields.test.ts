@@ -100,6 +100,48 @@ describe('the shared server form', () => {
     wrapper.unmount()
   })
 
+  /**
+   * A `check` field is a tick and its label — one control, not a control and a text box.
+   *
+   * The renderer's `textarea`/`select`/`readonly`/else chain had no `check` branch, so a checkbox
+   * fell through to the final `v-else` and every toggle was drawn **beside a text input bound to the
+   * same boolean**. Measured in Chromium on the config page: `enabled` was a 13 px tick, then a
+   * 154 px box reading `true`; `persistent`'s hint was squeezed into the 41 px left over and wrapped
+   * to thirteen lines inside a 1084 px row, and the add-server sheet's two toggles interleaved with
+   * each other's labels. The stray box also *accepted* typing (`oops`) into a field the schema types
+   * as a boolean, so it was an editable dead end, not just clutter.
+   *
+   * Counted rather than sniffed: one input for a check, and no input whose `type` is text.
+   */
+  it('draws a checkbox field as one tick, with no second input beside it', () => {
+    const { wrapper } = mountForm('page', { enabled: true, autostart: false })
+    for (const label of ['enabled', 'autostart with up']) {
+      const field = fieldInput(wrapper, label)
+      const inputs = field.findAll('input')
+      expect(inputs.length, `“${label}” must be one control`).toBe(1)
+      expect(inputs[0]!.attributes('type')).toBe('checkbox')
+    }
+    wrapper.unmount()
+  })
+
+  /**
+   * A checkbox field that carries a hint keeps it, and the hint gets the row rather than a column.
+   *
+   * The hint is the reason the stray input was worse than ugly: a flex row with a 13 px tick, a
+   * label, a 154 px input and a hint leaves the hint 41 px of a 1084 px line.
+   */
+  it('keeps a checkbox field’s hint, after the label', () => {
+    const { wrapper } = mountForm('sheet', { backupIgnoreGenerated: true })
+    const field = fieldInput(wrapper, 'ignore known generated files')
+    const hint = field.find('.field__hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('nothing restores from them')
+    // The hint follows the label, and no input sits between them.
+    const order = [...field.element.children].map(node => node.className)
+    expect(order.indexOf('field__hint')).toBeGreaterThan(order.indexOf('field__label'))
+    wrapper.unmount()
+  })
+
   it('disables the bootstrap boxes until the section’s own toggle is on', async () => {
     const { wrapper, form } = mountForm('sheet', { bootstrapEnabled: false, bootstrapCommand: '' })
     // Scoped to the bootstrap group: the process \`command\` above it must stay enabled.
