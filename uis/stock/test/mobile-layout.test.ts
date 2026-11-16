@@ -125,4 +125,24 @@ describe('the layout survives a phone', () => {
     }
     expect(offenders).toEqual([])
   })
+
+  /**
+   * A wide table scrolls **inside its own box**, never with the page.
+   *
+   * The Jobs table has five columns that want 492 px at 320 px wide. Unwrapped, it grew `main` to
+   * 508 px, so the whole page scrolled sideways — and a horizontal scroll on `main` moves the page
+   * header too. Measured in Chromium 157 after a 188 px scroll: `New job` sat at 60–116 px and the
+   * `Jobs` title's left edge at **-172 px**, i.e. the only create control and the page's own name
+   * were off screen. `RouteTable` already wraps its table this way.
+   *
+   * The rule is about the *page* scroller specifically: a component inside a pane may legitimately
+   * manage its own overflow, so the scan asks whether a table sits in a `overflow-x-auto` box.
+   */
+  it('puts a wide table in its own horizontal scroller', () => {
+    const WIDE = ['/src/views/JobsView.vue', '/src/components/settings/AccountsSection.vue']
+    for (const file of WIDE) {
+      const source = fs.readFileSync(path.join(root, '..', '..', 'uis/stock', file), 'utf8')
+      expect(source, `${file} must scroll its table in a box`).toContain('overflow-x-auto')
+    }
+  })
 })

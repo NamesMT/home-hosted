@@ -166,82 +166,90 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
       <p v-if="loading" class="text-xs text-muted">
         {{ t('settings.accounts.loading') }}
       </p>
-      <table v-else-if="accounts.length > 0" class="w-full text-left text-xs">
-        <thead>
-          <tr class="border-b border-line-soft text-2xs text-faint">
-            <th class="py-1.5 pr-2 font-medium">
-              {{ t('settings.accounts.id') }}
-            </th>
-            <th class="py-1.5 pr-2 font-medium">
-              {{ t('settings.accounts.scopes') }}
-            </th>
-            <th class="py-1.5 pr-2 font-medium">
-              {{ t('settings.accounts.workspaces') }}
-            </th>
-            <th class="py-1.5 pr-2 font-medium">
-              {{ t('settings.accounts.lastUsed') }}
-            </th>
-            <th class="py-1.5 font-medium">
-              <span class="sr-only">{{ t('settings.accounts.actions') }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="account in accounts" :key="account.id" class="border-b border-line-soft/60">
-            <td class="py-1.5 pr-2">
-              <span class="font-mono">{{ account.id }}</span>
-              <span v-if="account.label !== account.id" class="ml-1.5 text-faint">{{ account.label }}</span>
-              <span v-if="account.isDefault" class="ml-1.5 rounded-full bg-warn-soft px-1.5 py-px text-2xs text-warn">
-                {{ t('settings.accounts.firstRun') }}
-              </span>
-              <span v-if="!account.enabled" class="ml-1.5 rounded-full bg-line px-1.5 py-px text-2xs text-muted">
-                {{ t('settings.accounts.disabled') }}
-              </span>
-            </td>
-            <td class="py-1.5 pr-2 font-mono text-2xs">
-              {{ account.scopes.join(', ') }}
-            </td>
-            <td class="py-1.5 pr-2 text-2xs">
-              {{ account.workspaces === undefined ? t('settings.accounts.allWorkspaces') : account.workspaces.join(', ') }}
-            </td>
-            <td class="py-1.5 pr-2 text-2xs text-faint">
-              {{ when(account.lastUsedAt) }}
-            </td>
-            <td class="py-1.5 text-right">
-              <div class="flex justify-end gap-1">
-                <!--
+      <!--
+        The table scrolls in its own box: at 320 px its five columns want 346 px and, unwrapped,
+        they grew the page scroller to 377 px — so `revoke` (329–377) sat past the right edge of a
+        320 px window and the whole page scrolled sideways instead of the table. `RouteTable`
+        wraps its table the same way.
+      -->
+      <div v-else-if="accounts.length > 0" class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="border-b border-line-soft text-2xs text-faint">
+              <th class="py-1.5 pr-2 font-medium">
+                {{ t('settings.accounts.id') }}
+              </th>
+              <th class="py-1.5 pr-2 font-medium">
+                {{ t('settings.accounts.scopes') }}
+              </th>
+              <th class="py-1.5 pr-2 font-medium">
+                {{ t('settings.accounts.workspaces') }}
+              </th>
+              <th class="py-1.5 pr-2 font-medium">
+                {{ t('settings.accounts.lastUsed') }}
+              </th>
+              <th class="py-1.5 font-medium">
+                <span class="sr-only">{{ t('settings.accounts.actions') }}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="account in accounts" :key="account.id" class="border-b border-line-soft/60">
+              <td class="py-1.5 pr-2">
+                <span class="font-mono">{{ account.id }}</span>
+                <span v-if="account.label !== account.id" class="ml-1.5 text-faint">{{ account.label }}</span>
+                <span v-if="account.isDefault" class="ml-1.5 rounded-full bg-warn-soft px-1.5 py-px text-2xs text-warn">
+                  {{ t('settings.accounts.firstRun') }}
+                </span>
+                <span v-if="!account.enabled" class="ml-1.5 rounded-full bg-line px-1.5 py-px text-2xs text-muted">
+                  {{ t('settings.accounts.disabled') }}
+                </span>
+              </td>
+              <td class="py-1.5 pr-2 font-mono text-2xs">
+                {{ account.scopes.join(', ') }}
+              </td>
+              <td class="py-1.5 pr-2 text-2xs">
+                {{ account.workspaces === undefined ? t('settings.accounts.allWorkspaces') : account.workspaces.join(', ') }}
+              </td>
+              <td class="py-1.5 pr-2 text-2xs text-faint">
+                {{ when(account.lastUsedAt) }}
+              </td>
+              <td class="py-1.5 text-right">
+                <div class="flex justify-end gap-1">
+                  <!--
                   Disabling ends that account's sessions, so it is a destructive act and confirms —
                   the repo's rule. **Enabling** is not: it hands access back and needs no ceremony.
                 -->
-                <ConfirmButton
-                  v-if="account.enabled"
-                  :label="t('settings.accounts.disable')"
-                  :confirm-label="t('settings.accounts.disable')"
-                  :title="t('settings.accounts.disableTitle')"
-                  :hint="t('settings.accounts.disableHint')"
-                  variant="ghost"
-                  size="xs"
-                  :disabled="busy"
-                  @confirm="toggleEnabled(account)"
-                />
-                <AppButton v-else size="xs" variant="ghost" :disabled="busy" @click="toggleEnabled(account)">
-                  {{ t('settings.accounts.enable') }}
-                </AppButton>
-                <ConfirmButton
-                  :label="t('settings.accounts.revoke')"
-                  :confirm-label="t('settings.accounts.revoke')"
-                  :title="t('settings.accounts.revokeTitle')"
-                  :hint="t('settings.accounts.revokeHint')"
-                  variant="ghost"
-                  size="xs"
-                  :disabled="busy"
-                  @confirm="revoke(account)"
-                />
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                  <ConfirmButton
+                    v-if="account.enabled"
+                    :label="t('settings.accounts.disable')"
+                    :confirm-label="t('settings.accounts.disable')"
+                    :title="t('settings.accounts.disableTitle')"
+                    :hint="t('settings.accounts.disableHint')"
+                    variant="ghost"
+                    size="xs"
+                    :disabled="busy"
+                    @confirm="toggleEnabled(account)"
+                  />
+                  <AppButton v-else size="xs" variant="ghost" :disabled="busy" @click="toggleEnabled(account)">
+                    {{ t('settings.accounts.enable') }}
+                  </AppButton>
+                  <ConfirmButton
+                    :label="t('settings.accounts.revoke')"
+                    :confirm-label="t('settings.accounts.revoke')"
+                    :title="t('settings.accounts.revokeTitle')"
+                    :hint="t('settings.accounts.revokeHint')"
+                    variant="ghost"
+                    size="xs"
+                    :disabled="busy"
+                    @confirm="revoke(account)"
+                  />
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <p v-else class="text-xs text-muted">
         {{ t('settings.accounts.empty') }}
       </p>

@@ -306,90 +306,100 @@ const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : 
     <p v-else-if="jobs.length === 0" class="text-xs text-muted">
       {{ t('jobs.empty') }}
     </p>
-    <table v-else class="w-full text-left text-xs">
-      <thead>
-        <tr class="border-b border-line-soft text-2xs text-faint">
-          <th class="py-1.5 pr-2 font-medium">
-            {{ t('jobs.id') }}
-          </th>
-          <th class="py-1.5 pr-2 font-medium">
-            {{ t('jobs.schedule') }}
-          </th>
-          <th class="py-1.5 pr-2 font-medium">
-            {{ t('jobs.next') }}
-          </th>
-          <th class="py-1.5 pr-2 font-medium">
-            {{ t('jobs.last') }}
-          </th>
-          <th class="py-1.5 font-medium">
-            <span class="sr-only">{{ t('jobs.actions') }}</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="job in jobs" :key="job.id" class="border-b border-line-soft/60">
-          <td class="py-1.5 pr-2">
-            <span class="font-mono">{{ job.id }}</span>
-            <span v-if="job.label !== undefined" class="ml-1.5 text-faint">{{ job.label }}</span>
-            <span v-if="!job.enabled" class="ml-1.5 rounded-full bg-line px-1.5 py-px text-2xs text-muted">
-              {{ t('jobs.disabled') }}
-            </span>
-            <p class="font-mono text-2xs text-faint">
-              {{ [job.command, ...job.args].join(' ') }}
-            </p>
-          </td>
-          <td class="py-1.5 pr-2 font-mono text-2xs">
-            {{ job.schedule }}
-          </td>
-          <td class="py-1.5 pr-2 text-2xs">
-            {{ job.running ? t('jobs.running') : when(job.nextRunAt, control.now.value) }}
-          </td>
-          <td class="py-1.5 pr-2 text-2xs text-faint">
-            {{ lastRun(job, control.now.value) }}
-            <span v-if="job.lastExitCode !== undefined && job.lastExitCode !== null" class="ml-1" :class="job.lastExitCode === 0 ? 'text-ok' : 'text-danger'">
-              {{ t('jobs.exitCode', { code: job.lastExitCode }) }}
-            </span>
-          </td>
-          <td class="py-1.5 text-right">
-            <div class="flex justify-end gap-1">
-              <AppButton size="xs" variant="primary" :loading="busy === job.id" :disabled="job.running" @click="run(job.id)">
-                {{ job.running ? t('jobs.running') : t('jobs.runNow') }}
-              </AppButton>
-              <AppButton size="xs" variant="ghost" :disabled="busy === job.id" @click="startEdit(job)">
-                {{ t('common.edit') }}
-              </AppButton>
-              <!-- A failed run's own output is the one thing needed to debug it, so it is one click
+    <!--
+      The table scrolls **inside its own box**, not with the page.
+
+      At 320 px its five columns want 492 px, and with no scroller the whole `main` grew to 508 px:
+      the page then scrolled sideways and carried the title and the `New job` button off the left
+      edge (measured: `New job` at 60–116 after a 188 px scroll, title at -172). `overflow-x-auto`
+      is what `RouteTable` already uses for the same reason.
+    -->
+    <div v-else class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead>
+          <tr class="border-b border-line-soft text-2xs text-faint">
+            <th class="py-1.5 pr-2 font-medium">
+              {{ t('jobs.id') }}
+            </th>
+            <th class="py-1.5 pr-2 font-medium">
+              {{ t('jobs.schedule') }}
+            </th>
+            <th class="py-1.5 pr-2 font-medium">
+              {{ t('jobs.next') }}
+            </th>
+            <th class="py-1.5 pr-2 font-medium">
+              {{ t('jobs.last') }}
+            </th>
+            <th class="py-1.5 font-medium">
+              <span class="sr-only">{{ t('jobs.actions') }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="job in jobs" :key="job.id" class="border-b border-line-soft/60">
+            <td class="py-1.5 pr-2">
+              <span class="font-mono">{{ job.id }}</span>
+              <span v-if="job.label !== undefined" class="ml-1.5 text-faint">{{ job.label }}</span>
+              <span v-if="!job.enabled" class="ml-1.5 rounded-full bg-line px-1.5 py-px text-2xs text-muted">
+                {{ t('jobs.disabled') }}
+              </span>
+              <p class="font-mono text-2xs text-faint">
+                {{ [job.command, ...job.args].join(' ') }}
+              </p>
+            </td>
+            <td class="py-1.5 pr-2 font-mono text-2xs">
+              {{ job.schedule }}
+            </td>
+            <td class="py-1.5 pr-2 text-2xs">
+              {{ job.running ? t('jobs.running') : when(job.nextRunAt, control.now.value) }}
+            </td>
+            <td class="py-1.5 pr-2 text-2xs text-faint">
+              {{ lastRun(job, control.now.value) }}
+              <span v-if="job.lastExitCode !== undefined && job.lastExitCode !== null" class="ml-1" :class="job.lastExitCode === 0 ? 'text-ok' : 'text-danger'">
+                {{ t('jobs.exitCode', { code: job.lastExitCode }) }}
+              </span>
+            </td>
+            <td class="py-1.5 text-right">
+              <div class="flex justify-end gap-1">
+                <AppButton size="xs" variant="primary" :loading="busy === job.id" :disabled="job.running" @click="run(job.id)">
+                  {{ job.running ? t('jobs.running') : t('jobs.runNow') }}
+                </AppButton>
+                <AppButton size="xs" variant="ghost" :disabled="busy === job.id" @click="startEdit(job)">
+                  {{ t('common.edit') }}
+                </AppButton>
+                <!-- A failed run's own output is the one thing needed to debug it, so it is one click
                    from the row rather than buried behind a page of its own. -->
-              <AppButton size="xs" variant="ghost" @click="logFor = job.id">
-                {{ t('jobs.log') }}
-              </AppButton>
-              <ConfirmButton
-                v-if="job.enabled"
-                :label="t('jobs.disable')"
-                :confirm-label="t('jobs.disable')"
-                :title="t('jobs.disableTitle')"
-                :hint="t('jobs.disableHint')"
-                variant="ghost"
-                size="xs"
-                @confirm="toggle(job)"
-              />
-              <AppButton v-else size="xs" variant="ghost" @click="toggle(job)">
-                {{ t('jobs.enable') }}
-              </AppButton>
-              <ConfirmButton
-                :label="t('jobs.remove')"
-                :confirm-label="t('jobs.remove')"
-                :title="t('jobs.removeTitle')"
-                :hint="t('jobs.removeHint')"
-                variant="ghost"
-                size="xs"
-                @confirm="remove(job)"
-              />
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+                <AppButton size="xs" variant="ghost" @click="logFor = job.id">
+                  {{ t('jobs.log') }}
+                </AppButton>
+                <ConfirmButton
+                  v-if="job.enabled"
+                  :label="t('jobs.disable')"
+                  :confirm-label="t('jobs.disable')"
+                  :title="t('jobs.disableTitle')"
+                  :hint="t('jobs.disableHint')"
+                  variant="ghost"
+                  size="xs"
+                  @confirm="toggle(job)"
+                />
+                <AppButton v-else size="xs" variant="ghost" @click="toggle(job)">
+                  {{ t('jobs.enable') }}
+                </AppButton>
+                <ConfirmButton
+                  :label="t('jobs.remove')"
+                  :confirm-label="t('jobs.remove')"
+                  :title="t('jobs.removeTitle')"
+                  :hint="t('jobs.removeHint')"
+                  variant="ghost"
+                  size="xs"
+                  @confirm="remove(job)"
+                />
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <!--
       `v-model:open`, like every other Modal in this UI. `:open` plus `@update:open` looked equivalent
