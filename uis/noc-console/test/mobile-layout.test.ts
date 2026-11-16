@@ -248,3 +248,66 @@ describe('noc-console is usable at a phone width', () => {
     }
   })
 })
+
+/**
+ * A grid floor wider than its container overflows instead of collapsing.
+ *
+ * `.grid` and `.grid--wide` are `repeat(auto-fit, minmax(<floor>, 1fr))`. `minmax` cannot size a
+ * track below its floor, so in a container narrower than 280 px the track stays 280 and the fields
+ * inside run past the box rather than reflowing to one column.
+ *
+ * Measured in Chromium in the add-server dialog with ADVANCED open at 320 px: `.grid--wide` was
+ * **238 px** wide with a single **280 px** track, and its five health-HTTP fields (HTTP path,
+ * method, exact status, healthy-below, body-contains) reached x=**321** inside a dialog ending at
+ * x=**304** — 17 px beyond the panel, with the dialog body carrying an unreported 18 px horizontal
+ * overflow. At 360 px it was 278 px wide and still 2 px out; at 390 px it fit. After the change the
+ * body overflow is 0 at 320/360/390 and the grid still shows two columns at 900/1280.
+ *
+ * The scan reads the declaration rather than the rendered box, because a mount has no layout
+ * engine; it is stated as a rule about the floor so the next `minmax(...)` gets caught too.
+ */
+describe('a grid floor never exceeds the container', () => {
+  /** Every `minmax(<floor>, …)` in the sheet, with the selector it belongs to. */
+  const floors = allRules.flatMap((rule) => {
+    const out: Array<{ selector: string, floor: string }> = []
+    // Split rather than one loose pattern: the lint rules refuse a regex whose quantifiers can
+    // exchange characters (`\s*` beside `[^,]+`), because that is super-linear backtracking.
+    for (const part of rule.body.split('minmax(').slice(1)) {
+      const floor = part.slice(0, part.indexOf(',')).trim()
+      if (floor.length > 0)
+        out.push({ selector: rule.selectors.join(', '), floor })
+    }
+    return out
+  })
+
+  it('the form grids use a floor that yields to the container', () => {
+    // Anti-vacuity: the sheet really does declare these.
+    expect(floors.length, 'the scan must find the grid floors').toBeGreaterThan(0)
+
+    /**
+     * Scoped to the two form grids rather than every `minmax` in the sheet. `.metrics`
+     * (`118px`), `.logpage` (`180px`) and `.vitals` (`230px`) carry fixed floors too, but their
+     * containers are always wider than the floor at any viewport the UI supports — measured at 320
+     * and 240 px on four routes, none of them overflows — so widening the guard to them would
+     * change a layout that is not broken in the name of consistency.
+     *
+     * These two are different: they sit inside dialogs, whose width is the viewport minus padding,
+     * so the container shrinks below the floor exactly where the add-server form is used on a
+     * phone. A fixed floor (`280px`, `190px`) overflows there; `min(<floor>, 100%)` collapses to the
+     * container instead.
+     */
+    const fixed = floors
+      .filter(entry => entry.selector.includes('.grid'))
+      .filter(entry => /^\d+(?:\.\d+)?px$/.test(entry.floor))
+      .map(entry => `${entry.selector} { minmax(${entry.floor}, …) }`)
+
+    expect(fixed, 'a fixed px floor overflows a dialog narrower than it').toEqual([])
+  })
+
+  it('keeps the two form grids on the container-aware floor', () => {
+    const grid = ruleIn(allRules, '.grid')
+    const wide = ruleIn(allRules, '.grid--wide')
+    expect(grid, '.grid must yield to its container').toContain('min(190px, 100%)')
+    expect(wide, '.grid--wide must yield to its container').toContain('min(280px, 100%)')
+  })
+})

@@ -1505,14 +1505,25 @@ input[type='file'] {
   max-width: 84ch;
 }
 
+/*
+ * `minmax(280px, 1fr)` cannot shrink below 280 px, so in a narrower container the track stays 280
+ * and overflows the box instead of collapsing to one column. The `min(280px, 100%)` floor keeps the
+ * preferred width when there is room and yields to the container when there is not.
+ *
+ * Measured in the add-server dialog at 320 px: `.grid--wide` was 238 px wide with a single **280 px**
+ * track, and its five health-HTTP fields (HTTP path, method, statuses, body) ran to x=321 inside a
+ * dialog ending at x=304 — 17 px past the panel edge, with the dialog body showing an 18 px
+ * horizontal overflow that nothing signalled. At 360 px it was 278 px wide and still 2 px out; at
+ * 390 px it fit.
+ */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 0.45rem 0.7rem;
 }
 
 .grid--wide {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 }
 
 .grid__full {
