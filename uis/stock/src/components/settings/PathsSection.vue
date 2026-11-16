@@ -46,7 +46,20 @@ function workspaceRows(workspace: WorkspaceView): PathRow[] {
   <div class="space-y-3">
     <FieldGroup :title="t('settings.paths.whereThingsLive')" :description="t('settings.paths.whereThingsLiveDescription')">
       <ul class="divide-y divide-line-soft sm:col-span-2">
-        <li v-for="row in rows" :key="row.key" class="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0">
+        <!--
+          Stacked below `sm`, side by side above it — and the **stack** is the fix, not a taste
+          choice. The value half was `flex-1`, i.e. `flex-basis: 0`, beside a label half with the
+          default `flex: 0 1 auto`, so the label took the whole row and the value was squeezed to
+          a **0 px** box: the path was not ellipsized, it was unrendered, while its copy button
+          stayed. Measured at 320 px: Data root 0 px (252 px of text), Global settings 0 px
+          (350 px), and the workspace rows the same. A row on a 320 px phone cannot hold a label,
+          a hint and a path, so the path gets its own line there.
+        -->
+        <li
+          v-for="row in rows"
+          :key="row.key"
+          class="flex flex-col gap-1 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+        >
           <div class="min-w-0">
             <p class="text-xs font-medium text-ink">
               {{ row.label }}
@@ -55,7 +68,7 @@ function workspaceRows(workspace: WorkspaceView): PathRow[] {
               {{ row.hint }}
             </p>
           </div>
-          <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+          <div class="flex min-w-0 items-center gap-1.5 sm:flex-1 sm:justify-end">
             <span class="min-w-0 truncate font-mono text-xs text-ink">{{ row.value }}</span>
             <CopyButton :value="row.value" :label="t('settings.paths.copyPath', { label: row.copyLabel.toLowerCase() })" />
           </div>
@@ -76,7 +89,7 @@ function workspaceRows(workspace: WorkspaceView): PathRow[] {
           <li
             v-for="row in workspaceRows(workspace)"
             :key="row.key"
-            class="flex items-start justify-between gap-3 py-1.5"
+            class="flex flex-col gap-1 py-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
           >
             <div class="min-w-0">
               <p class="text-2xs font-medium text-ink">
@@ -86,7 +99,7 @@ function workspaceRows(workspace: WorkspaceView): PathRow[] {
                 {{ row.hint }}
               </p>
             </div>
-            <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+            <div class="flex min-w-0 items-center gap-1.5 sm:flex-1 sm:justify-end">
               <span class="min-w-0 truncate font-mono text-2xs text-ink">{{ row.value }}</span>
               <CopyButton :value="row.value" :label="t('settings.paths.copyPath', { label: row.copyLabel.toLowerCase() })" />
             </div>

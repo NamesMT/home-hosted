@@ -184,4 +184,41 @@ describe('the layout survives a phone', () => {
     }
     expect(silent).toEqual([])
   })
+
+  /**
+   * A `flex-1` sibling next to a default-flex sibling eats the row, and `truncate` cannot save it.
+   *
+   * Global settings → Paths put a label+hint block beside a value block. The value block was
+   * `flex-1` (`flex-basis: 0`); the label block had the default `flex: 0 1 auto` and sized to its
+   * own content, so on a narrow card the label took the **whole** row and the value was squeezed to
+   * a 0 px box. `truncate` does not help — an element with no box renders nothing, ellipsis
+   * included — while the copy button beside it stayed visible and clickable, so the page offered
+   * "copy" for a path it never showed.
+   *
+   * Measured in Chromium on `/global/settings?section=paths`: at 320 px the Data root value was
+   * **0 px** wide holding 252 px of text, Global settings 0 px of 350, and the three workspace rows
+   * the same; one row at 390 px still measured 0 px. At 640 px and up every row was fine, which is
+   * why it hid.
+   *
+   * The rule is the shape, not that one component: a row that pairs a label with a `truncate`
+   * value must give that value a box at every width. Below `sm` the pair stacks, so the value gets
+   * its own line; above it the value takes `flex-1` with the row already wide enough to spare it.
+   */
+  it('never squeezes a truncated value to a zero-width box beside its label', () => {
+    const file = path.join(root, 'src/components/settings/PathsSection.vue')
+    const elements = templateElements(templateOf(fs.readFileSync(file, 'utf8')))
+    // The value wrapper: the flex child that holds the `truncate` span.
+    expect(elements.filter(element => element.classes.includes('truncate')).length, 'the paths rows still show a path').toBeGreaterThan(0)
+
+    // The *row* is what pairs the two halves; a wrapper holding only the value is not a pair.
+    const rows = elements.filter(element => element.tag === 'li' && element.body.includes('truncate'))
+    expect(rows.length, 'both path lists render rows').toBe(2)
+
+    for (const element of rows) {
+      const stacked = has(element.classes, 'flex-col') && element.classes.some(name => name.startsWith('sm:flex-row'))
+      // Either the pair stacks on a phone (the value gets a full line), or the value keeps `flex-1`
+      // at every width — never `flex-1` alone with no narrow fallback.
+      expect(stacked, `<${element.tag}> pairs a label with a truncated value and must stack below sm`).toBe(true)
+    }
+  })
 })

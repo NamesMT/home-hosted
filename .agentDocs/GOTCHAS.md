@@ -340,6 +340,19 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   hardcoded colour is invisible in one of the two themes. (`uis/stock/src/styles.css`,
   `.scroll-hint-x`; `uis/stock/test/mobile-layout.test.ts`, "gives a horizontally scrolling box a
   visible edge hint", which also fails for any new `overflow-x-auto` box that omits the class.)
+- **`flex-1` beside a default-flex sibling takes the row, and `truncate` does not save the
+  other** — `flex-1` is `flex-basis: 0`, so it yields before a sibling whose `flex` is
+  `0 1 auto` and whose content is wide. stock's Global settings → Paths paired a label+hint block
+  (default flex, 246 px of text) with a value block (`flex-1`): the label took the row and the
+  path was squeezed to a **0 px** box — not ellipsized, *unrendered*, while its copy button stayed
+  visible, so the page offered "copy" for a path it never showed. Measured in Chromium on
+  `/global/settings?section=paths`: at 320 px Data root 0 px holding 252 px of text and Global
+  settings 0 px of 350, three workspace rows the same; one row still 0 px at 390; every row fine
+  from 640 px, which is what hid it. A row on a phone cannot hold a label, a hint and a path, so
+  the pair **stacks** below `sm` (the value gets its own line) and only takes `flex-1` above it.
+  The shape, not the component, is what the guard asserts.
+  (`uis/stock/test/mobile-layout.test.ts`, "never squeezes a truncated value to a zero-width box
+  beside its label")
 
 
 ## Data
