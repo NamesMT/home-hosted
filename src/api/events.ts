@@ -1,4 +1,5 @@
 import type { AppDeps } from '#src/app'
+import type { AuthIdentity } from '#src/services/auth'
 import type { SseMessage } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
@@ -9,7 +10,6 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, sseResponse } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace } from '#src/helpers/workspace'
-import { requestIdentity } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam, integerParam } from '#src/shared/query-params'
@@ -89,8 +89,12 @@ export function createEventsRoute(deps: AppDeps) {
          * credentials, and the UIs open the panel-wide stream with no query so their selector still
          * works.
          */
-        const identity = requestIdentity(c, deps.auth)
-        const limit = identity.account?.workspaces ?? null
+        // The auth guard already resolved this request's credential and stored it, so the limit is
+        // read from there rather than resolved a second time — a second `requestIdentity` would slide
+        // the session, and this is a long-lived connection (the same reason `serveEventStream`
+        // re-checks with `{ slide: false }`).
+        const identity = (c.get as (key: string) => unknown)('identity') as AuthIdentity | undefined
+        const limit = identity?.account?.workspaces ?? null
 
         // A server id is unique only inside its workspace, so naming one without a workspace means
         // the default workspace — the rule every other workspace-scoped route follows — never "any".
