@@ -155,16 +155,20 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
     <table v-else-if="accounts.length" class="tbl">
       <thead>
         <tr>
-          <th>id</th>
+          <th class="tbl__keep">
+            id
+          </th>
           <th>scopes</th>
           <th>workspaces</th>
           <th>last used</th>
-          <th><span class="sr-only">actions</span></th>
+          <th class="tbl__actions">
+            <span class="sr-only">actions</span>
+          </th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="account in accounts" :key="account.id">
-          <td>
+          <td class="tbl__keep">
             <span class="mono">{{ account.id }}</span>
             <span v-if="account.label !== account.id" class="faint label">{{ account.label }}</span>
             <span v-if="account.isDefault" class="chip chip--warn">first-run</span>
@@ -177,30 +181,32 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
           <td class="faint">
             {{ when(account.lastUsedAt) }}
           </td>
-          <td class="actions">
-            <!-- Disabling ends that account's sessions, so it confirms; enabling does not. -->
-            <ConfirmButton
-              v-if="account.enabled"
-              label="disable"
-              confirm-label="confirm disable"
-              tone="danger"
-              title="Disable this account?"
-              hint="Its sessions end immediately and its secret stops working until you enable it again."
-              :disabled="busy"
-              @confirm="toggleEnabled(account)"
-            />
-            <button v-else type="button" class="btn btn--sm btn--ghost" :disabled="busy" @click="toggleEnabled(account)">
-              enable
-            </button>
-            <ConfirmButton
-              label="revoke"
-              confirm-label="confirm revoke"
-              tone="danger"
-              title="Revoke this account?"
-              hint="Its sessions end immediately and the secret stops working. This cannot be undone."
-              :disabled="busy"
-              @confirm="revoke(account)"
-            />
+          <td class="tbl__actions">
+            <span class="actions">
+              <!-- Disabling ends that account's sessions, so it confirms; enabling does not. -->
+              <ConfirmButton
+                v-if="account.enabled"
+                label="disable"
+                confirm-label="confirm disable"
+                tone="danger"
+                title="Disable this account?"
+                hint="Its sessions end immediately and its secret stops working until you enable it again."
+                :disabled="busy"
+                @confirm="toggleEnabled(account)"
+              />
+              <button v-else type="button" class="btn btn--sm btn--ghost" :disabled="busy" @click="toggleEnabled(account)">
+                enable
+              </button>
+              <ConfirmButton
+                label="revoke"
+                confirm-label="confirm revoke"
+                tone="danger"
+                title="Revoke this account?"
+                hint="Its sessions end immediately and the secret stops working. This cannot be undone."
+                :disabled="busy"
+                @confirm="revoke(account)"
+              />
+            </span>
           </td>
         </tr>
       </tbody>

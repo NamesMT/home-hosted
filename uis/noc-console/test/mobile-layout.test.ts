@@ -206,4 +206,45 @@ describe('noc-console is usable at a phone width', () => {
     expect(link).toContain('min-width: 0')
     expect(link).toContain('text-overflow: ellipsis')
   })
+
+  /**
+   * The pinning rule above is written in the stylesheet, but a table only gets it if its cells
+   * carry the classes — and two of the console's four tables did not.
+   *
+   * Measured in Chromium 157 at a 320 px viewport: the jobs table ran 593 px wide, and its
+   * action column (512–593) plus the `run now` button (520–585) sat entirely past the right edge,
+   * so every job row's only actions were two horizontal scrolls away. The accounts table's scopes
+   * column started at 90 px and ran to 321 — one pixel past the viewport — pushing `workspaces`
+   * and the `disable`/`revoke` buttons off. Both are fixed by naming the cells the stylesheet
+   * already knows: `.tbl__keep` on the identity, `.tbl__actions` on the actions.
+   *
+   * Every `.tbl` is required to carry both, so a fifth table cannot ship with the same gap.
+   */
+  it('marks every table with the pinned identity and action cells it needs to be readable', () => {
+    const missing: string[] = []
+    for (const entry of fs.readdirSync(path.join(root, 'src'), { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.vue'))
+        continue
+      const file = path.join(entry.parentPath, entry.name)
+      const source = fs.readFileSync(file, 'utf8')
+      if (!source.includes('class="tbl"'))
+        continue
+      const relative = path.relative(root, file)
+      // A read-only table (`HostVitals`, `DdnsPanel`, the overview's server list) still needs its
+      // identity pinned: whichever column says *which row* is the one that must not scroll away.
+      if (!source.includes('tbl__keep'))
+        missing.push(`${relative}: no .tbl__keep on the identity cell`)
+      // A table that carries row actions needs the action cell pinned too. The `sr-only actions`
+      // header is how every one of them declares it, and it is what the two broken tables had.
+      if (source.includes('sr-only">actions') && !source.includes('tbl__actions'))
+        missing.push(`${relative}: no .tbl__actions on the action cell`)
+    }
+    expect(missing).toEqual([])
+    // The two tables this change fixed, named so the scan cannot pass by finding nothing.
+    for (const view of ['src/views/JobsView.vue', 'src/components/AccountsSection.vue']) {
+      const source = fs.readFileSync(path.join(root, view), 'utf8')
+      expect(source, `${view} pins its identity cell`).toContain('class="tbl__keep"')
+      expect(source, `${view} pins its action cell`).toContain('class="tbl__actions"')
+    }
+  })
 })

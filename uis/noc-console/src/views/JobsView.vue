@@ -215,16 +215,20 @@ function when(ms: number | null | undefined): string {
     <table v-else class="tbl">
       <thead>
         <tr>
-          <th>id</th>
+          <th class="tbl__keep">
+            id
+          </th>
           <th>schedule</th>
           <th>next</th>
           <th>last</th>
-          <th><span class="sr-only">actions</span></th>
+          <th class="tbl__actions">
+            <span class="sr-only">actions</span>
+          </th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="job in jobs" :key="job.id">
-          <td>
+          <td class="tbl__keep">
             <span class="mono">{{ job.id }}</span>
             <span v-if="job.label" class="faint label">{{ job.label }}</span>
             <span v-if="!job.enabled" class="chip">disabled</span>
@@ -242,47 +246,49 @@ function when(ms: number | null | undefined): string {
               · exit {{ job.lastExitCode }}
             </span>
           </td>
-          <td class="actions">
-            <button type="button" class="btn btn--sm btn--primary" :disabled="busy === job.id || job.running" @click="run(job.id)">
-              {{ job.running ? 'running' : 'run now' }}
-            </button>
-            <button v-if="job.running" type="button" class="btn btn--sm" :disabled="busy === job.id" @click="stop(job.id)">
-              stop
-            </button>
-            <button type="button" class="btn btn--sm" :disabled="busy === job.id" @click="startEdit(job)">
-              edit
-            </button>
-            <!-- A failed run's own output is the one thing needed to debug it, so it is one click
+          <td class="tbl__actions">
+            <span class="actions">
+              <button type="button" class="btn btn--sm btn--primary" :disabled="busy === job.id || job.running" @click="run(job.id)">
+                {{ job.running ? 'running' : 'run now' }}
+              </button>
+              <button v-if="job.running" type="button" class="btn btn--sm" :disabled="busy === job.id" @click="stop(job.id)">
+                stop
+              </button>
+              <button type="button" class="btn btn--sm" :disabled="busy === job.id" @click="startEdit(job)">
+                edit
+              </button>
+              <!-- A failed run's own output is the one thing needed to debug it, so it is one click
                  from the row rather than buried behind a page of its own. -->
-            <button type="button" class="btn btn--sm" @click="logFor = job.id">
-              log
-            </button>
-            <!--
+              <button type="button" class="btn btn--sm" @click="logFor = job.id">
+                log
+              </button>
+              <!--
               Disabling confirms; enabling does not. Turning a job off stops the schedule that
               exists to run it, which is the kind of thing a stray click should not do. Enabling
               only restores what the config already declared, so it happens on the click.
             -->
-            <ConfirmButton
-              v-if="job.enabled"
-              label="disable"
-              confirm-label="confirm disable"
-              :disabled="busy === job.id"
-              :title="`Disable ${job.id}?`"
-              hint="It stops running on its schedule until you enable it again. A run in flight still finishes."
-              @confirm="toggle(job)"
-            />
-            <button v-else type="button" class="btn btn--sm" :disabled="busy === job.id" @click="toggle(job)">
-              enable
-            </button>
-            <ConfirmButton
-              label="remove"
-              confirm-label="confirm remove"
-              tone="danger"
-              :disabled="busy === job.id"
-              :title="`Remove ${job.id}?`"
-              hint="The declaration goes, along with its schedule. Output already written to the job's log stays."
-              @confirm="remove(job)"
-            />
+              <ConfirmButton
+                v-if="job.enabled"
+                label="disable"
+                confirm-label="confirm disable"
+                :disabled="busy === job.id"
+                :title="`Disable ${job.id}?`"
+                hint="It stops running on its schedule until you enable it again. A run in flight still finishes."
+                @confirm="toggle(job)"
+              />
+              <button v-else type="button" class="btn btn--sm" :disabled="busy === job.id" @click="toggle(job)">
+                enable
+              </button>
+              <ConfirmButton
+                label="remove"
+                confirm-label="confirm remove"
+                tone="danger"
+                :disabled="busy === job.id"
+                :title="`Remove ${job.id}?`"
+                hint="The declaration goes, along with its schedule. Output already written to the job's log stays."
+                @confirm="remove(job)"
+              />
+            </span>
           </td>
         </tr>
       </tbody>
