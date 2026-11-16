@@ -326,4 +326,38 @@ describe('a workspace-limited credential on the live feed', () => {
     expect(wideHello, 'an unlimited credential sees every workspace').toContain('"default"')
     expect(wideHello).toContain('secret-svc')
   })
+
+  /**
+   * The limit is answered **before** the server id is looked up, so the two cannot be told apart.
+   *
+   * The reverse order made the pair an existence oracle over another workspace's server ids: a
+   * `staging`-limited `read` account asked for one of `default`'s entries and got `403 TOKEN_SCOPE`,
+   * and for an id that does not exist and got `404 UNKNOWN_SERVER` — the second answer says "that one
+   * is not there", which is a fact about a workspace the account may not read. Measured on a scratch
+   * panel: `?serverId=secret-svc` answered `403` and `?serverId=no-such-thing` answered `404`.
+   *
+   * A caller that may not watch the workspace gets the same `403` either way, and its own workspace
+   * still distinguishes a real id from a typo, which is the diagnostic that matters.
+   */
+  it('refuses another workspace before it says whether the server id exists', async () => {
+    const created = await makeFixture({
+      workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }],
+      servers: [{ id: 'secret-svc', command: 'node' }],
+    })
+    fixtures.push(created)
+    const { secret } = created.globalSecrets.createAccount({ id: 'oracle', scopes: ['read'], workspaces: ['staging'] })
+    const headers = { authorization: `Bearer oracle:${secret}` }
+
+    for (const serverId of ['secret-svc', 'no-such-thing']) {
+      const response = await created.app.request(`/api/events?serverId=${serverId}`, { headers })
+      expect(response.status, `${serverId} must not be distinguishable`).toBe(403)
+      expect(await response.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
+    }
+
+    // Its own workspace still answers the useful pair: 404 for a typo, a stream for a real entry.
+    expect((await created.app.request('/api/events?workspace=staging&serverId=no-such-thing', { headers })).status).toBe(404)
+    const own = await created.app.request('/api/events?workspace=staging&serverId=stg', { headers })
+    expect(own.status).toBe(200)
+    await own.body!.getReader().cancel().catch(() => {})
+  })
 })

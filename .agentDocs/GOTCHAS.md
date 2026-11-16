@@ -350,6 +350,12 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   walk test does, or it joins this list.
   (`src/api/state.ts`, `src/api/workspaces/$.routes.ts`, `src/api/events.ts`, `src/api/proxy.ts`;
   `test/middleware/token-scopes.test.ts`, `test/api/stream-resume.test.ts`)
+- **A lookup before the limit is an existence oracle over the workspace you may not read** — the
+  live feed answered `404 UNKNOWN_SERVER` for an id that does not exist and `403 TOKEN_SCOPE` for one
+  that does in a workspace the caller may not watch, so a `staging`-limited account could enumerate
+  `default`'s entries one id at a time. Refuse first: the limit depends only on what was *asked for*,
+  and the "does this id exist" diagnostic belongs to the callers that may read the answer.
+  (`src/api/events.ts`; `test/api/stream-resume.test.ts`)
 - **Narrowing what a route *reads* is half a limit when a write replaces the same list** — the
   proxy's route table is one list for the whole panel, and every row names the workspace whose entry
   it forwards to. `GET /api/proxy` narrowed its `dnsAccounts` picker and left `routes` whole, so a

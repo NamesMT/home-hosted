@@ -103,18 +103,28 @@ export function createEventsRoute(deps: AppDeps) {
           ? null
           : requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), query.workspace)
         const workspaceId = runtime?.id ?? null
-        if (serverId !== null && runtime !== null && !runtime.store.getServer(serverId))
-          throw unknownServerError(serverId)
 
-        // Naming a workspace the credential may not read is the same refusal the polling route gives,
-        // rather than an empty stream: silence reads as "nothing is happening", which is the one thing
-        // a live feed must never say about a workspace it was asked for and declined.
+        /**
+         * The limit is checked **before** the id is looked up, and that order is the point.
+         *
+         * The reverse order answered `404 UNKNOWN_SERVER` for an id that does not exist and `403
+         * TOKEN_SCOPE` for one that does — in a workspace the account may not watch — so the pair was
+         * an existence oracle over another workspace's server ids: measured on a scratch panel, a
+         * `staging`-limited `read` account got `403` for `default`'s `secret-svc` and `404` for
+         * `no-such-thing`. It is the same sentence `docs/SECURITY.md` makes about the login form ("a
+         * wrong id and a wrong secret answer identically"), one resource down: a caller that may not
+         * read a workspace must not learn what is in it. Refusing first also costs nothing, because
+         * the refusal depends only on what was asked for.
+         */
         if (limit !== null && workspaceId !== null && !limit.includes(workspaceId)) {
           throw new DetailedError(
             `this account is limited to ${limit.join(', ')} — it cannot watch "${workspaceId}"`,
             { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: limit } },
           )
         }
+
+        if (serverId !== null && runtime !== null && !runtime.store.getServer(serverId))
+          throw unknownServerError(serverId)
 
         return serveEventStream(c, deps.auth, (send, resumeFrom) => {
           const subscription = workspaceId !== null && serverId !== null ? serverKey(workspaceId, serverId) : null
