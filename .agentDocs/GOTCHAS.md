@@ -294,3 +294,8 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   id returned before scrypt, and `account === null || !verify(…)` never ran the verify at all, so the
   login route answered in 1.2 ms against 36.9 ms. Spend the hash on the miss too, and reach it at the
   call site. (`src/config/secrets.ts`, `src/services/auth.ts`; `test/config/secrets.test.ts`)
+- **`validate('json', …)` reads the body, so a handler's own credential check runs too late** — an
+  unauthenticated caller on the local channel decided how much work the panel did before refusing it
+  (2 MB → `400 INVALID_INPUT` naming the field, ~3 MB heap, instead of `403`). Put the credential check
+  in middleware ahead of validation on any route that takes a body. (`src/api/control.ts`;
+  `test/api/panel.test.ts`)

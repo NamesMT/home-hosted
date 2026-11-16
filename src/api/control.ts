@@ -50,6 +50,28 @@ export function createControlRoute(deps: AppDeps) {
       throw new DetailedError(`only this machine may ${action}`, { statusCode: 403, code: 'NOT_LOOPBACK' })
   }
 
+  /**
+   * The credential check, as **middleware**, so it runs before anything reads the body.
+   *
+   * `assertLocalCall` was called from inside each handler, which put it *after*
+   * `validate('json', …)`: the body is parsed to validate it, so an unauthenticated caller could make
+   * the panel buffer and schema-walk a payload of its choosing before being refused. Measured on the
+   * local channel with a 2 MB body and no token, the answer was `400 INVALID_INPUT` naming a field
+   * rather than `403`, with ~3 MB of heap used to say it — pre-auth work proportional to the request,
+   * on a channel whose whole design is "the token is the only guard". It also leaked the expected
+   * body shape of a privileged route to a caller that had not proved anything.
+   *
+   * Only the routes that read a body need this (`POST /_hh/servers` and
+   * `POST /_hh/servers/secrets/:id`); the rest answer from the query string, where validation is a
+   * few bytes of URL and the handler's own check is already the first thing that looks at anything.
+   */
+  function requireLocalCall(action: string) {
+    return async (c: Context, next: () => Promise<void>): Promise<void> => {
+      assertLocalCall(c, action)
+      await next()
+    }
+  }
+
   return appFactory.createApp()
     .post(
       '/shutdown',
@@ -287,11 +309,11 @@ export function createControlRoute(deps: AppDeps) {
         summary: 'Set or clear a server\'s secret environment values (local token required)',
         responses: { 200: { description: 'Written', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
       }),
+      requireLocalCall('read or write a server\'s secrets'),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       validate('json', controlSecretsSchema),
       (c) => {
-        assertLocalCall(c, 'read or write a server\'s secrets')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
         const entry = runtime.store.getServer(id)
@@ -334,10 +356,10 @@ export function createControlRoute(deps: AppDeps) {
           409: { description: 'An entry with this id already exists (`SERVER_EXISTS`), or the config changed on disk (`CONFIG_CHANGED_ON_DISK`)', content: ERROR_RESPONSES[409].content },
         },
       }),
+      requireLocalCall('add a server'),
       validate('query', workspaceQuerySchema),
       validate('json', serverCreateSchema),
       (c) => {
-        assertLocalCall(c, 'add a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         return c.json({ server: addServerEntry(runtime.store, c.req.valid('json')) }, 201)
       },

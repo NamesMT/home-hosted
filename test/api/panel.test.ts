@@ -772,6 +772,47 @@ describe('/_hh/servers', () => {
     expect((await remote.app.request('/_hh/servers', { headers: token })).status).toBe(403)
   })
 
+  /**
+   * The token is checked **before** the body is parsed.
+   *
+   * `assertLocalCall` ran from inside the handler, which is after `validate('json', …)` — and
+   * validating a body means reading it. So an unauthenticated caller decided how much work the panel
+   * did before refusing it: measured, a 2 MB body with no token answered `400 INVALID_INPUT` naming the
+   * offending field (not `403`) and cost ~3 MB of heap to produce that sentence. On a channel whose
+   * only guard is the token, that is pre-auth work proportional to the request, and it told a caller
+   * that had proved nothing what a privileged route's body must look like.
+   */
+  it('refuses an unauthenticated caller before parsing the body', async () => {
+    const created = await fixture()
+    const oversized = JSON.stringify({ id: 'web', command: 'node', padding: 'A'.repeat(2_000_000) })
+    const refused = await created.app.request('/_hh/servers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: oversized,
+    })
+    expect(refused.status, 'a missing token is 403, not a validation failure').toBe(403)
+    expect(await refused.json()).toMatchObject({ code: 'INVALID_TOKEN' })
+
+    // The same on the other body-taking route of the channel.
+    const secrets = await created.app.request('/_hh/servers/secrets/web', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ set: { NOPE: 'value' } }),
+    })
+    expect(secrets.status).toBe(403)
+    expect(await secrets.json()).toMatchObject({ code: 'INVALID_TOKEN' })
+
+    // A caller that is not on this machine is refused the same way, before the body is read.
+    const remote = await fixture({ ip: '10.0.0.5' })
+    const offMachine = await remote.app.request('/_hh/servers', {
+      method: 'POST',
+      headers: { ...json },
+      body: JSON.stringify({ id: 'web', command: 'node' }),
+    })
+    expect(offMachine.status).toBe(403)
+    expect(await offMachine.json()).toMatchObject({ code: 'NOT_LOOPBACK' })
+  })
+
   it('is documented in the spec', async () => {
     const spec = await (await (await fixture()).app.request('/openapi/spec.json')).json() as { paths: Record<string, Record<string, { responses: Record<string, unknown> }>> }
     expect(Object.keys(spec.paths['/_hh/servers']!).sort()).toEqual(['get', 'post'])
