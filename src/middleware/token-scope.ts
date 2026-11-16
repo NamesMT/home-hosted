@@ -27,8 +27,12 @@ export interface TokenScopeRule {
    * `true` when the route is scoped to a workspace and a token's `workspaces` limit applies.
    * Panel-wide routes (`/api/settings`, `/api/auth/*`, `/api/proxy`) are not — there is no workspace
    * to narrow, so listing one as limited would be a rule that never fires.
+   *
+   * `'path'` is the variant for the two routes whose **subject is a workspace** rather than a request
+   * inside one: `PATCH`/`DELETE /api/workspaces/:id` name it in the URL, not in `?workspace=`. A limit
+   * that only read the query let a `staging`-limited account rename and delete `default`.
    */
-  workspaceScoped: boolean
+  workspaceScoped: boolean | 'path'
 }
 
 /**
@@ -117,8 +121,13 @@ const RULES: Record<string, TokenScopeRule> = {
   'DELETE /api/servers/:id': { scope: 'config', workspaceScoped: true },
   'PUT /api/servers/:id/secrets': { scope: 'config', workspaceScoped: true },
   'POST /api/workspaces': { scope: 'config', workspaceScoped: false },
-  'PATCH /api/workspaces/:id': { scope: 'config', workspaceScoped: false },
-  'DELETE /api/workspaces/:id': { scope: 'config', workspaceScoped: false },
+  // The subject of these two is a workspace itself, and it is in the path — so a limit applies, read
+  // from the path rather than the query. Declared panel-wide, a `staging`-limited account renamed and
+  // removed `default`. Creating one stays panel-wide: a new workspace is an addition to the panel, not
+  // an act inside one somebody else owns. `GET /api/workspaces` stays panel-wide too — it is how a
+  // client learns what it may name, so a selector built from it must not lose its own workspace.
+  'PATCH /api/workspaces/:id': { scope: 'config', workspaceScoped: 'path' },
+  'DELETE /api/workspaces/:id': { scope: 'config', workspaceScoped: 'path' },
   'PATCH /api/settings': { scope: 'config', workspaceScoped: false },
   'PATCH /api/settings/workspace': { scope: 'config', workspaceScoped: true },
   'PUT /api/ddns': { scope: 'config', workspaceScoped: true },
@@ -207,6 +216,31 @@ function matches(pattern: string, path: string): boolean {
   return want.every((segment, index) => segment.startsWith(':') ? (got[index] ?? '').length > 0 : segment === got[index])
 }
 
+/**
+ * The value one `:param` of a matched pattern stands for, or `null`.
+ *
+ * The route table is the only place a path segment's meaning is written down, so a check that needs
+ * one reads it through the same matcher rather than splitting the path again at the call site — a
+ * second split is how `/api/workspaces/:id` would be read positionally and drift.
+ */
+export function pathParam(method: string, path: string, name: string): string | null {
+  const want = `${method.toUpperCase()} `
+  const candidates = Object.entries(RULES)
+    .filter(([candidate]) => candidate.startsWith(want))
+    .sort(([left], [right]) => right.split('/').length - left.split('/').length)
+  const got = path.split('/')
+  for (const [candidate] of candidates) {
+    const pattern = candidate.slice(want.length).split('/')
+    if (pattern.length !== got.length)
+      continue
+    if (!matches(pattern.join('/'), path))
+      continue
+    const index = pattern.indexOf(`:${name}`)
+    return index === -1 ? null : got[index] ?? null
+  }
+  return null
+}
+
 /** Whether `held` satisfies `needed` — the scopes are cumulative, so `admin` covers everything. */
 export function tokenAllows(held: readonly ApiTokenScope[], needed: ApiTokenScope): boolean {
   if (held.includes('admin'))
@@ -220,8 +254,14 @@ export function tokenAllows(held: readonly ApiTokenScope[], needed: ApiTokenScop
   return false
 }
 
-/** Every declared route, for the spec and the docs. */
-export function declaredTokenScopes(): Array<{ route: string, scope: ApiTokenScope, workspaceScoped: boolean }> {
+/**
+ * Every declared route, for the spec and the docs.
+ *
+ * `workspaceScoped` keeps the three-state answer the rule now has: `true` for a route acting inside a
+ * workspace named by `?workspace=`, `'path'` for one whose subject is the workspace in the URL, and
+ * `false` for a panel-wide route — an entry a client renders as a boolean would misreport the middle.
+ */
+export function declaredTokenScopes(): Array<{ route: string, scope: ApiTokenScope, workspaceScoped: TokenScopeRule['workspaceScoped'] }> {
   return Object.entries(RULES).map(([route, rule]) => ({ route, scope: rule.scope, workspaceScoped: rule.workspaceScoped }))
 }
 
@@ -298,16 +338,30 @@ export function createTokenScopeGuard(deps: TokenScopeGuardDeps) {
     // `POST /api/servers/web/start` answered `200` having started that workspace's entry — a
     // destructive act on a workspace the account does not name, by leaving a query key out. An empty
     // `?workspace=` resolves identically, so it is treated identically.
-    if (rule.workspaceScoped && account.workspaces !== undefined) {
-      const asked = c.req.query('workspace')
-      const target = asked !== undefined && asked.length > 0 ? asked : deps.defaultWorkspaceId()
-      if (!account.workspaces.includes(target)) {
-        throw new DetailedError(
-          asked === undefined || asked.length === 0
-            ? `this account is limited to ${account.workspaces.join(', ')} — a request naming no workspace acts on "${target}", which it may not use`
-            : `this account is limited to ${account.workspaces.join(', ')} — it cannot act on "${asked}"`,
-          { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: account.workspaces } },
-        )
+    if (rule.workspaceScoped !== false && account.workspaces !== undefined) {
+      // `'path'`: the workspace **is** the subject and is named in the URL. Declared panel-wide, a
+      // `staging`-limited account renamed and deleted `default` — the id moved out of the query and
+      // the limit stopped applying.
+      if (rule.workspaceScoped === 'path') {
+        const named = pathParam(method, path, 'id')
+        if (named !== null && !account.workspaces.includes(named)) {
+          throw new DetailedError(
+            `this account is limited to ${account.workspaces.join(', ')} — it cannot act on "${named}"`,
+            { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: account.workspaces } },
+          )
+        }
+      }
+      else {
+        const asked = c.req.query('workspace')
+        const target = asked !== undefined && asked.length > 0 ? asked : deps.defaultWorkspaceId()
+        if (!account.workspaces.includes(target)) {
+          throw new DetailedError(
+            asked === undefined || asked.length === 0
+              ? `this account is limited to ${account.workspaces.join(', ')} — a request naming no workspace acts on "${target}", which it may not use`
+              : `this account is limited to ${account.workspaces.join(', ')} — it cannot act on "${asked}"`,
+            { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: account.workspaces } },
+          )
+        }
       }
     }
 

@@ -221,6 +221,51 @@ describe('an account limited to one workspace', () => {
     expect((await created.app.request('/api/jobs?workspace=staging', { headers })).status).toBe(200)
   })
 
+  /**
+   * A workspace named in the **path** is still a workspace.
+   *
+   * `PATCH`/`DELETE /api/workspaces/:id` are declared panel-wide (`workspaceScoped: false`), because a
+   * token's workspace limit is about the `?workspace=` a route acts *inside* — but the subject of
+   * these two routes is a workspace itself, and it is right there in the path. So an account limited
+   * to `staging` renamed and removed `default`, a workspace it does not name: measured, `PATCH
+   * /api/workspaces/default {"label":"pwned"}` answered `200` and the registry served the new label.
+   * A limit that a caller escapes by moving the id from the query into the path is not a limit.
+   *
+   * Creating one and listing the registry stay open: a new workspace is an addition to the panel, not
+   * an act inside a workspace somebody else owns, and the list is how a client learns what it *may*
+   * name (it is what the UI's selector is built from). The two that act on an **existing** workspace
+   * are the ones this refuses.
+   */
+  it('may not rename or remove a workspace it is not limited to', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }], servers: [{ id: 'web', command: 'node' }] })
+    fixtures.push(created)
+    const minted = mint(created, ['admin'], ['staging'])
+
+    const patch = await created.app.request('/api/workspaces/default', {
+      method: 'PATCH',
+      headers: { ...minted.headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'pwned' }),
+    })
+    expect(patch.status).toBe(403)
+    expect(await patch.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
+
+    const remove = await created.app.request('/api/workspaces/default', { method: 'DELETE', headers: minted.headers })
+    expect(remove.status).toBe(403)
+    expect(await remove.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
+
+    // Nothing changed: the workspace is still there, under its own label.
+    expect(created.panel.workspaces().map(workspace => workspace.id)).toContain('default')
+    expect(created.registry.get('default')?.label).toBe('Default')
+
+    // Its own workspace still answers, and creating one is still an addition to the panel.
+    expect((await created.app.request('/api/workspaces/staging', {
+      method: 'PATCH',
+      headers: { ...minted.headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Staging' }),
+    })).status).toBe(200)
+    expect((await created.app.request('/api/workspaces', { headers: minted.headers })).status).toBe(200)
+  })
+
   /** A panel-wide route has no workspace to narrow, so the limit must not refuse it. */
   it('still reaches the panel-wide routes, which name no workspace at all', async () => {
     const created = await makeFixture({ workspaces: [{ id: 'staging' }] })
