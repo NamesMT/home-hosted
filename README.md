@@ -266,7 +266,7 @@ The rest, one line each:
 | 💾 **Backups** | Config, secrets and data in one zip — plain or AES-256, scheduled or manual, restorable on a blank host. A server's secret environment is in there too, so a move keeps working |
 
 | 🚀 **Deploy** | A `deploy` block of ordered steps (`git pull`, `pnpm build`, …) — **Deploy** on the card, `home-hosted deploy`, or the API. A failed step stops the sequence and **leaves the old process running**, because half-deployed is the state it exists to avoid |
-| 🗓 **Scheduled jobs** | An entry can be a **job** instead of a service: it runs to completion on a 5-field cron expression and its exit code is the outcome — **Run now** on the card, `home-hosted run`, or the API. A run that overlaps the previous one is skipped, a missed one runs once at boot, and a failed run notifies like a crash |
+| 🗓 **Scheduled jobs** | An entry can be a **job** instead of a service: it runs to completion on a 5-field cron expression and its exit code is the outcome — **Run now** on the card, `home-hosted job run <id>`, or the API. A run that overlaps the previous one is skipped, a missed one runs once at boot, and a failed run notifies like a crash |
 
 | 🔐 **Per-server secrets** | Declare the **names** in the entry and set the values from the panel or `home-hosted secret set` — they live in the workspace secrets file (0600), never in the config, and a backup carries them |
 | 🤖 **API first** | Bearer tokens, OpenAPI, SSE — scripts, agents, TUIs and desktop apps get everything the UI gets |
@@ -374,7 +374,9 @@ secret ls <id>         [-w/--workspace <id>] --json
 import pm2 <file>      [--confirm] [--dry-run] [--allow-js] [--env <name>] [-w/--workspace <id>] --json
 import compose <file>  [--confirm] [--dry-run] [--id <id>] [-w/--workspace <id>] --json
 deploy <id>            [-w/--workspace <id>] --json      (waits; exits 1 if a step fails)
-run <id>               [-w/--workspace <id>] --json      (a job; waits, exits 1 unless its exit code is 0)
+job ls                 [-w/--workspace <id>] --json      (id, expression, and whether it is scheduled, running or disabled)
+job run <id>           [-w/--workspace <id>] --json      (waits; exits 1 unless its exit code is 0)
+job log <id>           [-w/--workspace <id>] --json      (what its runs wrote, newest last)
 start <id>        [-w/--workspace <id>] [--free-port]
 stop <id>         [-w/--workspace <id>]
 free-port <id>    [-w/--workspace <id>]

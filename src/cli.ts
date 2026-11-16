@@ -1,9 +1,10 @@
 import type { SubCommandsDef } from 'citty'
+import type { CommandShape } from './cli/args'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
 import { errorMessage } from '#src/shared/error-message'
-import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
+import { applyDirFlags, extractDirFlags, flagTarget, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading, treatClosedReaderAsDone } from './cli/io'
 import { nearestWord } from './cli/nearest'
 import { NANNY_COMMAND } from './helpers/runtime'
@@ -71,7 +72,7 @@ const SYNOPSIS: Record<string, string> = {
   'import': 'home-hosted import pm2|compose <file> [--confirm] [--dry-run] [--allow-js] [--workspace <id>]',
   'token': 'home-hosted token create|ls|revoke [--name <name>] [--scope <scopes>] [--workspace <ids>]',
   'deploy': 'home-hosted deploy <id> [--workspace <id>] [--json]',
-  'run': 'home-hosted run <id> [--workspace <id>] [--json]',
+  'job': 'home-hosted job ls|run|log [<id>] [--workspace <id>] [--json]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -596,9 +597,14 @@ async function main(): Promise<void> {
   // citty parses permissively, so the refusal of a mistyped flag is asked of
   // citty's own definitions first; a command that declares none (ui-switch) keeps
   // its own parseArgs, which is strict already.
+  //
+  // `flagTarget`, not `command.args`: a group (`job`) declares its flags on its subcommands, so
+  // reading the group's own (absent) definition accepted every spelling — `job ls --jsn` printed the
+  // human table while a script parsed it as a JSON document.
   const sub = COMMANDS[invocation.argv[0]! as keyof typeof COMMANDS]
   const command = typeof sub === 'function' ? await sub() : sub
-  const problem = rejectUnknownFlags(invocation.argv.slice(1), command?.args)
+  const target = await flagTarget(invocation.argv.slice(1), command as CommandShape | undefined)
+  const problem = rejectUnknownFlags(target.argsFor, target.args)
   if (problem !== null)
     fail(problem)
 

@@ -121,6 +121,56 @@ describe('cli smoke', () => {
     }
   })
 
+  /**
+   * Every command the CLI dispatches must appear in the reference, with a summary and its options.
+   *
+   * The reference is assembled from three maps keyed by command name — `SYNOPSIS`, `SUMMARIES`,
+   * `SECTIONS` — beside the `COMMANDS` map citty dispatches from. Renaming a command touched three of
+   * the four: `run` became `job` in `SUMMARY`/`SECTIONS`/`COMMANDS` and stayed `run` in `SYNOPSIS`,
+   * so the reference listed `home-hosted run <id> …  undefined` (a command that does not exist, with
+   * no summary because none is keyed there), **omitted `job` entirely**, answered `run web` with
+   * "unknown command: run / did you mean `run`?" — naming the word back at the person — suggested
+   * nothing for `jobx`, and made `job --help` print the whole 40-line reference because
+   * `commandHelp('job')` found no synopsis and fell through to `USAGE`.
+   *
+   * Read from the CLI's own output, not from its source: a `Record<string, string>` index signature
+   * makes a stray key and a missing one equally legal to the compiler, which is why this survived.
+   */
+  it('lists every command in the reference, with a summary and not "undefined"', () => {
+    const help = runCli(['--help'])
+    expect(help.status, help.stderr).toBe(0)
+    // The rendered lines, so a name is only "listed" where the reference actually shows it.
+    const listed = help.stdout.split('\n').filter(line => line.startsWith('  home-hosted '))
+    const names = listed.map(line => line.trim().slice('home-hosted '.length).split(/[\s[]/)[0]!)
+
+    // `nanny` is the hidden command the panel spawns (`cli.ts` dispatches it before this surface);
+    // everything else a person can type belongs here.
+    for (const command of ['up', 'down', 'restart', 'status', 'logs', 'usage', 'backup', 'start', 'stop', 'free-port', 'account', 'setup-temp', 'migrate', 'init', 'ui-switch', 'ui-update', 'ui-revert', 'service', 'add', 'ls', 'secret', 'import', 'token', 'deploy', 'job'])
+      expect(names, `the reference must list \`${command}\``).toContain(command)
+
+    // A summary missing for a listed name renders the string "undefined" in the right-hand column.
+    expect(help.stdout).not.toContain('undefined')
+    // `run` was the ghost this found: it is not a command, and listing it is what broke the rest.
+    expect(names).not.toContain('run')
+  })
+
+  /**
+   * `<command> --help` stays scoped to that command.
+   *
+   * `commandHelp` returns the **whole reference** for a name it has no synopsis of, so the fallthrough
+   * is indistinguishable from `--help` with nothing after it. Each command's own help therefore has to
+   * print its own synopsis line and not another command's option heading.
+   */
+  it('scopes `--help` for every command, rather than falling through to the full reference', () => {
+    for (const command of ['job', 'deploy', 'secret', 'backup', 'account', 'token', 'migrate', 'add', 'ls', 'import', 'usage', 'logs']) {
+      const result = runCli([command, '--help'])
+      expect(result.status, `${command}\n${result.stderr}`).toBe(0)
+      expect(result.stdout, `${command} must show its own synopsis`).toContain(`home-hosted ${command}`)
+      // The full reference has every command in it; a scoped one has one synopsis plus the trailer.
+      expect(result.stdout, `${command} must not print the whole reference`).not.toContain('home-hosted free-port')
+    }
+  })
+
   it('offers --with-persistent on both commands that take it', () => {
     // One flag, two commands: a person should not have to remember which spelling is which.
     for (const name of ['down', 'restart']) {
