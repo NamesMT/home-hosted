@@ -66,10 +66,12 @@ home-hosted secret set nightly-backup BACKUP_TOKEN --stdin   # prompts without e
 home-hosted secret ls nightly-backup                        # the names, and which have a value
 ```
 
-The panel never sends a value back — only which names have one (`secretEnvSet` on the job view). A
-job's values are the same store a server's use, keyed by id, so the two cannot disagree about what a
-name means. **A changed `secretEnv` takes effect on the next run**; a run in flight keeps the
-environment it started with.
+The panel never sends a value back — only which names have one (`secretEnvSet` on the job view).
+A job's values live in the **same file** as a server's but under their own key (`jobEnv`, beside
+`serverEnv`): a job and a server may share an id, and one key space meant a job's value reached the
+server of that id and the server's reached the job. They are two domains, so they are two maps. **A
+changed `secretEnv` takes effect on the next run**; a run in flight keeps the environment it started
+with.
 
 ## Editing one
 

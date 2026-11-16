@@ -213,12 +213,14 @@ export function createJobsRoute(deps: AppDeps) {
 
         const clearing = body.unset ?? []
         if (clearing.length > 0)
-          runtime.secrets.unsetServerEnv(id, clearing)
+          runtime.secrets.unsetJobEnv(id, clearing)
         if (writing.length > 0) {
-          const next = { ...runtime.secrets.serverEnv(id) }
+          // The **job** map, not the server one: an id is unique only within its own domain, so a job
+          // and a server may both be called `nightly` and must not share a value.
+          const next = { ...runtime.secrets.jobEnv(id) }
           for (const [name, value] of Object.entries(body.set ?? {}))
             next[name] = value
-          runtime.secrets.setServerEnv(id, next)
+          runtime.secrets.setJobEnv(id, next)
         }
         return c.json({ ok: true })
       },

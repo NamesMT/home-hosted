@@ -358,10 +358,9 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
         // workspace's own `logs` group, so a route that reads one reads what a run wrote.
         logDir: path.join(workspaceDir(declaration.id), '.logs', 'jobs'),
         logs: () => store.logs,
-        // The same reader `src/services/panel.ts` passes. Without it a job's `secretEnv` was never
-        // resolved here either, so a test of the feature would have exercised a graph the real panel
-        // does not build.
-        serverEnv: jobId => secrets.serverEnv(jobId),
+        // The same reader `src/services/panel.ts` passes: the **job** map, not the server one — a
+        // job and a server may share an id, and sharing one map handed each the other's value.
+        serverEnv: jobId => secrets.jobEnv(jobId),
       }),
       watches: [],
       logsDir: logFiles.directory,

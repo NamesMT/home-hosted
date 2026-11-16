@@ -151,7 +151,7 @@ describe('the jobs API', () => {
     })
 
     // A value for the declared name, and one for a name the job never declared.
-    created.secrets.setServerEnv('secretive', { BACKUP_TOKEN: 'tok-123', UNDECLARED: 'should-not-travel' })
+    created.secrets.setJobEnv('secretive', { BACKUP_TOKEN: 'tok-123', UNDECLARED: 'should-not-travel' })
 
     // The view reports which names have a value, and never the value itself.
     const listed = await (await created.app.request('/api/jobs')).json() as { jobs: Array<Record<string, unknown>> }
@@ -176,7 +176,7 @@ describe('the jobs API', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: 'clearable', command: process.execPath, args: ['-e', script], secretEnv: ['GONE'], schedule: '0 3 * * *' }),
     })
-    created.secrets.setServerEnv('clearable', { GONE: 'bye' })
+    created.secrets.setJobEnv('clearable', { GONE: 'bye' })
 
     const cleared = await created.app.request('/api/jobs/clearable/secrets', {
       method: 'PUT',
@@ -218,6 +218,58 @@ describe('the jobs API', () => {
       body: JSON.stringify({ set: { A: 'b' } }),
     })
     expect(response.status).toBe(404)
+    await created.cleanup()
+  })
+
+  /**
+   * A job and a server may share an id, and must not share a secret value.
+   *
+   * Both resolve `secretEnv` by entry id through the same workspace secrets store, and that store kept
+   * **one** map keyed by id for both. Measured on a real panel: a value stored for the server
+   * `nightly` was handed to the *job* `nightly` — the job's view reported `secretEnvSet: ["DB_PASS"]`
+   * and its run received it — even though nobody gave that job anything. That is the direction that
+   * matters, because a job's own log is a `read` route: a value stored for a server was readable back
+   * by declaring a job with the server's id, running it, and printing the variable, past the rule that
+   * `PUT /api/servers/:id/secrets` is write-only.
+   *
+   * The server side of the same collision leaked the other way (`PUT /api/jobs/:id/secrets` reached a
+   * server of that id), which `test/config/server-secret-env.test.ts` pins at the store.
+   */
+  it('does not hand a server\'s secret to the job that shares its id', async () => {
+    const created = await makeFixture()
+    const out = path.join(created.dir, '.hh', created.defaultId, 'collision.txt')
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, String(process.env.DB_PASS))`
+
+    // A server of the id, holding its own value.
+    await created.app.request('/api/servers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'nightly', command: process.execPath, args: ['-e', ''], secretEnv: ['DB_PASS'] }),
+    })
+    const written = await created.app.request('/api/servers/nightly/secrets', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ set: { DB_PASS: 'server-only-value' } }),
+    })
+    expect(written.status).toBe(200)
+
+    // A job of the same id, declaring the same name and writing whatever it receives.
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'nightly', command: process.execPath, args: ['-e', script], secretEnv: ['DB_PASS'], schedule: '0 3 * * *' }),
+    })
+
+    // Nothing was ever stored for the job, so the view must say so.
+    const listed = await (await created.app.request('/api/jobs')).json() as { jobs: Array<{ secretEnvSet?: string[] }> }
+    expect(listed.jobs[0]?.secretEnvSet ?? [], 'a job nobody gave a value must not report one').toEqual([])
+    expect(created.secrets.jobEnv('nightly')).toEqual({})
+    expect(created.secrets.serverEnv('nightly'), 'the server keeps its own').toEqual({ DB_PASS: 'server-only-value' })
+
+    // And the run must not receive it.
+    const ran = await created.app.request('/api/jobs/nightly/run', { method: 'POST' })
+    expect(ran.status).toBe(200)
+    expect(fs.readFileSync(out, 'utf8'), 'the server\'s value must not reach the job').toBe('undefined')
     await created.cleanup()
   })
 

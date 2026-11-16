@@ -570,9 +570,11 @@ export class PanelService {
       // who bounded a server's log meant the same about a job's.
       logs: () => store.logs,
       onStateChange: () => this.scheduleState(),
-      // A job's `secretEnv` resolves through the same store a server's does. The names are per-id, so
-      // a job reads its own entry only — never another job's or a server's values.
-      serverEnv: jobId => secrets.serverEnv(jobId),
+      // A job's `secretEnv` resolves through its **own** map in the same secrets file. It used to read
+      // `serverEnv`, keyed by id, and a job and a server may share one: a job's value then reached the
+      // server of that id (its view even reported it), and a server's reached the job. Two domains,
+      // two maps — the same reason a workspace is not keyed by server id alone.
+      serverEnv: jobId => secrets.jobEnv(jobId),
       onRunFinished: (job, record) => {
         // The durable record: a run's history event outlives the panel, and it is what decides
         // whether the first tick after boot owes a missed occurrence.

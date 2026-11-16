@@ -116,6 +116,32 @@ describe('the workspace store keeps the values out of the config', () => {
     expect(store.serverEnv('web')).toEqual({})
   })
 
+  /**
+   * A job and a server may share an id, so they must not share a value.
+   *
+   * Both resolve `secretEnv` by entry id, and the store keyed one map by id for both — so a job's
+   * value was handed to the server of the same id, and the server's view reported it as set. Measured
+   * on a real panel: `PUT /api/jobs/nightly/secrets {"DB_PASS": …}` stored under `nightly`, a server
+   * declared later as `nightly` declaring the same name answered `secretEnvSet: ["DB_PASS"]` and ran
+   * with that value in its own environment. Two domains, two maps.
+   */
+  it('keeps a job\'s values out of a server of the same id, and the other way round', async () => {
+    const dir = await scratch()
+    const store = new SecretsStore(path.join(dir, '.secrets.json'), undefined, 'workspace')
+    store.setJobEnv('nightly', { DB_PASS: 'job-only' })
+
+    expect(store.serverEnv('nightly'), 'a job value must not reach the server of that id').toEqual({})
+    expect(store.jobEnv('nightly')).toEqual({ DB_PASS: 'job-only' })
+
+    store.setServerEnv('nightly', { DB_PASS: 'server-only' })
+    expect(store.jobEnv('nightly'), 'a server value must not reach the job').toEqual({ DB_PASS: 'job-only' })
+    expect(store.serverEnv('nightly')).toEqual({ DB_PASS: 'server-only' })
+
+    store.unsetJobEnv('nightly', ['DB_PASS'])
+    expect(store.jobEnv('nightly')).toEqual({})
+    expect(store.serverEnv('nightly'), 'clearing the job leaves the server alone').toEqual({ DB_PASS: 'server-only' })
+  })
+
   it('refuses a name that is not an environment-variable name', async () => {
     const dir = await scratch()
     const store = new SecretsStore(path.join(dir, '.secrets.json'), undefined, 'workspace')
@@ -130,7 +156,9 @@ describe('the workspace store keeps the values out of the config', () => {
     // A global store neither reads nor writes a server's environment — that is the workspace's file.
     // (`all` is the pre-workspace shape a backup archive carries, and it owns every field.)
     expect(globalStore.serverEnv('web')).toEqual({})
+    expect(globalStore.jobEnv('nightly')).toEqual({})
     expect(() => globalStore.setServerEnv('web', { A: '1' })).toThrow(/workspace/)
+    expect(() => globalStore.setJobEnv('nightly', { A: '1' })).toThrow(/workspace/)
   })
 })
 

@@ -226,12 +226,23 @@ interface SecretsFile {
    * make the store's `save` do two different things.
    */
   serverEnv: Record<string, Record<string, string>>
+  /**
+   * Per-job secret environment values: `{ [jobId]: { [NAME]: value } }`.
+   *
+   * A separate map from `serverEnv`, and that separation is the point: a server and a job are two
+   * different entries that may share an id, and one key space meant a job's value reached the server
+   * of the same id — and the server's view reported it. Measured on a real panel: `PUT
+   * /api/jobs/nightly/secrets` stored under `nightly`, a server declared later as `nightly` declaring
+   * the same name reported `secretEnvSet: ["DB_PASS"]` and received the job's value in its own
+   * process. Two domains, two maps.
+   */
+  jobEnv: Record<string, Record<string, string>>
   /** Top-level keys this release does not know, carried through a write so a newer release keeps them. */
   extra?: Record<string, unknown>
 }
 
 /** Owned by this release, plus `version`: retired, and dropped on the next write rather than carried. */
-const KNOWN_SECRET_KEYS = new Set(['accounts', 'password', 'apiToken', 'apiTokens', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'version'])
+const KNOWN_SECRET_KEYS = new Set(['accounts', 'password', 'apiToken', 'apiTokens', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'jobEnv', 'version'])
 
 function unknownTopLevel(parsed: unknown): Record<string, unknown> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
@@ -1261,6 +1272,11 @@ export class SecretsStore {
     return { ...this.load().serverEnv[serverId] ?? {} }
   }
 
+  /** One job's secret environment. A **separate** map from a server's — see `jobEnv` on the file. */
+  jobEnv(jobId: string): Record<string, string> {
+    return { ...this.load().jobEnv[jobId] ?? {} }
+  }
+
   /** The names that have a value, which is all a view may show. Sorted, so the UI is stable. */
   serverEnvNames(serverId: string): string[] {
     return Object.keys(this.load().serverEnv[serverId] ?? {}).sort()
@@ -1275,10 +1291,38 @@ export class SecretsStore {
    * name no shell can read (`MY-VAR`) would be a variable the process cannot see.
    */
   setServerEnv(serverId: string, values: Record<string, string>): void {
+    this.setEnvOf('serverEnv', 'a server', serverId, values)
+  }
+
+  /** The same replacement for a job's own names. */
+  setJobEnv(jobId: string, values: Record<string, string>): void {
+    this.setEnvOf('jobEnv', 'a job', jobId, values)
+  }
+
+  /** Removes the named values from one server, leaving the rest. */
+  unsetServerEnv(serverId: string, names: readonly string[]): void {
+    this.unsetEnvOf('serverEnv', serverId, names)
+  }
+
+  unsetJobEnv(jobId: string, names: readonly string[]): void {
+    this.unsetEnvOf('jobEnv', jobId, names)
+  }
+
+  /** Everything for one server, for a removal or a rename. */
+  forgetServerEnv(serverId: string): void {
+    this.forgetEnvOf('serverEnv', serverId)
+  }
+
+  /** Moves a removed id's values onto another: a renamed entry keeps its secrets. */
+  renameServerEnv(from: string, to: string): void {
+    this.renameEnvOf('serverEnv', from, to)
+  }
+
+  private setEnvOf(map: 'serverEnv' | 'jobEnv', what: string, id: string, values: Record<string, string>): void {
     // `all` is the shape a pre-workspace file had and what a backup archive carries, so it owns every
     // field. `global` does not: the panel-wide secrets file must never gain a workspace's values.
     if (this.scope === 'global')
-      throw new Error('a server\'s secret environment belongs to its workspace — a global secrets file cannot hold one')
+      throw new Error(`${what}'s secret environment belongs to its workspace — a global secrets file cannot hold one`)
     const clean: Record<string, string> = {}
     for (const [name, value] of Object.entries(values)) {
       if (!/^[A-Z_]\w*$/i.test(name))
@@ -1286,43 +1330,40 @@ export class SecretsStore {
       clean[name] = value
     }
     const current = this.load()
-    this.save({ ...current, serverEnv: { ...current.serverEnv, [serverId]: clean } })
+    this.save({ ...current, [map]: { ...current[map], [id]: clean } })
   }
 
-  /** Removes the named values from one server, leaving the rest. */
-  unsetServerEnv(serverId: string, names: readonly string[]): void {
+  private unsetEnvOf(map: 'serverEnv' | 'jobEnv', id: string, names: readonly string[]): void {
     const current = this.load()
-    const existing = { ...current.serverEnv[serverId] ?? {} }
+    const existing = { ...current[map][id] ?? {} }
     for (const name of names)
       delete existing[name]
-    const serverEnv = { ...current.serverEnv }
+    const next = { ...current[map] }
     if (Object.keys(existing).length === 0)
-      delete serverEnv[serverId]
+      delete next[id]
     else
-      serverEnv[serverId] = existing
-    this.save({ ...current, serverEnv })
+      next[id] = existing
+    this.save({ ...current, [map]: next })
   }
 
-  /** Everything for one server, for a removal or a rename. */
-  forgetServerEnv(serverId: string): void {
+  private forgetEnvOf(map: 'serverEnv' | 'jobEnv', id: string): void {
     const current = this.load()
-    if (current.serverEnv[serverId] === undefined)
+    if (current[map][id] === undefined)
       return
-    const serverEnv = { ...current.serverEnv }
-    delete serverEnv[serverId]
-    this.save({ ...current, serverEnv })
+    const next = { ...current[map] }
+    delete next[id]
+    this.save({ ...current, [map]: next })
   }
 
-  /** Moves a removed id's values onto another: a renamed entry keeps its secrets. */
-  renameServerEnv(from: string, to: string): void {
+  private renameEnvOf(map: 'serverEnv' | 'jobEnv', from: string, to: string): void {
     const current = this.load()
-    const values = current.serverEnv[from]
+    const values = current[map][from]
     if (values === undefined)
       return
-    const serverEnv = { ...current.serverEnv }
-    delete serverEnv[from]
-    serverEnv[to] = values
-    this.save({ ...current, serverEnv })
+    const next = { ...current[map] }
+    delete next[from]
+    next[to] = values
+    this.save({ ...current, [map]: next })
   }
 
   /** An empty field is dropped, so clearing every field forgets the account. */
@@ -1406,7 +1447,7 @@ export class SecretsStore {
 
   private read(): SecretsFile {
     this.error = null
-    const empty: SecretsFile = { accounts: [], password: null, apiToken: null, apiTokens: [], telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
+    const empty: SecretsFile = { accounts: [], password: null, apiToken: null, apiTokens: [], telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {}, jobEnv: {} }
     if (!fs.existsSync(this.file))
       return this.inScope(empty)
     let text: string
@@ -1429,6 +1470,7 @@ export class SecretsStore {
         ddns: readStoredDdns(parsed?.ddns),
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
         serverEnv: readServerEnv(parsed?.serverEnv),
+        jobEnv: readServerEnv(parsed?.jobEnv),
         extra: unknownTopLevel(parsed),
       })
     }
@@ -1443,7 +1485,7 @@ export class SecretsStore {
     if (this.scope === 'global')
       // A server's environment belongs to its workspace's file: a global store neither reads nor
       // writes it, so `set-password` cannot rewrite a workspace's secrets.
-      return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
+      return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {}, jobEnv: {} }
     if (this.scope === 'workspace')
       return { ...contents, accounts: [], password: null, apiToken: null, apiTokens: [] }
     return contents
