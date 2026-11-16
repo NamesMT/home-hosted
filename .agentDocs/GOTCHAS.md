@@ -274,6 +274,16 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   and the render aborts before anything under test exists. Build the href in `<script setup>` and
   bind a plain value; the view then mounts against a fake client, which is what makes the *gate*
   testable rather than the helper.
+- **A list hidden below a breakpoint takes its only way to choose with it** — stock's Logs page lists
+  servers in `<aside class="… hidden … md:flex">`, and *that rail was the only control* that changed
+  `selected`. Below `md` it is `display: none`, so the page showed whichever server came first and
+  the header named it as though it had been chosen; with three servers the other two were
+  unreachable, and the command palette's button is hidden below `sm` too. Measured at 767/390/320
+  px: rail `width: 0`, and no visible control in the page names a server. Give the narrow layout its
+  own picker (`md:hidden`, so the two are never both live) and hide the static heading it duplicates
+  for the same span — the header otherwise prints the server name twice, 60 px apart, with one copy
+  unusable. (`uis/stock/test/logs-server-picker.test.ts`; assert the choice *works* below the
+  breakpoint, not just that a control exists.)
 
 
 ## Data
