@@ -558,3 +558,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   visible selects, three named by a wrapping label and this one's computed name the empty string.
   Chromium falls back to `title`, which never shows on touch, so a *new* control gets an
   `aria-label` rather than another title. (`uis/noc-console/test/select-accessible-name.test.ts`)
+- **A `flex-1` next to a fixed cluster never wraps — it shrinks the text to nothing** — the
+  archive list put an archive's name block beside `Download` / `Restore` / `Delete` in a
+  `flex-wrap` row. `flex-1` is `flex-basis: 0`, so the block asked for no width, the pair always
+  fitted on one line, the wrap never engaged and the name absorbed the whole deficit. Measured in
+  Chromium with two ordinary archives: at 320 px each name sat in a **34 px** box holding 238 px,
+  so both painted the same `bac…` and the row could not tell you which archive you were about to
+  restore or delete, while the `3 KiB · <date>` line spilled to **112 px tall at 34 px wide**.
+  Fine from 560 px up. Give the block a **basis** (`basis-60`, just over the 238 px a name
+  measures) so the row wraps instead of squeezing; a `truncate` cannot save a box that is too
+  narrow to show the part that differs. (`uis/stock/test/mobile-layout.test.ts`)

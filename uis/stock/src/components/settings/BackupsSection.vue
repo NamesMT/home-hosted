@@ -289,9 +289,25 @@ async function removeBackup(name: string): Promise<void> {
           </template>
         </EmptyState>
       </div>
+      <!--
+        The archive line gets a floor, so it wraps below the buttons instead of beside them.
+
+        The row is `flex-wrap`, and `flex-1` is `flex-basis: 0` — so the text block never asked for
+        room and the pair always fitted on one line; the name (the only item that can give way) then
+        absorbed the whole deficit. Measured in Chromium with two ordinary archives: at 320 px the
+        name sat in a **34 px** box holding 238 px of text, so both archives painted the same
+        `bac…`, and the `3 KiB · <date>` line beneath it spilled to **112 px tall at 34 px wide**
+        (7 lines). At 390 the name got 104 px and the metadata 3 lines, at 480 two. Fine from 560 up,
+        which is why it hid.
+
+        `basis-60` is 15rem, just over the 238 px a full archive name measures: the row wraps
+        exactly when the name can no longer sit beside the buttons, so 320–520 stack (name 238 px,
+        metadata one line) and 560/768/1280 are unchanged (text block 274/466/514 px, one-line row,
+        45 px high). A 14rem floor looked equivalent but truncated the name by 4 px at 520.
+      -->
       <ul v-else class="divide-y divide-line-soft sm:col-span-2">
         <li v-for="file in files" :key="file.name" class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2 first:pt-0 last:pb-0">
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 grow basis-60">
             <div class="flex items-center gap-2">
               <span class="truncate font-mono text-xs text-ink">{{ file.name }}</span>
               <ToneBadge v-if="file.encrypted" tone="warn" plain>

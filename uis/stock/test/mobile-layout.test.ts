@@ -255,4 +255,55 @@ describe('the layout survives a phone', () => {
       expect(stacked, `<${element.tag}> pairs a label with a truncated value and must stack below sm`).toBe(true)
     }
   })
+
+  /**
+   * A bare `flex-1` text block beside a fixed cluster never wraps — it just shrinks to nothing.
+   *
+   * This is the *other* half of the rule above, and it bit the archive list: a wrapping row put the
+   * archive's name block beside `Download` / `Restore` / `Delete`. `flex-1` is `flex-basis: 0`, so
+   * the text block asked for **no** room, the pair always fitted on one line, `flex-wrap` never
+   * engaged, and the name absorbed the entire deficit. Measured in Chromium with two ordinary
+   * archives — `backup-2026-11-16-21-36-13-53.zip` and `…-21-48-03-187.zip`: at 320 px each name sat
+   * in a **34 px** box holding 238 px of text, so both painted the same `bac…` and the row gave no
+   * way to tell which archive you were about to restore or delete; the `3 KiB · <date>` line beneath
+   * spilled to **112 px tall at 34 px wide** (7 lines). At 390 px the name got 104 px and the date 3
+   * lines, at 480 px two. From 560 px up every row was correct, which is why it hid.
+   *
+   * The rule: a `flex-1` block whose job is to hold a `truncate` line must carry a **basis**, so the
+   * row wraps when the text can no longer sit beside the cluster. `basis-60` (15rem) is just over
+   * the 238 px a full archive name measures — 14rem truncated it by 4 px at 520 px.
+   */
+  it('never puts a zero-basis truncating block in a wrapping row', () => {
+    // In a `flex-wrap` row a zero basis is the whole bug: the block asks for no width, so the pair
+    // always fits on one line, the wrap never engages, and the text is squeezed to nothing.
+    const offenders: string[] = []
+    for (const file of templateFiles()) {
+      for (const element of templateElements(templateOf(fs.readFileSync(file, 'utf8')))) {
+        if (!has(element.classes, 'flex-wrap') || !element.body.includes('truncate'))
+          continue
+        for (const child of templateElements(element.body)) {
+          if (child.tag !== 'div' || !has(child.classes, 'flex-1') || !child.body.includes('truncate'))
+            continue
+          if (child.classes.some(name => name.startsWith('basis-')))
+            continue
+          offenders.push(`${path.relative(srcDir, file)}: <${child.tag} class="${child.classes.join(' ')}"> sits in a wrapping row asking for no width`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('keeps the archive row wrapping rather than squeezing its name', () => {
+    const file = path.join(root, 'src/components/settings/BackupsSection.vue')
+    // The archive list is the one that renders a download link per row; the captures list above it
+    // has no action cluster, which is why only this row ever lost its name.
+    const rows = templateElements(templateOf(fs.readFileSync(file, 'utf8')))
+      .filter(element => element.tag === 'li' && element.body.includes('backupDownloadUrl'))
+    expect(rows.length, 'the archive list still renders its rows').toBe(1)
+    const row = rows[0]!
+    expect(has(row.classes, 'flex-wrap'), 'the archive row must be allowed to wrap').toBe(true)
+    const name = templateElements(row.body).find(child => child.tag === 'div' && child.body.includes('truncate'))
+    expect(name, 'the archive row still pairs its name with its actions').toBeDefined()
+    expect(name!.classes.some(cls => cls.startsWith('basis-')), 'the archive name block needs a basis, not a bare flex-1').toBe(true)
+  })
 })
