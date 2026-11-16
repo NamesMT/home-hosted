@@ -295,6 +295,23 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   block cannot drag the viewport back. (`uis/stock/test/settings-pages.test.ts`, "a section deep
   link follows the page as it grows"; `happy-dom` lays nothing out, so assert the *order* of
   operations — the scroll is re-issued on growth and stops once it holds.)
+- **A flex child of a scrolling column shrinks below its content, and a pane has no scrollbar to
+  show it** — `.view` is `overflow: auto` **and** `flex-direction: column`, so every direct child
+  is a flex item whose default `flex-shrink: 1` lets the browser squeeze it shorter than what it
+  holds. `.pane` sets `min-height: 0` (needed inside the split, where each half *should* be
+  sized) and no `overflow`, so the squeezed-off part is not scrollable: the next sibling simply
+  paints over it. Measured in Chromium on noc's `/global/overview`: host vitals held **445 px of
+  content in a 205 px box** at 320×568, putting 4 of its labels behind the workspace pane's
+  header; at 320×700 the filesystems table went under instead — 9 labels (`path`, `total`,
+  `free`, `used`, `usage` and every value) — 11 at 360×640, 1 at 390×700, and a short 1280×420
+  desktop window shrank 28 px before anything was hidden yet. Scrolling `.view` to its
+  `scrollHeight` never revealed them, which is what separates this from ordinary below-the-fold
+  content and why "can I scroll to it" is the wrong test. `flex: none` on the page-level child
+  (`.view > .pane`) is the fix; the base `.pane` must keep shrinking, or the servers split's
+  halves and the page-length forms change with it. The header already carries the same rule
+  (`.view__head`) — the content below it did not.
+  (`uis/noc-console/test/mobile-layout.test.ts`, "does not let a page-level pane shrink below its
+  own content"; a class-level scan of the sheet, because a mount has no layout engine.)
 
 
 ## Data

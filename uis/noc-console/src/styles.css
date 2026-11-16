@@ -532,6 +532,25 @@ textarea {
   min-height: 0;
 }
 
+/*
+ * A pane that is a direct child of the scrolling `.view`.
+ *
+ * `.view` is a `flex-direction: column` **scroller**, so every child is a flex item and the
+ * default `flex-shrink: 1` lets a pane be squeezed below the height of its own content — and
+ * `.pane` has no `overflow`, so the rest of the pane is painted over by whichever sibling comes
+ * next instead of being scrollable. Measured in Chromium on `/global/overview`: host vitals is
+ * 445 px of content in a 205 px box at 320×568, and at 320×700 the filesystems row (`path`,
+ * `total`, `free`, `used`, `usage` and every value) sits **behind** the workspace pane's header
+ * — 4 of its labels at 320×568, 11 at 360×640 — and scrolling `.view` to the very bottom does
+ * not reveal them, because the box itself is what shrank.
+ *
+ * The servers split already states this for its own halves (`.split__half--detail > .pane`
+ * is `flex: 0 0 auto`); the page-level column was the case nobody wrote down.
+ */
+.view > .pane {
+  flex: none;
+}
+
 .pane__head {
   display: flex;
   flex: none;

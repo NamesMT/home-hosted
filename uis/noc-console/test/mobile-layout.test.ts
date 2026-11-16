@@ -199,6 +199,33 @@ describe('noc-console is usable at a phone width', () => {
     expect(ruleIn(allRules, '.pane__head')).toContain('flex: none')
   })
 
+  /**
+   * The same rule one level down: a `.pane` that is a **direct child of the scrolling `.view`**.
+   * `.view` is `flex-direction: column` with `overflow: auto`, so each child is a flex item, and
+   * the default `flex-shrink: 1` lets a pane be squeezed below the height of its own content.
+   * `.pane` carries no `overflow`, so the remainder is not scrollable — it is simply painted over
+   * by the next sibling.
+   *
+   * Measured in Chromium on `/global/overview` at 320×568, with the fix stashed: host vitals was
+   * **445 px of content in a 205 px box**, and 4 of its labels (the `swap` tile, `cpu temp`, its
+   * `—` value and one more) sat behind the workspace pane's header. At 320×700 the filesystems
+   * table went under instead — 9 of its labels, `path` / `total` / `free` / `used` / `usage` and
+   * every value among them; 11 at 360×640; 1 at 390×700. Scrolling `.view` to `scrollHeight`
+   * revealed none of them, because the box itself was what shrank. The same page at 1280×420
+   * (a short desktop window) shrank by 28 px with nothing yet hidden.
+   *
+   * The servers split already writes this for its own halves
+   * (`.split__half--detail > .pane` is `flex: 0 0 auto`); the page column was the case nobody
+   * wrote down. Asserted here beside the header rule, because it is the same mistake.
+   */
+  it('does not let a page-level pane shrink below its own content', () => {
+    const pane = ruleIn(allRules, '.view > .pane')
+    expect(pane, '.view > .pane must not shrink: the overflow would paint over it').toContain('flex: none')
+    // Not a blanket `flex: none` on every pane: inside `.split__half--detail` the pane is sized
+    // by its own half, and a page form's panes scroll with the page.
+    expect(ruleIn(allRules, '.pane'), 'the base .pane stays shrinkable for its scrolling hosts').not.toContain('flex: none')
+  })
+
   /** A rail item is as wide as its text unless it is told it may be narrower; the panel URL is not. */
   it('lets a rail link ellipsize instead of widening the rail past the viewport', () => {
     const mobile = rulesIn('(width <= 860px)')
