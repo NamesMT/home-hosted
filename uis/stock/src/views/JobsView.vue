@@ -17,7 +17,7 @@ import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
-import { relativeFrom } from '@/lib/format'
+import { formatAgo, relativeFrom } from '@/lib/format'
 
 /**
  * The workspace's **jobs**: short-lived commands on cron schedules.
@@ -264,10 +264,20 @@ function when(ms: number | null | undefined, now: number): string {
   return relativeFrom(ms, now)
 }
 
+/**
+ * The previous run, which is a moment in the **past** — so it goes through `formatAgo`, not
+ * `relativeFrom`.
+ *
+ * `relativeFrom` is a countdown: it clamps a negative delta to zero and renders `now`. Handed a
+ * `lastRunAt` it therefore said `now` for a run that finished hours ago, and did so for every row,
+ * which makes the whole column useless rather than merely wrong. The two formatters are not
+ * interchangeable and the type check cannot tell them apart: both take `(ms, now)` and both return a
+ * string. `nextRunAt` is a future instant and keeps `relativeFrom`.
+ */
 function lastRun(job: JobRow, now: number): string {
   if (job.lastRunAt === undefined)
     return t('jobs.neverRan')
-  return relativeFrom(job.lastRunAt, now)
+  return formatAgo(job.lastRunAt, now)
 }
 
 const canSubmit = computed(() => form.value.id.trim().length > 0 && form.value.command.trim().length > 0 && form.value.schedule.trim().length > 0)

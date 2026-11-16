@@ -34,6 +34,11 @@ const JOB = {
   timeoutMs: 900_000,
   secretEnv: ['BACKUP_TOKEN'],
   secretEnvSet: ['BACKUP_TOKEN'],
+  // The two instants the row renders as text, pinned to the mocked tick below: one run finished two
+  // hours ago, the next is in three. A fixture without them left both cells untested.
+  lastRunAt: 1_700_000_000_000 - 2 * 3_600_000,
+  nextRunAt: 1_700_000_000_000 + 3 * 3_600_000,
+  lastExitCode: 0,
 }
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -207,6 +212,30 @@ describe('the Jobs page edits a job', () => {
 
     expect(submit()?.getAttribute('aria-busy'), 'a filled sheet must not render as loading').toBeNull()
     expect(submit()?.disabled, 'a filled create sheet must submit').toBe(false)
+    wrapper.unmount()
+  })
+
+  /**
+   * The row's **Last** column says how long ago the previous run finished.
+   *
+   * It went through `relativeFrom`, which is the countdown formatter the **Next** column needs: it
+   * clamps a negative delta to zero, so a past instant renders `now`. Every row read `now`
+   * regardless of when it actually ran — a column that cannot be wrong per row because it is wrong
+   * for all of them. Measured in the browser against a run 7091 s old, and reproduced here with a
+   * run two hours before the shell's tick.
+   */
+  it('puts the previous run in the past, not at "now"', async () => {
+    const wrapper = await mountJobs()
+    await wrapper.vm.$nextTick()
+
+    // The "Next" column is a future instant and must keep its countdown; "Last" is a past one.
+    const row = wrapper.findAll('tbody tr')[0]
+    const cells = row?.findAll('td').map(cell => cell.text().replace(/\s+/g, ' ').trim()) ?? []
+    const last = cells[3] ?? ''
+
+    expect(last, 'a two-hour-old run is not "now"').not.toMatch(/\bnow\b/)
+    expect(last, 'it reads as an elapsed time').toMatch(/2h ago/)
+    expect(cells[2], 'the next run keeps its countdown').toMatch(/^in /)
     wrapper.unmount()
   })
 })
