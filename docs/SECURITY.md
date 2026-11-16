@@ -16,7 +16,9 @@ password of at least 12 characters. Nothing is exposed until you decide it shoul
 2. **Treat an `admin` account as the user it runs as.** It can create and start server entries,
    which run any command as the panel's user. Give a script the least it needs instead
    (`--scope read`, or `read,lifecycle` for a deploy hook), and revoke it under Global settings →
-   Accounts, or with `home-hosted account revoke <id>`.
+   Accounts, or with `home-hosted account revoke <id>`. **`config` is in the same class for this
+   purpose** — it writes what will be run, and the panel runs it — so a monitor gets `read`, never
+   `config`; see [the scope table](#an-account-is-scoped-and-the-scopes-mean-something).
 3. **Forgot the secret?** Run `home-hosted account reset` on the machine: it writes a fresh
    generated secret to the secrets file directly — no login needed — and prints it once. A
    credential cannot reset another's secret through the API, which is what keeps a stolen one from
@@ -119,7 +121,7 @@ The four scopes are **cumulative**, and `workspaces` narrows an account to some 
 | --- | --- |
 | `read` | the readings: state, logs, metrics, the live feed — every `GET` **except an archive download** |
 | `lifecycle` | start, stop, restart, free a port, clear logs |
-| `config` | server, workspace and settings writes, and backups (**if** the account names no workspace limit — an archive spans them all) |
+| `config` | server, workspace and settings writes, and backups (**if** the account names no workspace limit — an archive spans them all). **Also command execution:** it writes the command an entry or job runs, and the panel runs it |
 | `admin` | everything, including tokens, the password, a UI install and restoring secrets |
 
 **A `read` account is refused `403 TOKEN_SCOPE` on every non-GET**, and one limited to `default`
@@ -162,6 +164,20 @@ timing depend on which token was presented). The single pre-0.14 token migrates 
 The `admin` scope is still "everything a token may do" — and a token may still run any command
 through an entry. **It is not a boundary against someone holding the token**; it is a way to give a
 script only what it needs.
+
+> [!WARNING]
+> **`config` also reaches command execution, so do not hand it to something you would not hand a
+> shell.** A config write *declares what runs*, and the panel then runs it without asking again:
+> `POST /api/jobs` with a `schedule` leaves the scheduler to execute the command on its next
+> occurrence, `PUT`/`PATCH /api/servers/:id` with `autostart` runs the entry at the panel's next
+> boot, and `PATCH /api/settings` sets `host.tempCommand`, which the host monitor executes every
+> sample. Verified on a panel with an account holding `read,config` and **not** `lifecycle`: `POST
+> /api/jobs/:id/run` was refused `403 TOKEN_SCOPE` while the same job's scheduled command produced a
+> shell's `id` output a minute later. Every one of these is `workspaceScoped` where it names a
+> workspace, so a limited account stays inside its own — but inside those workspaces, `config` is
+> execution. Only give it to a deploy pipeline or an operator who is trusted to run commands as the
+> panel's user; that is the same trust `admin` carries, which is why the two differ in *reach*
+> (credentials, the UI, the panel's own secrets), not in `can it run a command`.
 
 ### A server's secret environment never enters its config
 

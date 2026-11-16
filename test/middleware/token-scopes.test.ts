@@ -149,6 +149,50 @@ describe('an account with config', () => {
     })
     expect(minted.status).toBe(403)
   })
+
+  /**
+   * `config` reaches command execution, even though it is refused the `lifecycle` act of *running*.
+   *
+   * This pins the claim `docs/SECURITY.md` now makes out loud, because it is the one a person gets
+   * wrong when handing a deploy pipeline a scope: a config write says *what* runs, and the panel runs
+   * it without asking again. Measured on a real panel, with an account holding `read,config` and no
+   * `lifecycle`:
+   *
+   * - `POST /api/jobs` with a `schedule` answered `201`, and one cron minute later the job's command
+   *   had written its own `id` output — a shell as the panel's user;
+   * - `POST /api/jobs/:id/run` for that same job answered `403 TOKEN_SCOPE`.
+   *
+   * So the two scopes are not "may run" and "may not run": `lifecycle` is *starting it now*, and
+   * `config` is *arranging for it to start*. The route scopes are correct as declared — this test
+   * exists so a future change that makes `config` stop being execution rewrites the doc rather than
+   * leaving the warning standing, and so nobody "fixes" it by widening `lifecycle`.
+   */
+  it('can arrange for a command to run, though it may not run one directly', async () => {
+    const created = await makeFixture({ servers: [{ id: 'web', command: 'node' }] })
+    fixtures.push(created)
+    const { headers } = mint(created, ['read', 'config'])
+
+    // Declaring a scheduled job is `config`, and it succeeds.
+    const made = await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'arranged', command: 'true', schedule: '0 3 * * *' }),
+    })
+    expect(made.status).toBe(201)
+
+    // Running it *now* is `lifecycle`, and is refused.
+    const ran = await created.app.request('/api/jobs/arranged/run', { method: 'POST', headers })
+    expect(ran.status).toBe(403)
+    expect(await ran.json()).toMatchObject({ code: 'TOKEN_SCOPE', detail: { needed: 'lifecycle' } })
+
+    // The same is true of a server entry: writing one is `config`, starting it is `lifecycle`.
+    expect((await created.app.request('/api/servers/web', {
+      method: 'PATCH',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ autostart: true }),
+    })).status).toBe(200)
+    expect((await created.app.request('/api/servers/web/start', { method: 'POST', headers })).status).toBe(403)
+  })
 })
 
 describe('an account with admin', () => {
