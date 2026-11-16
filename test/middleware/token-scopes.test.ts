@@ -306,6 +306,41 @@ describe('the declaration', () => {
   })
 
   /**
+   * The walk runs **both** ways: a declaration for a route that does not exist is dead weight too.
+   *
+   * Only "every route has a declaration" was checked, so declarations outlived their routes and the
+   * table kept claiming things the panel cannot do. Six had accumulated: `GET /api/health` (health is
+   * `/healthz`, outside `/api`), `GET /api/notifications` (only the destination credentials and test
+   * sends exist), `GET`/`POST`/`DELETE /api/tls` (the pair moved to `/api/settings/tls`), and
+   * `POST /api/auth/password` (accounts replaced it; only `DELETE`, the "turn the guard off" switch,
+   * remains). Measured, every one of them answers `404` for an admin credential.
+   *
+   * It matters beyond tidiness: a stale rule is read as documentation of a route that exists — this
+   * review found the six by walking them — and it makes a *renamed* route look accounted for, because
+   * the old name still passes a "is there a declaration for this path" check at the wrong path.
+   */
+  it('declares nothing for a route that does not exist', async () => {
+    const created = await fixture()
+    const { declaredTokenScopes } = await import('#src/middleware/token-scope')
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as { paths?: Record<string, Record<string, unknown>> }
+
+    // Both sides normalise their parameters: the table spells them `:id`, the spec `{id}`.
+    const normalise = (path: string): string => path.replace(/\{[^}]+\}/g, ':p').replace(/:[A-Z_]\w*/gi, ':p')
+    const real = new Set<string>()
+    for (const [route, methods] of Object.entries(spec.paths ?? {})) {
+      for (const method of Object.keys(methods)) {
+        if (method !== 'parameters')
+          real.add(`${method.toUpperCase()} ${normalise(route)}`)
+      }
+    }
+
+    const orphans = declaredTokenScopes()
+      .map(entry => entry.route)
+      .filter(route => !real.has(normalise(route)))
+    expect(orphans, 'a declared route that no longer exists is a stale rule').toEqual([])
+  })
+
+  /**
    * An unknown path is `404 NOT_FOUND`, as `docs/API.md` promises — not a credential error.
    *
    * The scope guard runs before routing, so an undeclared path fell into its "no declared token

@@ -46,7 +46,6 @@ const RULES: Record<string, TokenScopeRule> = {
   'GET /api/state': { scope: 'read', workspaceScoped: false },
   'GET /api/meta': { scope: 'read', workspaceScoped: false },
   'GET /api/events': { scope: 'read', workspaceScoped: false },
-  'GET /api/health': { scope: 'read', workspaceScoped: false },
   'GET /api/metrics': { scope: 'read', workspaceScoped: false },
   'GET /api/logs': { scope: 'read', workspaceScoped: true },
   'GET /api/logs/:id': { scope: 'read', workspaceScoped: true },
@@ -59,7 +58,6 @@ const RULES: Record<string, TokenScopeRule> = {
   'GET /api/settings': { scope: 'read', workspaceScoped: false },
   'GET /api/settings/workspace': { scope: 'read', workspaceScoped: true },
   'GET /api/ddns': { scope: 'read', workspaceScoped: true },
-  'GET /api/notifications': { scope: 'read', workspaceScoped: true },
   'GET /api/proxy': { scope: 'read', workspaceScoped: false },
   'GET /api/backups': { scope: 'read', workspaceScoped: false },
   /**
@@ -81,7 +79,6 @@ const RULES: Record<string, TokenScopeRule> = {
   // so they have no scope: listed so the spec walk sees a declaration, and skipped by the guard.
   'POST /api/auth/login': { scope: 'read', workspaceScoped: false },
   'POST /api/auth/logout': { scope: 'read', workspaceScoped: false },
-  'GET /api/tls': { scope: 'read', workspaceScoped: false },
 
   // ── Lifecycle: start, stop, restart, free a port, forget logs ──────────────────────────────────
   'POST /api/servers/:id/start': { scope: 'lifecycle', workspaceScoped: true },
@@ -150,9 +147,6 @@ const RULES: Record<string, TokenScopeRule> = {
   'DELETE /api/settings/ui': { scope: 'admin', workspaceScoped: false },
   'POST /api/settings/tls': { scope: 'admin', workspaceScoped: false },
   'DELETE /api/settings/tls': { scope: 'admin', workspaceScoped: false },
-  'POST /api/tls': { scope: 'admin', workspaceScoped: false },
-  'DELETE /api/tls': { scope: 'admin', workspaceScoped: false },
-  'POST /api/auth/password': { scope: 'admin', workspaceScoped: false },
   'DELETE /api/auth/password': { scope: 'admin', workspaceScoped: false },
 
   // Accounts are the credential model: managing one is the most privileged act there is, and the
