@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { __resetLocaleForTests, setLocale } from '@/i18n'
-import { formatAgo, formatDuration, relativeFrom } from '@/lib/format'
+import { formatAgo, formatDateTime, formatDuration, relativeFrom } from '@/lib/format'
 
 /**
  * Durations must follow the UI's language.
@@ -106,5 +108,81 @@ describe('relativeFrom', () => {
       expect(text, `${locale} did not name the hours`).toBe(expected)
       expect(text, `${locale} still counts in minutes`).not.toMatch(/\bm\b|分|мин|min/i)
     }
+  })
+})
+
+/**
+ * A wall-clock timestamp follows the UI's language too, and one column did not.
+ *
+ * The accounts table built its own `Intl.DateTimeFormat(undefined, …)`: passing `undefined` as the
+ * locale follows the **browser**, which is not the panel's language. Measured in Chromium with the
+ * UI set to 日本語 on `/global/settings`: the accounts row still read `Nov 16, 2026, 12:57 AM` while
+ * every other timestamp on the same page read `2026年11月17日 04:48:03` — an English date in the one
+ * column a person uses to check when an account last signed in. `formatDateTime` is the helper that
+ * passes `activeLocaleTag()`.
+ */
+describe('formatDateTime', () => {
+  afterEach(() => __resetLocaleForTests())
+
+  it('renders the clock in the reader’s language, not the browser’s', async () => {
+    const stamp = Date.UTC(2026, 10, 17, 4, 48, 3)
+    const english = formatDateTime(stamp)
+    // English keeps the spelling every other timestamp on the page uses.
+    expect(english).toMatch(/Nov/)
+    for (const [locale, expected] of [['ja', '2026年11月17日'], ['zh-CN', '2026年11月'], ['ko', '2026']] as const) {
+      await setLocale(locale)
+      const text = formatDateTime(stamp)
+      expect(text, `${locale} still renders an English month`).not.toMatch(/Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/)
+      expect(text, `${locale} lost the date`).toContain(expected)
+    }
+  })
+})
+
+/**
+ * …and no surface builds its own `Intl.DateTimeFormat` with a `undefined` locale.
+ *
+ * The helper is only half the fix: the accounts table had its own formatter, so fixing the helper
+ * would not have reached it. A scan is what makes the next one use the shared path — `undefined`
+ * means "whatever the browser says", and that is exactly how an English date survived a Japanese
+ * panel. Every timestamp in this UI goes through `formatDateTime`/`formatClock*`.
+ */
+describe('a date is never formatted in the browser’s locale', () => {
+  it('routes every timestamp through the locale-aware helpers', () => {
+    const srcDir = path.resolve(process.cwd(), 'uis/stock/src')
+    const offenders: string[] = []
+    for (const entry of fs.readdirSync(srcDir, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !/\.(?:ts|vue)$/.test(entry.name))
+        continue
+      const file = path.join(entry.parentPath, entry.name)
+      // `lib/format.ts` *is* the helper module; its own `activeLocaleTag()` call is the one allowed
+      // spelling, and it never passes `undefined`.
+      if (path.basename(file) === 'format.ts' && path.basename(entry.parentPath) === 'lib')
+        continue
+      const source = fs.readFileSync(file, 'utf8')
+      for (const match of source.matchAll(/new Intl\.DateTimeFormat\(\s*undefined/g)) {
+        const line = source.slice(0, match.index).split('\n').length
+        offenders.push(`${path.relative(srcDir, file)}:${line}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('has no other locale-blind date construction either', () => {
+    const srcDir = path.resolve(process.cwd(), 'uis/stock/src')
+    const offenders: string[] = []
+    for (const entry of fs.readdirSync(srcDir, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !/\.(?:ts|vue)$/.test(entry.name))
+        continue
+      const file = path.join(entry.parentPath, entry.name)
+      if (path.basename(file) === 'format.ts' && path.basename(entry.parentPath) === 'lib')
+        continue
+      const source = fs.readFileSync(file, 'utf8')
+      // `toLocaleDateString`/`toLocaleString` with no locale argument does the same thing.
+      for (const match of source.matchAll(/.(?:toLocaleString|toLocaleDateString|toLocaleTimeString)(s*)/g)) {
+        const line = source.slice(0, match.index).split('\n').length
+        offenders.push(`${path.relative(srcDir, file)}:${line}`)
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })

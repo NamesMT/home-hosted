@@ -9,6 +9,7 @@ import FieldGroup from '@/components/ui/FieldGroup.vue'
 import TextField from '@/components/ui/TextField.vue'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 
 /**
  * The panel's **accounts**: one credential signs in to the panel and authenticates the API.
@@ -124,11 +125,18 @@ async function toggleEnabled(account: AccountRow): Promise<void> {
   }
 }
 
-/** `Intl`, per the UI rules — never a hand-assembled date. */
+/**
+ * `Intl`, per the UI rules — never a hand-assembled date, and never the browser's locale.
+ *
+ * A local `Intl.DateTimeFormat(undefined, …)` follows the **browser**, which is not the panel's
+ * language: with the UI set to 日本語 this one column still rendered `Nov 16, 2026, 12:57 AM` while
+ * every other timestamp on the page read `2026年11月17日 04:48:03` — measured in Chromium on
+ * `/global/settings`. `formatDateTime` is the shared helper; it passes `activeLocaleTag()`.
+ */
 function when(ms: number | undefined): string {
   if (ms === undefined)
     return t('settings.accounts.neverUsed')
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(ms)
+  return formatDateTime(ms)
 }
 
 const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.length > 0)

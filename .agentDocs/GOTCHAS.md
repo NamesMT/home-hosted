@@ -568,3 +568,11 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   Fine from 560 px up. Give the block a **basis** (`basis-60`, just over the 238 px a name
   measures) so the row wraps instead of squeezing; a `truncate` cannot save a box that is too
   narrow to show the part that differs. (`uis/stock/test/mobile-layout.test.ts`)
+- **`Intl.DateTimeFormat(undefined, …)` follows the browser, not the panel's language** — the
+  stock UI's rule is that a timestamp comes from `formatDateTime`, which passes `activeLocaleTag()`,
+  but the accounts table built its own formatter. Measured in Chromium with the UI set to 日本語 on
+  `/global/settings`: that one column read `Nov 16, 2026, 12:57 AM` while every other timestamp on
+  the same page read `2026年11月17日 04:48:03`. The helper is only half the fix — the call site had a
+  copy — so `format-locale.test.ts` scans every `.ts`/`.vue` for a locale-blind construction
+  (`new Intl.DateTimeFormat(undefined`, a bare `toLocaleString()`) as well as pinning the helper.
+  (`uis/stock/test/format-locale.test.ts`)
