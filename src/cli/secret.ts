@@ -1,6 +1,7 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, green, invocation, promptHidden } from '#src/cli/io'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * `secret set|unset|ls <id> [NAME]` — a server's secret environment, without ever printing a value.
@@ -14,20 +15,20 @@ import { bold, dim, fail, green, invocation, promptHidden } from '#src/cli/io'
  */
 
 export const secretSetArgs = {
-  id: { type: 'positional', required: true, description: 'the server id' },
+  id: { type: 'positional', required: true, description: 'the server or job id' },
   name: { type: 'positional', required: true, description: 'the variable name (A-Z, 0-9 and _)' },
   stdin: { type: 'boolean', description: 'read the value from stdin instead of prompting' },
   workspace: { type: 'string', alias: 'w', description: 'the workspace that owns it (default: the default workspace)' },
 } as const
 
 export const secretUnsetArgs = {
-  id: { type: 'positional', required: true, description: 'the server id' },
+  id: { type: 'positional', required: true, description: 'the server or job id' },
   name: { type: 'positional', required: true, description: 'the variable name' },
   workspace: { type: 'string', alias: 'w', description: 'the workspace that owns it' },
 } as const
 
 export const secretLsArgs = {
-  id: { type: 'positional', required: true, description: 'the server id' },
+  id: { type: 'positional', required: true, description: 'the server or job id' },
   workspace: { type: 'string', alias: 'w', description: 'the workspace that owns it' },
   json: { type: 'boolean', description: 'print one document on stdout' },
 } as const
@@ -39,6 +40,16 @@ interface SecretContext {
   secrets: import('#src/config/secrets').SecretsStore
   /** The entry, once found. */
   secretEnv: string[]
+  /**
+   * Which domain the id named — a **server** or a **job**.
+   *
+   * They are separate key spaces (`serverEnv` beside `jobEnv`), so an id that is both is two
+   * different entries and the two maps must never be crossed. `docs/JOBS.md` documents
+   * `secret set <job> NAME` and `secret ls <job>`, and every one of them answered
+   * `unknown server "nightly-backup"` — the command looked only in `servers.config.json`, so the
+   * documented workflow for a job's secret environment had no working spelling at all.
+   */
+  domain: 'server' | 'job'
 }
 
 /**
@@ -55,27 +66,24 @@ async function readContext(id: string, workspaceFlag: string | undefined, online
   const workspace = workspaceFlag === undefined || workspaceFlag.length === 0 ? readDefaultWorkspaceId(workspacesPath) : workspaceFlag
 
   if (online) {
-    const { requestControl } = await import('#src/helpers/daemon')
     const where = workspace === 'default' ? '' : `?workspace=${encodeURIComponent(workspace)}`
-    const answer = await requestControl(runtime, `/_hh/servers${where}`, 15_000, 'GET')
-    if (answer === null)
-      fail(`the control panel is not answering on ${runtime.probeUrl}`)
-    if (answer.status === 404) {
-      const code = (answer.body as { code?: string } | null)?.code
-      fail(code === 'UNKNOWN_WORKSPACE'
-        ? `unknown workspace "${workspace}"`
-        : `the panel on ${runtime.url} is home-hosted ${runtime.version}, which cannot read secrets from the CLI — restart it on this release`)
-    }
-    if (answer.status !== 200)
-      fail((answer.body as { message?: string } | null)?.message ?? `the panel answered ${answer.status}`)
-    const servers = (answer.body as { servers?: Array<{ id: string, config?: { secretEnv?: string[] } }> } | null)?.servers ?? []
+    // Both domains on the live path, for the reason the offline path reads both: `docs/JOBS.md`
+    // documents `secret set <job> NAME`, and it answered `unknown server` because only the servers
+    // route was ever asked.
+    const servers = await controlList(runtime, `/_hh/servers${where}`, 'servers', workspace)
     const found = servers.find(server => server.id === id)
-    if (found === undefined)
-      fail(`unknown server "${id}" in workspace "${workspace}"`)
-    return { workspace, store: null as never, secrets: null as never, secretEnv: found.config?.secretEnv ?? [] }
+    if (found !== undefined)
+      return { workspace, store: null as never, secrets: null as never, secretEnv: found.config?.secretEnv ?? [], domain: 'server' }
+
+    const jobs = await controlList(runtime, `/_hh/jobs${where}`, 'jobs', workspace)
+    const job = jobs.find(entry => entry.id === id)
+    if (job !== undefined)
+      return { workspace, store: null as never, secrets: null as never, secretEnv: job.secretEnv ?? [], domain: 'job' }
+
+    fail(`unknown server or job "${id}" in workspace "${workspace}"`)
   }
 
-  const [{ WorkspaceStore }, { SecretsStore }, { workspaceSecretsPath, workspaceServersPath, workspaceSettingsPath }] = await Promise.all([
+  const [{ WorkspaceStore }, { SecretsStore }, { workspaceSecretsPath, workspaceServersPath, workspaceSettingsPath, workspaceJobsPath }] = await Promise.all([
     import('#src/config/store'),
     import('#src/config/secrets'),
     import('#src/helpers/paths'),
@@ -98,28 +106,73 @@ async function readContext(id: string, workspaceFlag: string | undefined, online
     fail(`unknown workspace "${workspace}" — this home has only the default workspace`)
   }
 
+  const secrets = new SecretsStore(workspaceSecretsPath(workspace), undefined, 'workspace')
   const store = new WorkspaceStore(workspace, workspaceSettingsPath(workspace), workspaceServersPath(workspace))
   // Read-only: a command that promises to look must not seed `.hh` or its configs.
   store.load({ write: false })
   if (store.configError !== null)
     fail(`cannot read the config for workspace "${workspace}": ${store.configError}`)
   const entry = store.getServer(id)
-  if (entry === undefined)
-    fail(`unknown server "${id}" in workspace "${workspace}"`)
-  const secrets = new SecretsStore(workspaceSecretsPath(workspace), undefined, 'workspace')
-  return { workspace, store, secrets, secretEnv: entry.secretEnv }
+  if (entry !== undefined)
+    return { workspace, store, secrets, secretEnv: entry.secretEnv, domain: 'server' }
+
+  // A job, read the same way — and `JobStore.list()` throws for a file this release cannot use, which
+  // is the honest answer rather than "no such id".
+  const { JobStore } = await import('#src/config/jobs')
+  let job: { secretEnv?: string[] } | null = null
+  try {
+    job = new JobStore(workspaceJobsPath(workspace)).get(id)
+  }
+  catch (error) {
+    fail(`cannot read the jobs for workspace "${workspace}": ${errorMessage(error)}`)
+  }
+  if (job !== null)
+    return { workspace, store, secrets, secretEnv: job.secretEnv ?? [], domain: 'job' }
+
+  fail(`unknown server or job "${id}" in workspace "${workspace}"`)
+}
+
+/** One `/_hh` list (`servers` or `jobs`) as `{ id, secretEnv }` rows, refusing a panel that cannot answer. */
+async function controlList(
+  runtime: import('#src/helpers/daemon').Runtime,
+  path: string,
+  key: 'servers' | 'jobs',
+  workspace: string,
+): Promise<Array<{ id: string, config?: { secretEnv?: string[] }, secretEnv?: string[] }>> {
+  const { requestControl } = await import('#src/helpers/daemon')
+  const answer = await requestControl(runtime, path, 15_000, 'GET')
+  if (answer === null)
+    fail(`the control panel is not answering on ${runtime.probeUrl}`)
+  if (answer.status === 404) {
+    const code = (answer.body as { code?: string } | null)?.code
+    fail(code === 'UNKNOWN_WORKSPACE'
+      ? `unknown workspace "${workspace}"`
+      : `the panel on ${runtime.url} is home-hosted ${runtime.version}, which cannot read secrets from the CLI — restart it on this release`)
+  }
+  if (answer.status !== 200)
+    fail((answer.body as { message?: string } | null)?.message ?? `the panel answered ${answer.status}`)
+  return ((answer.body as Record<string, unknown> | null)?.[key] as Array<{ id: string, config?: { secretEnv?: string[] }, secretEnv?: string[] }> | undefined) ?? []
 }
 
 /** Writes through the panel when it runs, else straight to the workspace's secrets file. */
-async function apply(id: string, workspace: string, body: { set?: Record<string, string>, unset?: string[] }, runtime: import('#src/helpers/daemon').Runtime | null): Promise<void> {
+async function apply(id: string, workspace: string, domain: 'server' | 'job', body: { set?: Record<string, string>, unset?: string[] }, runtime: import('#src/helpers/daemon').Runtime | null): Promise<void> {
   if (runtime !== null) {
     const { requestControl } = await import('#src/helpers/daemon')
     const where = workspace === 'default' ? '' : `?workspace=${encodeURIComponent(workspace)}`
-    const answer = await requestControl(runtime, `/_hh/servers/secrets/${encodeURIComponent(id)}${where}`, 15_000, 'POST', body)
+    // A **job** writes through its own route, which writes the `jobEnv` map: sharing the servers
+    // route would either be refused (the id is not in `servers.config.json`) or, worse, land a job's
+    // value in the server map of the same name.
+    const path = domain === 'job' ? '/_hh/jobs/secrets' : '/_hh/servers/secrets'
+    const answer = await requestControl(runtime, `${path}/${encodeURIComponent(id)}${where}`, 15_000, 'POST', body)
     if (answer === null)
       fail(`the control panel is not answering on ${runtime.probeUrl}`)
-    if (answer.status === 404)
-      fail(`the panel on ${runtime.url} is home-hosted ${runtime.version}, which cannot write secrets from the CLI — restart it on this release`)
+    if (answer.status === 404) {
+      // The panel's own 404 also means an old panel without this route; its `code` tells them apart.
+      const message = answer.body as { message?: string, code?: string } | null
+      if (message?.code === 'UNKNOWN_JOB' || message?.code === 'UNKNOWN_SERVER')
+        fail(message.message ?? `unknown ${domain} "${id}"`)
+      fail(`the panel on ${runtime.url} is home-hosted ${runtime.version}, which cannot write ${domain} secrets from the CLI — restart it on this release`)
+    }
     if (answer.status !== 200)
       fail((answer.body as { message?: string } | null)?.message ?? `the panel answered ${answer.status}`)
     return
@@ -130,11 +183,19 @@ async function apply(id: string, workspace: string, body: { set?: Record<string,
     import('#src/helpers/paths'),
   ])
   const secrets = new SecretsStore(workspaceSecretsPath(workspace), undefined, 'workspace')
-  if ((body.unset ?? []).length > 0)
-    secrets.unsetServerEnv(id, body.unset ?? [])
+  if ((body.unset ?? []).length > 0) {
+    if (domain === 'job')
+      secrets.unsetJobEnv(id, body.unset ?? [])
+    else
+      secrets.unsetServerEnv(id, body.unset ?? [])
+  }
   if (body.set !== undefined && Object.keys(body.set).length > 0) {
-    const next = { ...secrets.serverEnv(id), ...body.set }
-    secrets.setServerEnv(id, next)
+    const current = domain === 'job' ? secrets.jobEnv(id) : secrets.serverEnv(id)
+    const next = { ...current, ...body.set }
+    if (domain === 'job')
+      secrets.setJobEnv(id, next)
+    else
+      secrets.setServerEnv(id, next)
   }
 }
 
@@ -175,7 +236,7 @@ export const secretCommand = defineCommand({
   meta: { name: 'secret' },
   args: {
     command: { type: 'positional', required: false, description: 'set, unset or ls' },
-    id: { type: 'positional', required: false, description: 'the server id' },
+    id: { type: 'positional', required: false, description: 'the server or job id' },
     name: { type: 'positional', required: false, description: 'the variable name' },
     stdin: { type: 'boolean', description: 'read the value from stdin instead of prompting' },
     workspace: { type: 'string', alias: 'w', description: 'the workspace that owns it' },
@@ -190,7 +251,7 @@ export const secretCommand = defineCommand({
     if (command !== 'set' && command !== 'unset' && command !== 'ls')
       fail(`use \`${invocation()} secret set|unset|ls <id> [NAME]\``)
     if (id.length === 0)
-      fail(`which server? \`${invocation()} secret ${command} <id>${command === 'ls' ? '' : ' NAME'}\``)
+      fail(`which server or job? \`${invocation()} secret ${command} <id>${command === 'ls' ? '' : ' NAME'}\``)
 
     const { readRuntime, runtimeIsAlive } = await import('#src/helpers/daemon')
     const recorded = readRuntime()
@@ -198,18 +259,20 @@ export const secretCommand = defineCommand({
     const context = await readContext(id, workspace, runtime !== null, runtime as import('#src/helpers/daemon').Runtime)
 
     if (command === 'ls') {
+      const where = context.workspace === 'default' ? '' : `?workspace=${encodeURIComponent(context.workspace)}`
       const stored = runtime === null
-        ? context.secrets.serverEnvNames(id)
+        ? (context.domain === 'job' ? Object.keys(context.secrets.jobEnv(id)) : context.secrets.serverEnvNames(id)).sort()
         : await (async () => {
-            // Through the panel: its view knows which declared names have a value.
-            const { requestControl } = await import('#src/helpers/daemon')
-            const where = context.workspace === 'default' ? '' : `?workspace=${encodeURIComponent(context.workspace)}`
-            const answer = await requestControl(runtime, `/_hh/servers${where}`, 15_000, 'GET')
-            const servers = (answer?.body as { servers?: Array<{ id: string, secretEnvSet?: string[] }> } | null)?.servers ?? []
-            return servers.find(server => server.id === id)?.secretEnvSet ?? []
+            // Through the panel: its view knows which declared names have a value, and a job's view
+            // carries the same `secretEnvSet` a server's does.
+            const rows = await controlList(runtime, context.domain === 'job' ? `/_hh/jobs${where}` : `/_hh/servers${where}`, context.domain === 'job' ? 'jobs' : 'servers', context.workspace)
+            return (rows.find(row => row.id === id) as { secretEnvSet?: string[] } | undefined)?.secretEnvSet ?? []
           })()
+      const label = context.domain === 'job' ? 'job' : 'server'
       if (args.json === true) {
-        process.stdout.write(`${JSON.stringify({ server: id, workspace: context.workspace, declared: context.secretEnv, set: stored })}\n`)
+        // `server` is kept for a server (an existing script reads it) and named for what it is on the
+        // job path, where the key never had a meaning before.
+        process.stdout.write(`${JSON.stringify({ [label]: id, workspace: context.workspace, declared: context.secretEnv, set: stored })}\n`)
         return
       }
       if (context.secretEnv.length === 0) {
@@ -232,12 +295,12 @@ export const secretCommand = defineCommand({
 
     if (command === 'set') {
       const value = await readValue(id, name, args.stdin === true)
-      await apply(id, context.workspace, { set: { [name]: value } }, runtime)
+      await apply(id, context.workspace, context.domain, { set: { [name]: value } }, runtime)
       process.stdout.write(`${green('set')} ${bold(name)} on ${id}${runtime === null ? dim(' (the panel is not running; it reads this on its next start)') : ''}\n`)
       return
     }
 
-    await apply(id, context.workspace, { unset: [name] }, runtime)
+    await apply(id, context.workspace, context.domain, { unset: [name] }, runtime)
     process.stdout.write(`${green('unset')} ${bold(name)} on ${id}\n`)
   },
 })

@@ -340,6 +340,61 @@ export function createControlRoute(deps: AppDeps) {
     )
 
     /**
+     * A **job's** secret environment, over the local channel — the job half of the server route above.
+     *
+     * `docs/JOBS.md` documents `home-hosted secret set <job> BACKUP_TOKEN` and `secret ls <job>`, and
+     * both were broken: `src/cli/secret.ts` resolves its id against `servers.config.json` only, so a
+     * job id answered `unknown server "nightly-backup"` — telling a person to declare a server that
+     * must not exist, for a command the docs say works. The panel's own `PUT /api/jobs/:id/secrets`
+     * has existed since a job's `secretEnv` first reached a process; this is the local channel's copy
+     * of it, so the CLI has something to call when the panel runs.
+     *
+     * The two maps are separate by design (`jobEnv` beside `serverEnv`), so an id that is both a job
+     * and a server never has one overwrite the other.
+     */
+    .post(
+      '/jobs/secrets/:id',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Set or clear a job\'s secret environment values (local token required)',
+        responses: { 200: { description: 'Written', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
+      }),
+      requireLocalCall('read or write a job\'s secrets'),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      validate('json', controlSecretsSchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        const job = runtime.jobs.get(id)
+        if (job === null)
+          throw new DetailedError(`unknown job "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
+
+        const body = c.req.valid('json')
+        const declared = new Set(job.secretEnv)
+        const writing = Object.keys(body.set ?? {})
+        const undeclared = writing.filter(name => !declared.has(name))
+        if (undeclared.length > 0) {
+          throw new DetailedError(
+            `${undeclared.map(name => `"${name}"`).join(', ')} ${undeclared.length === 1 ? 'is' : 'are'} not declared in this job's secretEnv — add ${undeclared.length === 1 ? 'the name' : 'the names'} to the job first`,
+            { statusCode: 400, code: 'INVALID_INPUT', detail: [{ path: 'set', message: `declare ${undeclared.join(', ')} in secretEnv` }] },
+          )
+        }
+
+        if ((body.unset ?? []).length > 0)
+          runtime.secrets.unsetJobEnv(id, body.unset ?? [])
+        if (writing.length > 0) {
+          // The **job** map, never `serverEnv`: an id is unique only within its own domain.
+          const next = { ...runtime.secrets.jobEnv(id) }
+          for (const [name, value] of Object.entries(body.set ?? {}))
+            next[name] = value
+          runtime.secrets.setJobEnv(id, next)
+        }
+        return c.json({ ok: true })
+      },
+    )
+
+    /**
      * Add one entry, over the local channel — `home-hosted add` while the panel is up. The same body,
      * validation and refusals as `POST /api/servers` (`addServerEntry`); like it, the entry is not
      * started, `autostart` or not.

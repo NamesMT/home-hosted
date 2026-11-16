@@ -89,6 +89,18 @@ home-hosted secret ls app                        # the names, and which have a v
 home-hosted secret unset app DATABASE_URL
 ```
 
+**The same commands take a job id**, because a job declares `secretEnv` exactly as a server does
+([JOBS.md](./JOBS.md#a-jobs-secret-environment)):
+
+```bash
+home-hosted secret set nightly-backup BACKUP_TOKEN --stdin
+home-hosted secret ls nightly-backup
+```
+
+An id resolves to a **server** first and a **job** second, and the two are different key spaces in
+the secrets file (`serverEnv` beside `jobEnv`) — so a server and a job that share an id each keep
+their own values, and `--json` names which one answered (`server` or `job`).
+
 `set` refuses a name the entry does not declare **before** it asks for a value, so a mistyped name
 costs nothing. A blank value is refused too: an empty environment variable reads as unset, so
 `unset` is the intent there.

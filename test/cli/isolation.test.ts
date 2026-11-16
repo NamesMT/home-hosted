@@ -48,7 +48,7 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   // `flagProblem` reads its flags; `clearTemperatureSource` acts only on the store and helper path it is handed.
   'setup-temp': new Set(['flagProblem', 'sourceFromFlags', 'clearTemperatureSource', 'setupTempArgs']),
   // The generators read only their arguments; the installer's state reads are dynamic imports.
-  'add': new Set(['buildServerEntry', 'commandAfterDashes']),
+  'add': new Set(['buildServerEntry', 'commandAfterDashes', 'declarationAfterDashes']),
   'ls': new Set(['lsLines', 'rowFromView']),
   'service': new Set(['systemdUnit', 'launchdPlist', 'scheduledTaskXml', 'renderService', 'serviceDir', 'managerCommands', 'serviceArgv', 'launchdLabel', 'runService', 'ServiceRunner', 'ServiceSpec', 'servicePath']),
 }

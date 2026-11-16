@@ -414,4 +414,75 @@ describe('the jobs API', () => {
     expect(log.lines.map(line => line.text)).not.toContain('old run')
     await created.cleanup()
   })
+
+  /**
+   * `POST /_hh/jobs/secrets/:id` — the local channel's copy of `PUT /api/jobs/:id/secrets`.
+   *
+   * `docs/JOBS.md` documents `home-hosted secret set <job> NAME`, which resolves its id against
+   * `servers.config.json` and so answered `unknown server "<job>"`. Giving the CLI a route to call is
+   * half the fix; this is that route's own contract: it writes the **job** map, refuses a name the
+   * job does not declare, and 404s an unknown id with the code the CLI branches on.
+   */
+  describe('over the local channel', () => {
+    const local = { 'x-home-hosted-token': 'runtime-token' }
+
+    async function withJob(secretEnv: string[] = ['BACKUP_TOKEN']) {
+      const created = await makeFixture()
+      await created.app.request('/api/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: 'nb', command: process.execPath, args: ['-e', ''], schedule: '0 3 * * *', secretEnv }),
+      })
+      return created
+    }
+
+    it('writes the job map, and the view reports the name as set', async () => {
+      const created = await withJob()
+      const written = await created.app.request('/_hh/jobs/secrets/nb', {
+        method: 'POST',
+        headers: { ...local, 'content-type': 'application/json' },
+        body: JSON.stringify({ set: { BACKUP_TOKEN: 'tok-1' } }),
+      })
+      expect(written.status).toBe(200)
+      expect(await written.json()).toEqual({ ok: true })
+
+      const listed = await (await created.app.request('/api/jobs')).json() as { jobs: Array<{ id: string, secretEnvSet: string[] }> }
+      expect(listed.jobs[0]!.secretEnvSet).toEqual(['BACKUP_TOKEN'])
+      // No value, ever, in a view.
+      expect(JSON.stringify(listed)).not.toContain('tok-1')
+      await created.cleanup()
+    })
+
+    it('refuses a name the job does not declare', async () => {
+      const created = await withJob()
+      const refused = await created.app.request('/_hh/jobs/secrets/nb', {
+        method: 'POST',
+        headers: { ...local, 'content-type': 'application/json' },
+        body: JSON.stringify({ set: { NOPE: 'x' } }),
+      })
+      expect(refused.status).toBe(400)
+      expect(await refused.text()).toContain('NOPE')
+      await created.cleanup()
+    })
+
+    it('answers an unknown job with UNKNOWN_JOB, and refuses a missing token', async () => {
+      const created = await withJob()
+      const unknown = await created.app.request('/_hh/jobs/secrets/ghost', {
+        method: 'POST',
+        headers: { ...local, 'content-type': 'application/json' },
+        body: JSON.stringify({ set: {} }),
+      })
+      expect(unknown.status).toBe(404)
+      // The code the CLI reads to tell "no such job" from "this panel predates the route".
+      expect(await unknown.json()).toMatchObject({ code: 'UNKNOWN_JOB' })
+
+      const noToken = await created.app.request('/_hh/jobs/secrets/nb', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ set: { BACKUP_TOKEN: 'x' } }),
+      })
+      expect(noToken.status).toBe(403)
+      await created.cleanup()
+    })
+  })
 })

@@ -343,7 +343,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
 | `home-hosted add <id> -- <command…>` / `ls` | declare a server (`--port`, `--cwd`, `--persistent`, `--autostart`, `-w`) or list them — through the panel, or into `servers.config.json` when it is down |
 | `home-hosted import pm2\|compose <file>` | carry an existing setup in — a pm2 ecosystem (each app one entry) or a compose stack (one entry). Prints a plan; `--confirm` writes it. What it cannot carry (`watch`, `cron_restart`, cluster instances) is reported, not dropped |
-| `home-hosted secret set\|unset\|ls <id> [NAME]` | a server's secret environment: `set` prompts without echo (or `--stdin`), `ls` prints the names and which have a value. **Never prints a value** (`-w`, `--json`) |
+| `home-hosted secret set\|unset\|ls <id> [NAME]` | a server's **or a job's** secret environment: `set` prompts without echo (or `--stdin`), `ls` prints the names and which have a value. **Never prints a value** (`-w`, `--json`) |
 | `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one, and works on a persistent entry with the panel down (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |

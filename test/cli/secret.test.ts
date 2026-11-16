@@ -109,6 +109,72 @@ describe('home-hosted secret', () => {
     expect(listed.stdout).toContain('DATABASE_URL')
   })
 
+  /**
+   * A **job's** secret values, which `docs/JOBS.md` documents and which had no working spelling.
+   *
+   * The command resolved its id against `servers.config.json` only, so
+   * `home-hosted secret set nightly-backup BACKUP_TOKEN --stdin` — the exact line JOBS.md prints —
+   * answered `unknown server "nightly-backup"`. That refusal tells a person to declare a **server**
+   * for a job, which is the one thing they must not do (a job id in a servers file is refused on
+   * boot). `secret ls <job>` failed the same way, so a job's stored values could be neither set nor
+   * listed from a terminal.
+   *
+   * The two maps are separate (`jobEnv` beside `serverEnv`) because an id is unique only inside its
+   * own domain, so this also pins that a job's value never lands on a server of the same id.
+   */
+  it('sets and lists a job\'s value in the job map, not the server one', async () => {
+    const home = await homeWithServer()
+    // A job that shares the server's id, which is legal and is exactly why the maps are separate.
+    fs.writeFileSync(path.join(home, '.hh', 'default', 'jobs.config.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      jobs: [{ id: 'app', schedule: '0 3 * * *', command: './backup.sh', secretEnv: ['BACKUP_TOKEN'] }],
+    }))
+
+    // The server still answers first — an id in both is a server to `secret`, as it is to `start`.
+    const asServer = runCli(['secret', 'ls', 'app', '--json'], { home })
+    expect(asServer.status, asServer.stderr).toBe(0)
+    expect(JSON.parse(asServer.stdout)).toMatchObject({ server: 'app', declared: ['DATABASE_URL', 'EMPTY_ONE'] })
+
+    // A job-only id is found, listed, and set — through the same three commands JOBS.md prints.
+    fs.writeFileSync(path.join(home, '.hh', 'default', 'jobs.config.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      jobs: [{ id: 'nightly-backup', schedule: '0 3 * * *', command: './backup.sh', secretEnv: ['BACKUP_TOKEN'] }],
+    }))
+
+    const listed = runCli(['secret', 'ls', 'nightly-backup', '--json'], { home })
+    expect(listed.status, listed.stderr).toBe(0)
+    expect(JSON.parse(listed.stdout)).toEqual({ job: 'nightly-backup', workspace: 'default', declared: ['BACKUP_TOKEN'], set: [] })
+
+    // `--stdin` cannot be piped through `spawnSync` here, so the store is arranged directly and the
+    // listing is what proves the command reads the job map.
+    const { SecretsStore } = await import('#src/config/secrets')
+    const store = new SecretsStore(path.join(home, '.hh', 'default', '.secrets.json'), undefined, 'workspace')
+    store.setJobEnv('nightly-backup', { BACKUP_TOKEN: 'tok-value-1' })
+
+    const after = runCli(['secret', 'ls', 'nightly-backup', '--json'], { home })
+    expect(after.status, after.stderr).toBe(0)
+    expect(JSON.parse(after.stdout)).toEqual({ job: 'nightly-backup', workspace: 'default', declared: ['BACKUP_TOKEN'], set: ['BACKUP_TOKEN'] })
+    // The value never reaches either stream.
+    expect(after.output).not.toContain('tok-value-1')
+
+    // And the server map is untouched by the job's write.
+    expect(store.serverEnv('app')).toEqual({})
+    expect(store.jobEnv('app')).toEqual({})
+  })
+
+  it('refuses an id that is neither a server nor a job, naming both', async () => {
+    const home = await homeWithServer()
+    fs.writeFileSync(path.join(home, '.hh', 'default', 'jobs.config.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      jobs: [{ id: 'nightly-backup', schedule: '0 3 * * *', command: './backup.sh' }],
+    }))
+
+    const result = runCli(['secret', 'ls', 'ghost'], { home })
+    expect(result.status).toBe(1)
+    // The old text said "unknown server", which sent a person looking for the wrong thing.
+    expect(result.stderr).toContain('unknown server or job "ghost"')
+  })
+
   it('never echoes a value in any output', async () => {
     const home = await homeWithServer()
     const { SecretsStore } = await import('#src/config/secrets')

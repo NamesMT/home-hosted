@@ -314,6 +314,7 @@ const SECRET_SECTION: OptionSection = {
     ['set <id> NAME', 'store a value: prompts without echo, or read one line from --stdin'],
     ['unset <id> NAME', 'forget the value (the name stays declared in the entry)'],
     ['ls <id>', 'the declared names, and which of them have a value'],
+    ['<id>', 'a server or a job — both declare `secretEnv`'],
   ],
 }
 
