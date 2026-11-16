@@ -235,6 +235,42 @@ describe('noc-console is usable at a phone width', () => {
   })
 
   /**
+   * The jobs table scrolls inside its own box, and its identity column is capped on a phone.
+   *
+   * Both are one defect. The identity cell is a three-line block — id, label and the command with
+   * its arguments — and nothing bounded any of them, so the cell sized itself to the command. As a
+   * bare child of `.view` that made the *page* 592 px wide at a 320 px viewport, which carried the
+   * sticky header with it: dragging to the end put the page title and the `new job` button at
+   * **x = -264**, entirely off screen. `.tblwrap` gives the table its own scroller and its edge
+   * shadows, and `.view` no longer overflows (measured `scrollWidth - clientWidth`: 272 → 0).
+   *
+   * Pinning alone was not enough. The pinned identity cell measured **235 px of a 320 px
+   * viewport** and the pinned action cell another 82, leaving a **3 px** window between them:
+   * SCHEDULE, NEXT and LAST were each readable 3 px at a time however far you dragged, so the one
+   * number the page exists to show — when it next runs — was gone. With the 45vw cap the window is
+   * 95 px at 320 (schedule 80 and next 72 both fully visible), 133 px at 390 and 164 px at 430.
+   * Capped at the identity *cell*, not the table, and scoped by `.tbl--jobs`: the servers table's
+   * identity is one short line, and 45vw there clipped `Python server` to `Python` for no gain.
+   */
+  it('scrolls the jobs table itself and caps its identity column on a phone', () => {
+    const jobs = fs.readFileSync(path.join(root, 'src/views/JobsView.vue'), 'utf8')
+    // The table opts into its own scroller rather than stretching the page.
+    expect(jobs, 'the jobs table needs its own scroll box').toContain('class="tblwrap"')
+    expect(jobs, 'the cap is scoped by a modifier the table carries').toContain('class="tbl tbl--jobs"')
+
+    const mobile = rulesIn('(width <= 860px)')
+    const keep = ruleIn(mobile, '.tbl--jobs .tbl__keep')
+    expect(keep, 'an unbounded identity column eats the pinned window').toContain('max-width: 45vw')
+    expect(keep).toContain('overflow: hidden')
+    // The lines have to ellipsize: a wrap would make every row a line taller instead.
+    for (const selector of ['.tbl--jobs .tbl__keep .label', '.tbl--jobs .tbl__keep p']) {
+      expect(ruleIn(mobile, selector), `${selector} must ellipsize`).toContain('text-overflow: ellipsis')
+    }
+    // Deliberately not a blanket cap: the servers table keeps its full name.
+    expect(ruleIn(allRules, '.tbl__keep'), 'the base .tbl__keep must stay unbounded').not.toContain('max-width')
+  })
+
+  /**
    * The pinning rule above is written in the stylesheet, but a table only gets it if its cells
    * carry the classes — and two of the console's four tables did not.
    *

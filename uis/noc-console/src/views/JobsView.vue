@@ -212,87 +212,103 @@ function when(ms: number | null | undefined): string {
     <p v-else-if="jobs.length === 0" class="faint">
       no jobs in this workspace — declare one from jobs.config.json, or with `new job` above
     </p>
-    <table v-else class="tbl">
-      <thead>
-        <tr>
-          <th class="tbl__keep">
-            id
-          </th>
-          <th>schedule</th>
-          <th>next</th>
-          <th>last</th>
-          <th class="tbl__actions">
-            <span class="sr-only">actions</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="job in jobs" :key="job.id">
-          <td class="tbl__keep">
-            <span class="mono">{{ job.id }}</span>
-            <span v-if="job.label" class="faint label">{{ job.label }}</span>
-            <span v-if="!job.enabled" class="chip">disabled</span>
-            <p class="faint mono" style="font-size: 11px">
-              {{ [job.command, ...job.args].join(' ') }}
-            </p>
-          </td>
-          <td class="mono">
-            {{ job.schedule }}
-          </td>
-          <td>{{ job.running ? 'running' : when(job.nextRunAt) }}</td>
-          <td class="faint">
-            {{ job.lastRunAt === undefined ? 'never ran' : when(job.lastRunAt) }}
-            <span v-if="job.lastExitCode !== undefined && job.lastExitCode !== null">
-              · exit {{ job.lastExitCode }}
-            </span>
-          </td>
-          <td class="tbl__actions">
-            <span class="actions">
-              <button type="button" class="btn btn--sm btn--primary" :disabled="busy === job.id || job.running" @click="run(job.id)">
-                {{ job.running ? 'running' : 'run now' }}
-              </button>
-              <button v-if="job.running" type="button" class="btn btn--sm" :disabled="busy === job.id" @click="stop(job.id)">
-                stop
-              </button>
-              <button type="button" class="btn btn--sm" :disabled="busy === job.id" @click="startEdit(job)">
-                edit
-              </button>
-              <!-- A failed run's own output is the one thing needed to debug it, so it is one click
-                 from the row rather than buried behind a page of its own. -->
-              <button type="button" class="btn btn--sm" @click="logFor = job.id">
-                log
-              </button>
-              <!--
-              Disabling confirms; enabling does not. Turning a job off stops the schedule that
-              exists to run it, which is the kind of thing a stray click should not do. Enabling
-              only restores what the config already declared, so it happens on the click.
-            -->
-              <ConfirmButton
-                v-if="job.enabled"
-                label="disable"
-                confirm-label="confirm disable"
-                :disabled="busy === job.id"
-                :title="`Disable ${job.id}?`"
-                hint="It stops running on its schedule until you enable it again. A run in flight still finishes."
-                @confirm="toggle(job)"
-              />
-              <button v-else type="button" class="btn btn--sm" :disabled="busy === job.id" @click="toggle(job)">
-                enable
-              </button>
-              <ConfirmButton
-                label="remove"
-                confirm-label="confirm remove"
-                tone="danger"
-                :disabled="busy === job.id"
-                :title="`Remove ${job.id}?`"
-                hint="The declaration goes, along with its schedule. Output already written to the job's log stays."
-                @confirm="remove(job)"
-              />
-            </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <!--
+      The table scrolls **inside its own box**, not with the page.
+
+      Left as a bare child of `.view`, the table's 592 px width became the width `.view` scrolled:
+      at 320 px the pinned identity column (235 px) plus the pinned action column (82 px) left a
+      **3 px** window between them, so SCHEDULE / NEXT / LAST could only ever be read 3 px at a
+      time however far you dragged — and dragging to the end carried the sticky `.view__head` with
+      it, putting the page title and the `new job` button at x=-264, entirely off screen. At 390 px
+      the window is 73 px of a 80 px schedule cell and still drags the header to -194.
+
+      `.tblwrap` is the same scroller every other table in this UI already uses, and its
+      `background-attachment: local` edge shadows are what say the middle columns can be reached;
+      the header no longer moves because `.view` no longer overflows.
+    -->
+    <div v-else class="tblwrap">
+      <table class="tbl tbl--jobs">
+        <thead>
+          <tr>
+            <th class="tbl__keep">
+              id
+            </th>
+            <th>schedule</th>
+            <th>next</th>
+            <th>last</th>
+            <th class="tbl__actions">
+              <span class="sr-only">actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="job in jobs" :key="job.id">
+            <td class="tbl__keep">
+              <span class="mono">{{ job.id }}</span>
+              <span v-if="job.label" class="faint label">{{ job.label }}</span>
+              <span v-if="!job.enabled" class="chip">disabled</span>
+              <p class="faint mono" style="font-size: 11px">
+                {{ [job.command, ...job.args].join(' ') }}
+              </p>
+            </td>
+            <td class="mono">
+              {{ job.schedule }}
+            </td>
+            <td>{{ job.running ? 'running' : when(job.nextRunAt) }}</td>
+            <td class="faint">
+              {{ job.lastRunAt === undefined ? 'never ran' : when(job.lastRunAt) }}
+              <span v-if="job.lastExitCode !== undefined && job.lastExitCode !== null">
+                · exit {{ job.lastExitCode }}
+              </span>
+            </td>
+            <td class="tbl__actions">
+              <span class="actions">
+                <button type="button" class="btn btn--sm btn--primary" :disabled="busy === job.id || job.running" @click="run(job.id)">
+                  {{ job.running ? 'running' : 'run now' }}
+                </button>
+                <button v-if="job.running" type="button" class="btn btn--sm" :disabled="busy === job.id" @click="stop(job.id)">
+                  stop
+                </button>
+                <button type="button" class="btn btn--sm" :disabled="busy === job.id" @click="startEdit(job)">
+                  edit
+                </button>
+                <!-- A failed run's own output is the one thing needed to debug it, so it is one click
+                   from the row rather than buried behind a page of its own. -->
+                <button type="button" class="btn btn--sm" @click="logFor = job.id">
+                  log
+                </button>
+                <!--
+                Disabling confirms; enabling does not. Turning a job off stops the schedule that
+                exists to run it, which is the kind of thing a stray click should not do. Enabling
+                only restores what the config already declared, so it happens on the click.
+              -->
+                <ConfirmButton
+                  v-if="job.enabled"
+                  label="disable"
+                  confirm-label="confirm disable"
+                  :disabled="busy === job.id"
+                  :title="`Disable ${job.id}?`"
+                  hint="It stops running on its schedule until you enable it again. A run in flight still finishes."
+                  @confirm="toggle(job)"
+                />
+                <button v-else type="button" class="btn btn--sm" :disabled="busy === job.id" @click="toggle(job)">
+                  enable
+                </button>
+                <ConfirmButton
+                  label="remove"
+                  confirm-label="confirm remove"
+                  tone="danger"
+                  :disabled="busy === job.id"
+                  :title="`Remove ${job.id}?`"
+                  hint="The declaration goes, along with its schedule. Output already written to the job's log stays."
+                  @confirm="remove(job)"
+                />
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <JobSheet
       v-model:open="sheetOpen"

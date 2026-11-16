@@ -312,6 +312,21 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   (`.view__head`) — the content below it did not.
   (`uis/noc-console/test/mobile-layout.test.ts`, "does not let a page-level pane shrink below its
   own content"; a class-level scan of the sheet, because a mount has no layout engine.)
+- **Pinning two columns can leave no window between them** — the narrow-table rule pins the
+  identity (`left: 0`) and the actions (`right: 0`), which is right, but it says nothing about how
+  wide the pinned cell may get. noc's jobs table sizes its identity to a three-line block whose
+  longest line is the command, measured at **235 px of a 320 px viewport**; with an 82 px action
+  column the free window between them was **3 px**, so SCHEDULE / NEXT / LAST were each readable
+  3 px at a time at any scroll offset — and the "drag it and see" answer does not help, because
+  the middle is *never* more visible. A `max-width` on that one cell plus `text-overflow:
+  ellipsis` on its lines took the window to 95 px at 320, 133 at 390 and 164 at 430. Scope it to
+  the table that needs it: the same cap on the servers table clipped a 145 px identity to
+  `Python`, for a table whose identity is one short line. Also note the second half — as a bare
+  child of `.view`, that 592 px table was what the *page* scrolled, which dragged the sticky
+  `.view__head` to **x = -264** and took the title and `new job` off screen; a table belongs in
+  `.tblwrap`, which already owns the edge shadows that say a middle column exists.
+  (`uis/noc-console/test/mobile-layout.test.ts`, "scrolls the jobs table itself and caps its
+  identity column on a phone")
 
 
 ## Data

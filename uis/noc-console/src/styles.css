@@ -1258,6 +1258,35 @@ input[type='file'] {
   background: transparent;
 }
 
+/*
+ * The jobs table's identity column is a three-line block — id, label, and the command with its
+ * arguments — and none of the three is bounded. On a phone it sized itself to the command line:
+ * measured in Chromium at 320 px, the pinned identity cell was **235 px of a 320 px viewport**
+ * and the pinned action cell another 82, leaving a **3 px** window between them. SCHEDULE, NEXT
+ * and LAST were each readable only 3 px at a time, however far the table was dragged, and the
+ * one number the page exists to show — when it next runs — was effectively gone. At 390 px the
+ * window was 73 px against an 80 px schedule cell; at 430 px the `last` cell still lost 10 px.
+ *
+ * A cap on the cell is what makes the rest readable: at 45vw the 320 px window becomes 95 px
+ * (schedule and next fully visible), 133 px at 390, 164 px at 430. The three lines ellipsize
+ * rather than wrap, so the row stays three lines tall. The servers table is deliberately not
+ * capped — its identity is one short line, and 45vw there would clip a server name for nothing.
+ */
+@media (width <= 860px) {
+  .tbl--jobs .tbl__keep {
+    max-width: 45vw;
+    overflow: hidden;
+  }
+
+  .tbl--jobs .tbl__keep .label,
+  .tbl--jobs .tbl__keep p {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .rowbtns {
   display: inline-flex;
   gap: 0.25rem;
