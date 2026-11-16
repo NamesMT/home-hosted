@@ -121,9 +121,9 @@ async function remove(name: string): Promise<void> {
     <div v-for="name in declared" :key="name" class="field">
       <span class="field__label">
         <span class="mono">{{ name }}</span>
-        <span v-if="unsaved(name)" class="chip chip--warn">needs saving</span>
-        <span v-else-if="isSet.has(name)" class="chip chip--ok">set</span>
-        <span v-else class="faint">— not set</span>
+        <span v-if="unsaved(name)" class="chip chip--warn label">needs saving</span>
+        <span v-else-if="isSet.has(name)" class="chip chip--ok label">set</span>
+        <span v-else class="faint label">— not set</span>
       </span>
       <div class="row">
         <input

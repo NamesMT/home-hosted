@@ -615,7 +615,7 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                       >{{ row.route.host }}</a>
                       <span v-else class="id">{{ row.route.host || 'no hostname yet' }}</span>
                       <span v-if="row.route.path" class="accent">{{ row.route.path }}</span>
-                      <span class="faint mono"> {{ row.route.id }}</span>
+                      <span class="faint mono label">{{ row.route.id }}</span>
                     </td>
                     <td class="dim">
                       {{ row.target }}

@@ -127,7 +127,7 @@ function cpuColor(server: ServerView): string {
             </td>
             <td class="tbl__keep tbl__keep--after-gutter">
               <span class="id">{{ server.id }}</span>
-              <span v-if="server.config.label" class="dim"> {{ server.config.label }}</span>
+              <span v-if="server.config.label" class="dim label">{{ server.config.label }}</span>
             </td>
             <td>
               <StatusChip :status="server.status" />

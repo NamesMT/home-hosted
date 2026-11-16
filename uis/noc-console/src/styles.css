@@ -1116,6 +1116,28 @@ input[type='file'] {
   color: var(--faint);
 }
 
+/*
+ * The word after a row's identity, set off from it.
+ *
+ * A space typed into the template at a tag boundary does not survive compilation — the compiler
+ * trims it — so `<span>{{ id }}</span><span> {{ label }}</span>` rendered `pythonPython server`,
+ * measured at a 0.00 px gap. A margin is the gap, and it is a layout fact rather than copy, which
+ * is also why the i18n guard reads the label correctly (the same reason `SystemNotices` in the
+ * stock UI uses `ml-1`).
+ *
+ * `.label` is the utility the four table cells that carry a secondary word share; the stock UI
+ * spells the same thing `ml-1.5` / `gap-2` at its call sites.
+ */
+.label:not(.chip) {
+  margin-left: 0.4rem;
+}
+
+/* A secret's state badge follows its name inside `.field__label`, which is not a flex row. */
+.field__label .label,
+.field__label .chip {
+  margin-left: 0.4rem;
+}
+
 .tbl__gutter {
   width: var(--tbl-gutter);
   padding-right: 0 !important;

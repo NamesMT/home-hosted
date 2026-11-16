@@ -166,7 +166,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
         <tr v-for="account in accounts" :key="account.id">
           <td>
             <span class="mono">{{ account.id }}</span>
-            <span v-if="account.label !== account.id" class="faint"> {{ account.label }}</span>
+            <span v-if="account.label !== account.id" class="faint label">{{ account.label }}</span>
             <span v-if="account.isDefault" class="chip chip--warn">first-run</span>
             <span v-if="!account.enabled" class="chip">disabled</span>
           </td>
@@ -225,7 +225,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
           <input type="checkbox" :checked="scopes.includes(scope)" @change="toggleScope(scope)">
           <span class="field__label">
             <span class="mono">{{ scope }}</span>
-            <em class="dim">— {{ SCOPE_HINTS[scope] }}</em>
+            <em class="dim label">— {{ SCOPE_HINTS[scope] }}</em>
           </span>
         </label>
       </div>

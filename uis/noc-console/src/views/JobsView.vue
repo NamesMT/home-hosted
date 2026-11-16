@@ -226,7 +226,7 @@ function when(ms: number | null | undefined): string {
         <tr v-for="job in jobs" :key="job.id">
           <td>
             <span class="mono">{{ job.id }}</span>
-            <span v-if="job.label" class="faint"> {{ job.label }}</span>
+            <span v-if="job.label" class="faint label">{{ job.label }}</span>
             <span v-if="!job.enabled" class="chip">disabled</span>
             <p class="faint mono" style="font-size: 11px">
               {{ [job.command, ...job.args].join(' ') }}
