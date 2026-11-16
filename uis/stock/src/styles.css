@@ -87,21 +87,38 @@
 
   --ink: #0f1722;
   --muted: #596a81;
-  /* ≥4.5:1 on --panel so 11px labels stay readable. */
-  --faint: #64748b;
+  /*
+   * ≥4.5:1 on every light surface, not only `--panel`.
+   *
+   * It was `#64748b`, which cleared `--panel` (4.76) and quietly failed where this text actually
+   * lands: 11 px `--faint` labels sit on the page background, so `/global/overview`'s
+   * `home-hosted · v0.13.0` and `Host vitals`, and a job row's `Edited from browser`, measured
+   * **4.13 : 1** against `--page` and 4.20 on `--hover` — under AA, on a real page, while the token
+   * looked compliant against the one surface the comment named.
+   *
+   * `#5d6c81` clears all five (page 4.64, panel 5.35, panel-2 5.07, hover 4.72, line-soft 4.55) and
+   * stays quieter than `--muted` (5.35 vs 5.52 on `--panel`), so the two tones are still ordered.
+   */
+  --faint: #5d6c81;
 
   --accent: #2f5fe0;
   --accent-ink: #ffffff;
   --accent-soft: rgb(47 95 224 / 0.1);
 
-  --ok: #157f3c;
-  --warn: #a9610a;
-  --danger: #cf2f22;
+  /*
+   * Measured against the two surfaces status text actually lands on — `--page` #eceff4 (a `· exit 0`
+   * inside a row, a chip on the page) and `--panel` (the same inside a card). All three were a shade
+   * under AA on the page: ok 4.41, warn 4.14, danger 4.46. Each is darkened along its own hue to
+   * clear 4.5 there (ok 4.52, warn 4.52, danger 4.53) while improving on `--panel` too.
+   */
+  --ok: #157d3b;
+  --warn: #a05c09;
+  --danger: #cd2f22;
   --info: #0b6f89;
 
-  --ok-soft: rgb(21 127 60 / 0.1);
-  --warn-soft: rgb(169 97 10 / 0.11);
-  --danger-soft: rgb(207 47 34 / 0.1);
+  --ok-soft: rgb(21 125 59 / 0.1);
+  --warn-soft: rgb(160 92 9 / 0.11);
+  --danger-soft: rgb(205 47 34 / 0.1);
   --info-soft: rgb(11 111 137 / 0.1);
 
   --series-cpu: #2f5fe0;
