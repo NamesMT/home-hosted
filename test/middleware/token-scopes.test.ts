@@ -1,6 +1,6 @@
 import type { Fixture } from '../api/fixture'
 import { afterEach, describe, expect, it } from 'vitest'
-import { makeFixture } from '../api/fixture'
+import { makeFixture, makeView } from '../api/fixture'
 
 /**
  * A scoped token is enforced **per route**, from one declaration — never inside a handler.
@@ -318,6 +318,61 @@ describe('an account limited to one workspace', () => {
 
     expect((await created.app.request('/api/state', { headers })).status).toBe(200)
     expect((await created.app.request('/api/workspaces', { headers })).status).toBe(200)
+  })
+
+  /**
+   * A panel-wide read that **labels** its samples by workspace is still narrowable, so it is narrowed.
+   *
+   * `GET /api/metrics` declares `workspaceScoped: false` on the reasoning "there is no `?workspace=`
+   * to narrow" — true of the query, false of the data: every sample carries a `workspace` label, so
+   * there was something to narrow and not narrowing it handed a `staging`-limited `read` account the
+   * id, status, crash count, restarts, uptime, response time, RSS and CPU of `default`'s servers.
+   * Measured on a scratch panel with `default` holding `secret-svc` and an account limited to
+   * `staging`, the scrape answered:
+   *
+   * ```
+   * hh_servers 1
+   * hh_server_up{server="secret-svc",workspace="default"} 0
+   * hh_server_crashes_24h{server="secret-svc",workspace="default"} 0
+   * ```
+   *
+   * while `GET /api/servers?workspace=default` refused that same account `403 TOKEN_SCOPE`. Its
+   * closest sibling is the live feed, which is declared panel-wide too and **filters its frames** to
+   * the workspaces the account names — "the stream is the cheaper way to watch a workspace you may
+   * not read" is the sentence that decided that one, and it applies here unchanged: a scrape is the
+   * cheaper way to watch every workspace at once.
+   *
+   * An account with no limit keeps the whole panel, so a person's dashboard is untouched.
+   */
+  it('narrows the metrics scrape to the workspaces a limited account names', async () => {
+    const created = await makeFixture({
+      workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }],
+      servers: [{ id: 'secret-svc', command: 'node' }],
+      views: [makeView('secret-svc', { workspaceId: 'default' })],
+      workspaceViews: { staging: [makeView('stg', { workspaceId: 'staging' })] },
+    })
+    fixtures.push(created)
+
+    const limited = mint(created, ['read'], ['staging'])
+    const scrape = await created.app.request('/api/metrics', { headers: limited.headers })
+    expect(scrape.status).toBe(200)
+    const text = await scrape.text()
+    // Its own workspace is there…
+    expect(text).toContain('workspace="staging"')
+    // …and the one it may not read is not, by either label or `hh_servers`' count of them.
+    expect(text, 'a staging-limited account must not see default\'s servers').not.toContain('workspace="default"')
+    expect(text).not.toContain('secret-svc')
+    expect(text).toContain('hh_servers 1')
+
+    // The same refusal its sibling route gives, so the two cannot disagree about the limit.
+    expect((await created.app.request('/api/servers?workspace=default', { headers: limited.headers })).status).toBe(403)
+
+    // An unlimited credential still scrapes every workspace: a dashboard is not broken by the rule.
+    const unlimited = mint(created, ['read'])
+    const all = await (await created.app.request('/api/metrics', { headers: unlimited.headers })).text()
+    expect(all).toContain('workspace="default"')
+    expect(all).toContain('workspace="staging"')
+    expect(all).toContain('hh_servers 2')
   })
 
   /**

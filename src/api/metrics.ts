@@ -1,4 +1,5 @@
 import type { AppDeps } from '#src/app'
+import type { AuthIdentity } from '#src/services/auth'
 import type { ServerView } from '#src/shared/contracts'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
@@ -49,7 +50,27 @@ export function createMetricsRoute(deps: AppDeps) {
       summary: 'Prometheus text for whatever scrapes the panel',
       responses: { 200: { description: 'Prometheus text exposition', content: { 'text/plain': {} } } },
     }), validate('query', metricsQuery), (c) => {
-      const servers = deps.panel.serverViews()
+      /*
+       * A workspace-limited account scrapes only its own workspaces.
+       *
+       * Every other panel-wide read narrows for a limit, and the live feed — the closest sibling,
+       * since both are panel-wide reads of every workspace — filters its `log` and `server` frames
+       * to the workspaces the account names (`src/api/events.ts`). This route declared
+       * `workspaceScoped: false` on the reasoning "there is no `?workspace=` to narrow", which is
+       * true of the *query* and false of the *data*: every sample carries a `workspace` label, so
+       * there was something to narrow, and not narrowing it handed a `staging`-limited `read`
+       * account the id, status, crash count, restarts, uptime, response time, RSS and CPU of
+       * `default`'s servers. Measured: the scrape answered
+       * `hh_server_up{server="secret-svc",workspace="default"} 0` and
+       * `hh_server_crashes_24h{...,workspace="default"} 0` for an account limited to `staging`,
+       * while `GET /api/servers?workspace=default` refused it `403 TOKEN_SCOPE`.
+       *
+       * `limit === null` (a session, this machine, an unlimited credential) keeps the whole panel,
+       * exactly as the feed does, so a person's dashboard is unchanged.
+       */
+      const identity = (c.get as (key: string) => unknown)('identity') as AuthIdentity | undefined
+      const limit = identity?.account?.workspaces ?? null
+      const servers = deps.panel.serverViews().filter(server => limit === null || (server.workspaceId !== undefined && limit.includes(server.workspaceId)))
       const host = hostReadings(deps.panel.getState().host)
       const lines: string[] = []
 
