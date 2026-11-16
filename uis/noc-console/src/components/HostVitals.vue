@@ -186,7 +186,7 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
     <div class="hostvitals__disks">
       <div class="group__head">
         <span class="group__title">filesystems</span>
-        <span class="faint mono">{{ disks.length }} configured path(s)</span>
+        <span class="faint mono">{{ disks.length }} configured path{{ disks.length === 1 ? '' : 's' }}</span>
       </div>
       <div class="tblwrap">
         <table class="tbl">

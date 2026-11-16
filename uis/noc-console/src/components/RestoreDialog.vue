@@ -121,7 +121,7 @@ async function apply(): Promise<void> {
       notes.push('the restored servers are live, autostart entries starting')
     if (result.restartRequired)
       notes.push('restart home-hosted to apply the panel settings')
-    let message = `restored ${result.applied.length} item(s)${notes.length === 0 ? '' : ` — ${notes.join('; ')}`}`
+    let message = `restored ${result.applied.length} item${result.applied.length === 1 ? '' : 's'}${notes.length === 0 ? '' : ` — ${notes.join('; ')}`}`
     if (result.skipped.length > 0)
       message += ` · skipped: ${result.skipped.join(', ')}`
     emit('done', message)

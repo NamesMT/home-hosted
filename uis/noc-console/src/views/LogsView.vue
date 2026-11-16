@@ -217,7 +217,7 @@ onScopeDispose(() => {
     <div class="view__head">
       <span class="view__title">logs</span>
       <span class="view__count">{{ workspace.selected.value?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
-      <span class="view__count">{{ servers.length }} server(s)</span>
+      <span class="view__count">{{ servers.length }} server{{ servers.length === 1 ? '' : 's' }}</span>
 
       <select v-model="mode" title="source">
         <option value="disk">
@@ -292,7 +292,7 @@ onScopeDispose(() => {
             </span>
             <span class="logsrv__meta">
               <span>{{ server.enabled ? formatBytes(server.sizeBytes) : 'not persisted' }}</span>
-              <span v-if="server.files.length > 0">· {{ server.files.length }} file(s)</span>
+              <span v-if="server.files.length > 0">· {{ server.files.length }} file{{ server.files.length === 1 ? '' : 's' }}</span>
             </span>
           </button>
           <p v-if="servers.length === 0" class="empty">

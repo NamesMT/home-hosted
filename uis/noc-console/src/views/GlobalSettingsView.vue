@@ -905,7 +905,7 @@ async function revertUi(): Promise<void> {
         <div class="pane__head">
           <span class="pane__title">host vitals thresholds</span>
           <span class="view__spacer" />
-          <span v-if="control.host.value?.alerts.length" class="chip chip--danger">{{ control.host.value?.alerts.length }} alert(s)</span>
+          <span v-if="control.host.value?.alerts.length" class="chip chip--danger">{{ control.host.value?.alerts.length }} alert{{ control.host.value?.alerts.length === 1 ? '' : 's' }}</span>
           <span v-else class="chip chip--ok">quiet</span>
         </div>
         <div class="pane__body">
@@ -1056,7 +1056,7 @@ async function revertUi(): Promise<void> {
             <div class="group__head">
               <span class="group__title">archives</span>
               <span class="view__spacer" />
-              <span class="faint">{{ backupFiles.length }} file(s)</span>
+              <span class="faint">{{ backupFiles.length }} file{{ backupFiles.length === 1 ? '' : 's' }}</span>
             </div>
             <div v-if="backupFiles.length > 0" class="tblwrap">
               <table class="tbl">
@@ -1306,7 +1306,7 @@ async function revertUi(): Promise<void> {
         <div class="overlay__head">
           <span class="overlay__title">unsaved changes</span>
           <span class="view__spacer" />
-          <span class="faint">{{ changedCount }} field(s) → settings.json</span>
+          <span class="faint">{{ changedCount }} field{{ changedCount === 1 ? '' : 's' }} → settings.json</span>
           <kbd class="kbd">esc</kbd>
           <button type="button" class="btn btn--xs btn--ghost" @click="closeChanges">
             close

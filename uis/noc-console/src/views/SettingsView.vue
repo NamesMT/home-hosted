@@ -523,7 +523,7 @@ async function sendTest(): Promise<void> {
       <span class="view__title">workspace settings</span>
       <span class="view__count">{{ selected?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
       <span v-if="workspace.configError.value" class="chip chip--danger">config problem</span>
-      <span v-if="selected?.configWarnings?.length" class="chip chip--warn">{{ selected.configWarnings.length }} warning(s)</span>
+      <span v-if="selected?.configWarnings?.length" class="chip chip--warn">{{ selected.configWarnings.length }} warning{{ selected.configWarnings.length === 1 ? '' : 's' }}</span>
       <span class="view__spacer" />
       <button
         v-if="changedCount > 0"
@@ -638,7 +638,7 @@ async function sendTest(): Promise<void> {
         <div class="pane__head">
           <span class="pane__title">notifications</span>
           <span class="view__spacer" />
-          <span class="faint">{{ form.notifications.destinations.length }} destination(s)</span>
+          <span class="faint">{{ form.notifications.destinations.length }} destination{{ form.notifications.destinations.length === 1 ? '' : 's' }}</span>
         </div>
         <div class="pane__body">
           <!--
@@ -840,7 +840,7 @@ async function sendTest(): Promise<void> {
         <div class="overlay__head">
           <span class="overlay__title">unsaved changes</span>
           <span class="view__spacer" />
-          <span class="faint">{{ changedCount }} field(s) → workspace settings</span>
+          <span class="faint">{{ changedCount }} field{{ changedCount === 1 ? '' : 's' }} → workspace settings</span>
           <kbd class="kbd">esc</kbd>
           <button type="button" class="btn btn--xs btn--ghost" @click="closeChanges">
             close
