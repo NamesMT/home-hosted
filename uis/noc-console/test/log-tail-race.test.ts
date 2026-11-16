@@ -21,7 +21,13 @@ vi.mock('@/lib/api', () => ({
 }))
 vi.mock('@/composables/useControlPlane', () => ({ resetLogs: () => {}, unwatchLogs: () => {}, watchLogs: () => {} }))
 vi.mock('@/composables/useUi', () => ({ selectedId, flash: () => {}, useUi: () => ({ selectedId }) }))
-vi.mock('@/composables/useKeymap', () => ({ useKeyHandler: () => {} }))
+// Keep the module's own exports and stub only the two that register against the real shell:
+// a hand-written object loses every new export, which is how `useKeyHints` broke these three.
+vi.mock('@/composables/useKeymap', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/composables/useKeymap')>()),
+  useKeyHandler: () => {},
+  useKeyHints: () => {},
+}))
 vi.mock('@/composables/useWorkspaces', () => ({
   useWorkspaces: () => ({
     activeId: ref('default'),

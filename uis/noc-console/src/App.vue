@@ -9,7 +9,7 @@ import LogDrawer from '@/components/LogDrawer.vue'
 import SettingsProblem from '@/components/SettingsProblem.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
-import { isTyping, runKeyHandlers } from '@/composables/useKeymap'
+import { currentKeyHints, isTyping, runKeyHandlers } from '@/composables/useKeymap'
 import { closeTopLayer, modalOpen, useModalLayer } from '@/composables/useModalLayer'
 import { streamDecision, useSession } from '@/composables/useSession'
 import { useUi } from '@/composables/useUi'
@@ -38,6 +38,10 @@ const connectionLabel = computed(() => ({
  * never left covering the page it opened.
  */
 const navMore = ref(false)
+
+/** The shortcuts the mounted view registered; the registry is reactive, so a mount updates it. */
+const keyHints = computed(() => currentKeyHints())
+
 watch(() => route.fullPath, () => {
   navMore.value = false
 })
@@ -301,15 +305,22 @@ onScopeDispose(() => {
         <span class="status__v status__v--warn">{{ keyPrefix }}…</span>
       </span>
       <span class="status__seg status__seg--grow" />
+      <!--
+        The bar names the shortcuts **this page** answers, not a fixed sentence. It used to be
+        one hard-coded list on every route (`j k move · s start · … · / filter · ? keys`), so on
+        the overview, both settings pages, jobs and the proxy page all nine keys it named did
+        nothing, while the logs page answered `/`, `v` and `R` two of which it never mentioned.
+        Views register through `useKeyHints`; every page can still open the overlay with `?`.
+      -->
       <span class="status__hint">
-        <kbd class="kbd">j</kbd><kbd class="kbd">k</kbd> move
-        · <kbd class="kbd">s</kbd> start
-        · <kbd class="kbd">x</kbd> stop
-        · <kbd class="kbd">r</kbd> restart
-        · <kbd class="kbd">l</kbd> logs
-        · <kbd class="kbd">e</kbd> edit
-        · <kbd class="kbd">/</kbd> filter
-        · <kbd class="kbd">?</kbd> keys
+        <template v-for="hint in keyHints" :key="hint.label">
+          · <kbd v-for="key in hint.keys" :key="key" class="kbd">{{ key }}</kbd> {{ hint.label }}
+        </template>
+        <!-- `?` is the shell's own key, so it is always live; see the comment above. -->
+        <template v-if="keyHints.length > 0">
+          ·
+        </template>
+        <kbd class="kbd">?</kbd> keys
       </span>
     </footer>
   </div>

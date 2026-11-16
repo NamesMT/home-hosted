@@ -541,3 +541,20 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   been fixed this way; the rule is the pair — a heading beside a cluster that will not shrink also
   lets the row `flex-wrap` — and `uis/stock/test/mobile-layout.test.ts` now scans for it. A
   `Panel` header has the same shape; check it before adding actions to one.
+- **A shortcut hint describes the page, not the console** — noc-console's status bar carried one
+  hard-coded sentence (`j k move · s start · x stop · r restart · l logs · e edit · / filter ·
+  ? keys`) on every route. Measured in Chromium by pressing each key on each route and diffing the
+  DOM: five of eight routes answered **none** of them, and the logs page answered `/`, `v` and `R`
+  — two of which the bar never named. A hint that teaches a key which does nothing is worse than a
+  shorter hint. Views register through `useKeyHints`, beside the `useKeyHandler` that implements
+  them; **the registry must be `shallowReactive`**, because a plain module array is invisible to
+  Vue and the shell's computed then re-ran only on `route.fullPath` — which changes *before* the
+  incoming view mounts and *after* the outgoing one unmounts, so the bar showed the previous
+  page's keys (measured: Servers→Logs showed the servers keys, back showed the logs keys).
+  (`uis/noc-console/test/status-hint-keys.test.ts`)
+- **A bare `<select>` in a header row has no accessible name** — the health pane's mode dropdown
+  was not inside a `label.field` like every sibling on the page, so a screen reader announced
+  "combobox, tcp port" with no field name: measured in Chromium on a server's config route, 4
+  visible selects, three named by a wrapping label and this one's computed name the empty string.
+  Chromium falls back to `title`, which never shows on touch, so a *new* control gets an
+  `aria-label` rather than another title. (`uis/noc-console/test/select-accessible-name.test.ts`)

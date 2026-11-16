@@ -7,7 +7,7 @@ import ConfirmButton from '@/components/ConfirmButton.vue'
 import ServerDetail from '@/components/ServerDetail.vue'
 import ServerList from '@/components/ServerList.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
-import { useKeyHandler } from '@/composables/useKeymap'
+import { useKeyHandler, useKeyHints } from '@/composables/useKeymap'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import { addOpen, flash, helpOpen, useUi } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
@@ -148,6 +148,18 @@ async function clearSelected(): Promise<void> {
   if (server)
     await clearServer(server.id)
 }
+
+/** The keys this page answers, for the status bar — see `useKeyHints`. */
+useKeyHints([
+  { keys: ['j', 'k'], label: 'move selection' },
+  { keys: ['Home', 'G'], label: 'first / last' },
+  { keys: ['s'], label: 'start' },
+  { keys: ['x'], label: 'stop' },
+  { keys: ['r'], label: 'restart' },
+  { keys: ['e'], label: 'edit' },
+  { keys: ['l'], label: 'logs' },
+  { keys: ['c'], label: 'clear logs' },
+])
 
 useKeyHandler((key, event) => {
   switch (key) {

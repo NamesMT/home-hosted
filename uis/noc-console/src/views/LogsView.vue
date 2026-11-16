@@ -8,7 +8,7 @@ import ConfirmButton from '@/components/ConfirmButton.vue'
 import LogPane from '@/components/LogPane.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { resetLogs, unwatchLogs, watchLogs } from '@/composables/useControlPlane'
-import { useKeyHandler } from '@/composables/useKeymap'
+import { useKeyHandler, useKeyHints } from '@/composables/useKeymap'
 import { flash, useUi } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
@@ -201,6 +201,13 @@ watch([activeId, selectedId, mode], ([workspaceId, id, next]) => {
     liveRef = wanted
   }
 }, { immediate: true })
+
+/** The keys this page answers, for the status bar — see `useKeyHints`. */
+useKeyHints([
+  { keys: ['j', 'k'], label: 'move selection' },
+  { keys: ['v'], label: 'disk / live' },
+  { keys: ['R'], label: 'refresh' },
+])
 
 useKeyHandler((key) => {
   switch (key) {

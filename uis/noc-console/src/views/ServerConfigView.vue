@@ -278,7 +278,15 @@ async function remove(): Promise<void> {
                 <input v-model="form.health.enabled" type="checkbox">
                 <span class="field__label">enabled</span>
               </label>
-              <select v-if="form.health.enabled" v-model="form.health.mode">
+              <!--
+                This dropdown is a bare `<select>` in a compact header row, so it had no
+                accessible name at all: every sibling select on the page sits inside its
+                `label.field`, and this one announced only "combobox, tcp port". Measured in
+                Chromium on this route: 4 visible selects, all named by a wrapping label except
+                this one, whose computed name was the empty string. `aria-label` keeps the
+                header row's one-line layout; `JobLogSheet`'s stream filter is named the same way.
+              -->
+              <select v-if="form.health.enabled" v-model="form.health.mode" aria-label="check">
                 <option value="port">
                   tcp port
                 </option>
