@@ -135,6 +135,9 @@ export async function makeSupervisor(
     nannyDir,
     // The same file the fixture exposes as `secrets`, so a test can set a value and see it spawn.
     serverEnv: serverId => secrets.serverEnv(serverId),
+    // Wired as `PanelService` wires it, so the removal branch's reclaim is exercised, not just its
+    // declaration in the options type.
+    forgetServerEnv: serverId => secrets.forgetServerEnv(serverId),
   })
 
   cleanups.push(async () => {

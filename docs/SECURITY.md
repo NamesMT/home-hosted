@@ -202,6 +202,10 @@ The consequences are enforced rather than promised:
 - the server view reports `secretEnvSet`, the names that have a value, and no route returns a value;
 - `home-hosted secret` prints a name and a set marker, never a value, on any path including an error;
 - a name the entry does not declare is refused, so a leftover value cannot reach a child;
+- **removing an entry or a job deletes the values it owned.** A re-created id starts with none, rather
+  than inheriting a dead entry's credentials — the same rule its log lines and crash history already
+  followed. (The declared-name rule above is what makes that safe rather than merely tidy: an entry
+  that does not name a variable never receives one.)
 - the file is `0600`, like every other secret, and the secrets part of a backup carries it — which is
   what makes a move to a new machine keep working. The old arrangement (an `envFile` beside the code)
   was not in a backup at all.

@@ -358,6 +358,42 @@ describe('the jobs API', () => {
     await created.cleanup()
   })
 
+  /**
+   * A removed job takes its **secret values** with it, as it already takes its log.
+   *
+   * `jobEnv` is another map keyed by the id, and the DELETE route reclaimed the log but not the
+   * values: measured on a scratch panel, a job with a value set was removed and re-declared under the
+   * same id, and the new job's view already answered `secretEnvSet: ['STALE_KEY']` — the old value
+   * would have been handed to its next run. The declared-name consent rule means a job that does not
+   * name the variable never receives it, but a credential must not outlive the entry that owned it.
+   */
+  it('drops its stored secret values when the job is removed, so a re-declared id starts clean', async () => {
+    const created = await makeFixture()
+    const declare = async (): Promise<void> => {
+      await created.app.request('/api/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: 'leaky', command: process.execPath, args: ['-e', ''], schedule: '0 3 * * *', secretEnv: ['STALE_KEY'] }),
+      })
+    }
+    await declare()
+    const written = await created.app.request('/api/jobs/leaky/secrets', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ set: { STALE_KEY: 'THE OLD JOB VALUE' } }),
+    })
+    expect(written.status).toBe(200)
+    const before = await (await created.app.request('/api/jobs')).json() as { jobs: Array<{ id: string, secretEnvSet?: string[] }> }
+    expect(before.jobs.find(job => job.id === 'leaky')?.secretEnvSet).toEqual(['STALE_KEY'])
+
+    expect((await created.app.request('/api/jobs/leaky', { method: 'DELETE' })).status).toBe(200)
+    await declare()
+
+    const after = await (await created.app.request('/api/jobs')).json() as { jobs: Array<{ id: string, secretEnvSet?: string[] }> }
+    expect(after.jobs.find(job => job.id === 'leaky')?.secretEnvSet ?? [], 'the removed job\'s values must not survive under the same id').toEqual([])
+    await created.cleanup()
+  })
+
   it('drops the log when the job is removed, so a re-declared id starts clean', async () => {
     const created = await makeFixture()
     await created.app.request('/api/jobs', {

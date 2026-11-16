@@ -1429,6 +1429,33 @@ describe('a removed server', () => {
   })
 
   /**
+   * Its **secret values** go with it, as its log lines and history do.
+   *
+   * `serverEnv` is one more map keyed by the id, and the removal branch is a list: measured on a
+   * scratch panel, an entry with a value set was removed and re-created under the same id, and the new
+   * entry's view answered `secretEnvSet: ['STALE_KEY']` with the old value already in place — the file
+   * still held `{"leaky":{"STALE_KEY":"OLD-TENANT-VALUE"}}`, and the next spawn handed it to the new
+   * child. The declared-name consent rule means an entry that does not name the variable never
+   * receives it, so this is not exploitable on its own; it is still a credential outliving the entry
+   * that owned it, and every other per-id artifact is already reclaimed here.
+   */
+  it('takes its stored secret values with it, so a re-added id starts clean', async () => {
+    const harness = await makeSupervisor([{ id: 'web', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'], secretEnv: ['API_KEY'] }])
+    const { supervisor, store, secrets } = harness
+
+    secrets.setServerEnv('web', { API_KEY: 'THE OLD ENTRY VALUE' })
+    expect(secrets.serverEnv('web')).toEqual({ API_KEY: 'THE OLD ENTRY VALUE' })
+    // The view reports the *names* that have a value, so it is the observable half.
+    await waitFor(() => (view(supervisor, 'web').secretEnvSet ?? []).length === 1)
+
+    // Drop it the way a config edit does, then re-declare the same id.
+    store.removeServer('web')
+    await waitFor(() => supervisor.views().length === 0)
+
+    expect(secrets.serverEnv('web'), 'the removed entry\'s values must not survive under the same id').toEqual({})
+  })
+
+  /**
    * The transport files go with the entry too.
    *
    * A child's raw output is written to `.state/<id>.out`/`.err` and read back into the log. They are

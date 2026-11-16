@@ -1331,6 +1331,11 @@ export class SecretsStore {
     this.forgetEnvOf('serverEnv', serverId)
   }
 
+  /** Everything for one job, for a removal — the job half of `forgetServerEnv`. */
+  forgetJobEnv(jobId: string): void {
+    this.forgetEnvOf('jobEnv', jobId)
+  }
+
   /** Moves a removed id's values onto another: a renamed entry keeps its secrets. */
   renameServerEnv(from: string, to: string): void {
     this.renameEnvOf('serverEnv', from, to)

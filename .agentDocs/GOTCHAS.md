@@ -243,8 +243,12 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **Server args are logged before `${VAR}` expansion**, so a secret never reaches logs, SSE or Telegram.
 - **A certificate is valid only inside its window** — `validityError()` checks both ends; OpenSSL
   < 3.2 (macOS LibreSSL) lacks the flags the tests use (`hasOpensslExplicitDates`).
-- **A removed server takes every per-id artifact with it** (`logFiles.clear`, `HistoryStore.forget`) —
-  a third per-id store joins that branch. (`test/services/supervisor.test.ts`, "a removed server")
+- **A removed server takes every per-id artifact with it** (`logFiles.clear`, `HistoryStore.forget`,
+  `forgetServerEnv`) — a fourth per-id store joins that branch, and `secretEnv` already is one: a
+  removed then re-created id answered `secretEnvSet: ['STALE_KEY']` with the **old** value, and the
+  next spawn handed it to the new child. Reclaimed in the branch, not at the DELETE route, so a
+  hand-edited config gets it too. (`src/services/supervisor.ts`; `test/services/supervisor.test.ts`,
+  "a removed server")
 - **A route path is normalised once** — `pathKey` and the Caddy matcher read the same form.
 - **`EPERM` from `process.kill(pid, 0)` means alive** — one definition (`providers/port.ts`).
 - **A state file is not proof a process is ours** — check `nannyIsAlive` before signalling a pid read

@@ -882,6 +882,9 @@ export class Supervisor {
         // The transport files are this id's too: a re-added id must not inherit a dead run's output.
         removeOutputFiles(outputFiles(this.options.nannyDir, id))
         this.options.history.forget(id)
+        // Its secret values are this id's too, and the only per-id store that is not a reading: a
+        // re-added id must not inherit a dead entry's credentials. See `forgetServerEnv`.
+        this.options.forgetServerEnv?.(id)
         clearEntryState(entryStatePath(this.options.nannyDir, id))
         // Flagged so the stop below cannot write them back; clearing *after* it would race a re-add.
         entry.removed = true

@@ -553,6 +553,9 @@ export class PanelService {
       // Read through the runtime's own store, so a value written by `set-password`, a restore or an
       // offline CLI is picked up on the next spawn without restarting the panel.
       serverEnv: serverId => this.runtimes.get(id)?.secrets.serverEnv(serverId) ?? {},
+      // The same read, with a writer: a removed entry takes its stored values with it, as it already
+      // takes its log lines, crash history and nanny state (`sync()`'s removal branch).
+      forgetServerEnv: serverId => this.runtimes.get(id)?.secrets.forgetServerEnv(serverId),
     })
 
     /**

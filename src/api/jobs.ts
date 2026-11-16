@@ -141,8 +141,12 @@ export function createJobsRoute(deps: AppDeps) {
         if (!runtime.jobs.jobs.remove(id))
           throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
         // The log goes with it. A re-declared job of the same id must not inherit a dead run's output
-        // — the same rule the supervisor applies when a server entry disappears.
+        // — the same rule the supervisor applies when a server entry disappears. Its secret values
+        // are the other per-id artifact, and the supervisor's removal branch reclaims a server's for
+        // the same reason: an id that comes back must start clean rather than with a dead entry's
+        // credentials already in place.
         runtime.jobs.clearLog(id)
+        runtime.secrets.forgetJobEnv(id)
         return c.json({ ok: true })
       },
     )
