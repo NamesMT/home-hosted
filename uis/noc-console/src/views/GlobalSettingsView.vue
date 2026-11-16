@@ -16,7 +16,7 @@ import { useBackupSelection } from '@/composables/useBackupSelection'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useSession } from '@/composables/useSession'
-import { changesOpen } from '@/composables/useUi'
+import { changesOpen, flash } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import { describeScope } from '@/lib/backupSelection'
 import { waitForEndpoint } from '@/lib/endpoint'
@@ -337,6 +337,7 @@ async function saveSettings(): Promise<void> {
     const view = controlView.value
     if (!view) {
       settingsError.value = 'the settings are still loading'
+      flash(settingsError.value, 'error')
       return
     }
 
@@ -349,6 +350,10 @@ async function saveSettings(): Promise<void> {
       snapshots,
     })
     if (Object.keys(globalPatch).length === 0) {
+      // As on the workspace page: the note at the end of this scrolling body measured **2269 px**
+      // below the Save button at 1280x900, so the outcome was invisible without scrolling to the
+      // bottom. Flash the same words the console uses elsewhere, and keep the inline note.
+      flash('nothing changed')
       settingsMessage.value = 'nothing changed'
       return
     }
@@ -356,6 +361,7 @@ async function saveSettings(): Promise<void> {
     const outcome = await control.saveSettings(globalPatch)
     if (!outcome.ok) {
       settingsError.value = outcome.error
+      flash(outcome.error, 'error')
       return
     }
     const saved: SettingsSaveResult = outcome.value
@@ -368,6 +374,7 @@ async function saveSettings(): Promise<void> {
 
     if (!saved.rebinding) {
       settingsMessage.value = 'saved'
+      flash('panel settings saved')
       return
     }
 
@@ -379,9 +386,13 @@ async function saveSettings(): Promise<void> {
       return
     }
 
-    if (await waitForEndpoint(target))
+    if (await waitForEndpoint(target)) {
       window.location.replace(target)
-    else settingsError.value = `the control panel did not answer on ${target} — check the console`
+    }
+    else {
+      settingsError.value = `the control panel did not answer on ${target} — check the console`
+      flash(settingsError.value, 'error')
+    }
   }
   finally {
     saving.value = false

@@ -13,7 +13,7 @@ import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { vFocusTrap } from '@/composables/useFocusTrap'
-import { changesOpen } from '@/composables/useUi'
+import { changesOpen, flash } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { secondsOf } from '@/lib/forms'
@@ -395,6 +395,11 @@ async function saveSettings(): Promise<void> {
       repairWorkspaceForm(form, defaults, selected.value)
     const patch = buildWorkspacePatch({ form, defaults, live: selected.value, snapshots })
     if (Object.keys(patch).length === 0 && ddnsPatch.value === null) {
+      // The page is a long scroll body, and this note sits at its end — 1561 px below the Save
+      // button and outside the viewport, measured at 1280x900, so the only way to learn the
+      // outcome was to scroll to the bottom. The console already has a fixed toast for exactly
+      // this, and the server config editor uses it for the same message.
+      flash('nothing changed')
       settingsMessage.value = 'nothing changed'
       return
     }
@@ -417,9 +422,11 @@ async function saveSettings(): Promise<void> {
     applySettings()
     await ddnsSection.value?.reload()
     settingsMessage.value = 'saved'
+    flash('workspace settings saved')
   }
   catch (caught) {
     settingsError.value = errorMessage(caught)
+    flash(errorMessage(caught), 'error')
   }
   finally {
     saving.value = false
