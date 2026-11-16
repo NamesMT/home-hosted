@@ -95,8 +95,24 @@
 
   --text: #cfd8e3;
   --text-hi: #eef3f9;
-  --dim: #7f8b99;
-  --faint: #55616f;
+  /*
+   * The three quiet tones, and the floor they owe a reader.
+   *
+   * `--faint` carries real content, not decoration: a job's label (`Edited from browser`), a log
+   * pane's `0 ln`, a row's `· exit 0`, the `ws` / `sel` keys on the status line, the nav's `g s`
+   * chords. At its old `#55616f` it measured **2.42–3.10 : 1** against the surfaces it actually
+   * sits on — `--ink` 3.10, `--ink-2` 3.00, `--panel` 2.85, `--panel-2` 2.66, `--panel-3` 2.42 —
+   * against the 4.5:1 AA floor for body text. It reads as barely-there grey on a dark monitor,
+   * which is exactly how a column of secondary values turns into an unreadable smear.
+   *
+   * `--dim` moved with it: raising `--faint` alone would have left the two 0.33 apart on `--ink`
+   * (5.32 vs 5.65), collapsing a deliberate three-step hierarchy into two shades of one. The pair
+   * below keeps the steps: faint 5.83 / dim 7.72 / text 13.61 on `--ink`, and both clear AA on
+   * every surface above. (`--panel-3` is the lightest chip and the binding case: `--faint` is 4.54
+   * there now, where it was 2.42.)
+   */
+  --dim: #96a4b5;
+  --faint: #7c8ea2;
 
   --accent: #38c7d6;
   --accent-deep: #1b7c85;
