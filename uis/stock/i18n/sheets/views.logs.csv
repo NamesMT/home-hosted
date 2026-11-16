@@ -29,3 +29,4 @@ views.logs.searchedLines,searched {count} lines,đã tìm trong {count} dòng,�
 views.logs.streamAria,Stream,Luồng,流,ストリーム,Flujo,스트림,Поток,Flux,Stream
 views.logs.tailAria,Tail size,Kích thước đuôi,尾部大小,末尾のサイズ,Tamaño de la cola,끝부분 크기,Размер хвоста,Taille de fin,Tail-Größe
 views.logs.waitingOutput,Connected — waiting for output.,Đã kết nối — đang chờ đầu ra.,已连接 — 正在等待输出。,接続しました — 出力を待っています。,Conectado — esperando salida.,연결됨 — 출력을 기다리는 중입니다.,Подключено — ожидание вывода.,Connecté — en attente de sortie.,Verbunden — warte auf Ausgabe.
+views.logs.serverAria,Server,Máy chủ,服务器,サーバー,Servidor,서버,Сервер,Serveur,Server

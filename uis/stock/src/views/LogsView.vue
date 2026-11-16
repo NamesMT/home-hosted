@@ -68,6 +68,13 @@ const streamOptions = [
   { value: 'system', label: 'system' },
 ]
 
+/**
+ * The narrow page's server picker. The rail is the same list and is hidden below `md`, so this is
+ * the only way to change which server's logs are shown there; it stays mounted above `md` (just
+ * `md:hidden`) so the two never disagree about the selection.
+ */
+const serverOptions = computed(() => servers.value.map(server => ({ value: server.serverId, label: server.label })))
+
 const totalPersisted = computed(() => servers.value.reduce((sum, server) => sum + server.sizeBytes, 0))
 const persistedCount = computed(() => servers.value.filter(server => server.files.length > 0).length)
 
@@ -260,12 +267,34 @@ onMounted(async () => {
 
     <div class="flex min-w-0 flex-1 flex-col">
       <header class="flex flex-wrap items-center gap-2 border-b border-line bg-panel/40 px-3 py-2.5">
-        <div class="min-w-0">
+        <!--
+          The heading and the narrow picker say the same thing, so below `md` only one of them is
+          drawn: the picker names the server *and* changes it, and a second copy of the name beside it
+          is a label the person cannot use. Above `md` the rail does the changing, so the static
+          heading is what is left for the header.
+        -->
+        <div :class="cn('min-w-0', servers.length > 0 && 'hidden md:block')">
           <h1 class="truncate text-sm font-semibold text-ink">
             {{ current?.label ?? t('nav.logs') }}
             <span v-if="current" class="ml-1.5 font-mono text-2xs font-normal text-faint">{{ current.serverId }}</span>
           </h1>
         </div>
+
+        <!--
+          The rail below carries every server, and it is hidden under `md` so the log pane keeps its
+          width on a phone. Without this control the narrow page has no way to pick a server at all:
+          it silently shows whichever one the list put first, and the header names it as though that
+          were the choice. Measured at 767 px: the rail is `display: none` and no other control in
+          the page changes `selected`.
+        -->
+        <SelectField
+          v-if="servers.length > 0"
+          :model-value="selected ?? ''"
+          :options="serverOptions"
+          class="w-40 min-w-0 md:hidden"
+          :aria-label="t('views.logs.serverAria')"
+          @update:model-value="select"
+        />
 
         <SegmentedControl
           v-model="mode"
