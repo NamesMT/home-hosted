@@ -284,6 +284,17 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   for the same span — the header otherwise prints the server name twice, 60 px apart, with one copy
   unusable. (`uis/stock/test/logs-server-picker.test.ts`; assert the choice *works* below the
   breakpoint, not just that a control exists.)
+- **A scroll issued during `setup` measures a page that is still growing** — `?section=` was read
+  before the late `/api/settings` filled the host and backups blocks, so one `scrollIntoView`
+  placed the target against a document 1000 px shorter than the one that then existed: at
+  1280×900 `/global/settings?section=tls` settled at target top **1072** instead of 72, and
+  `/w/default/settings` was the same. A rail click was correct because it runs *after* the fill,
+  which is exactly why this hides from manual testing — the broken routes are a reload of the URL
+  the rail just produced, a bookmark, and the command palette's "Global setting: …". Re-place the
+  target while the height keeps changing, and let go on the first `wheel`/`touchstart` so a late
+  block cannot drag the viewport back. (`uis/stock/test/settings-pages.test.ts`, "a section deep
+  link follows the page as it grows"; `happy-dom` lays nothing out, so assert the *order* of
+  operations — the scroll is re-issued on growth and stops once it holds.)
 
 
 ## Data
