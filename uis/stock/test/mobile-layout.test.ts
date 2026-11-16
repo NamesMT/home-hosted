@@ -98,6 +98,40 @@ describe('the layout survives a phone', () => {
   })
 
   /**
+   * A title row beside a `shrink-0` action cluster must be allowed to wrap, or the title loses.
+   *
+   * A flex row is laid out at its items' **min-content** before anything shrinks, and `shrink-0`
+   * on the action cluster says that cluster keeps its full width. So the title — the item that
+   * can give way — absorbs the whole deficit. `FieldGroup` drew a group heading beside its
+   * actions that way; measured in Chromium at 320 px, `Interface` (three actions: Reset name,
+   * Revert to stock, Install UI) rendered in a **5 px** box holding 51 px of the word, and the
+   * description under it spilled to **304 px tall at 5 px wide**, one word per line.
+   * `Destinations` (222 px of actions) was 24 px wide. Every one of those groups was fine from
+   * 560 px up, which is why it hid — and `Panel` is the same shape.
+   *
+   * The rule is the pair, not the component: a row that puts a heading beside an action cluster
+   * which will not shrink must also let the row wrap, so the cluster drops below the heading
+   * instead of eating it. `PageHeader` already does this.
+   */
+  it('does not let an action cluster starve the heading beside it', () => {
+    const offenders: string[] = []
+    for (const file of templateFiles()) {
+      const source = templateOf(fs.readFileSync(file, 'utf8'))
+      for (const element of templateElements(source)) {
+        if (element.tag !== 'header' || !has(element.classes, 'justify-between'))
+          continue
+        if (!element.body.includes('<h1') && !element.body.includes('<h2') && !element.body.includes('<h3'))
+          continue
+        // `shrink-0` inside the header is the cluster; without it the row is already flexible.
+        if (!/\bshrink-0\b/.test(element.body) || has(element.classes, 'flex-wrap'))
+          continue
+        offenders.push(`${path.relative(srcDir, file)}: <${element.tag}> puts a heading beside a shrink-0 cluster with no flex-wrap`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  /**
    * A link or button whose only content is an icon has no text to make it big, so its target is
    * whatever box the class list gives it. Every other icon control in the UI is a `size-6`/`size-7`
    * grid or an `AppButton`; the one that was not — the card's "open in a new tab" glyph — was a

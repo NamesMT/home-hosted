@@ -531,3 +531,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   the probe **and** share the in-flight promise — a cache alone lets twenty simultaneous requests all
   miss it and all spawn. (`src/api/wsl-temperature.ts`; `test/api/routes.test.ts`, "does not spawn a
   process per request")
+- **A `shrink-0` action cluster starves the heading beside it** — a flex row is laid out at its
+  items' **min-content** before anything shrinks, and `shrink-0` on the cluster says it keeps its
+  full width, so the heading absorbs the whole deficit. `FieldGroup` drew a group heading beside
+  its actions that way: measured in Chromium at 320 px, `Interface` (Reset name, Revert to stock,
+  Install UI) rendered in a **5 px** box holding 51 px of the word and its description spilled to
+  **304 px tall at 5 px wide**, one word per line; `Destinations` (222 px of actions) was 24 px.
+  Every one of those groups was fine from 560 px up, which is why it hid. `PageHeader` had already
+  been fixed this way; the rule is the pair — a heading beside a cluster that will not shrink also
+  lets the row `flex-wrap` — and `uis/stock/test/mobile-layout.test.ts` now scans for it. A
+  `Panel` header has the same shape; check it before adding actions to one.
