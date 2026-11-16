@@ -73,7 +73,13 @@ person possible.
 - **Repeated login failures lock out per client address**, escalating to 15 minutes. On top of that,
   the whole panel accepts at most 100 failed sign-ins per 10 minutes, whatever address they claim;
   past that every sign-in — a correct one too — is `429` until the window closes. Recovery is
-  `home-hosted account reset` on the machine, which always works.
+  `home-hosted account reset` on the machine, which always works. **A wrong `Authorization: Bearer`
+  credential counts the same way, per client address:** it costs one scrypt to refuse, so an
+  unlimited stream of them would be a way to make the panel burn CPU without holding any credential
+  at all. It is bounded per address rather than panel-wide, because the panel-wide counter also
+  refuses a *correct* credential once spent — reusing it here would let one caller posting junk
+  headers lock every working script out of the API. A refused bearer answer is `401`, exactly as a
+  wrong secret is.
 
 ## Behind a proxy
 

@@ -302,6 +302,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   algorithm the record uses, and keep success fast — it runs on every authenticated request. Test the
   ratio in both directions, against each stored shape. (`src/config/secrets.ts`;
   `test/config/secrets.test.ts`)
+- **A failed credential costs a scrypt, so every path that accepts one needs a budget** — the login
+  route was bounded per address *and* panel-wide; the bearer path (`requestIdentity`, read on every
+  `/api` request) had neither. A miss there spends the same ~30 ms of synchronous scrypt, so an
+  anonymous caller loops `<made-up-id>:<guess>` — no valid credential, no known id — and the event
+  loop stalls: with 16 workers `/healthz` went 2.3 ms → 1.02 s sustained. Bound it **per address**,
+  with the lockout a failed sign-in already uses. Not the panel-wide counter: that one refuses a
+  correct credential once spent, so reusing it lets ~100 junk headers from one stranger stop every
+  working script for ten minutes — a CPU DoS traded for an outage of the automation the panel exists
+  to serve. (`src/services/auth.ts`, `src/middleware/auth.ts`; `test/services/auth.test.ts`)
 - **`validate('json', …)` reads the body, so a handler's own credential check runs too late** — an
   unauthenticated caller on the local channel decided how much work the panel did before refusing it
   (2 MB → `400 INVALID_INPUT` naming the field, ~3 MB heap, instead of `403`). Put the credential check

@@ -3,7 +3,7 @@ import type { AuthIdentity, AuthService } from '#src/services/auth'
 import type { HistoryActor } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
-import { isLoopbackRequest } from '#src/middleware/loopback'
+import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { bearerToken, SESSION_COOKIE } from '#src/services/auth'
 
 /**
@@ -20,12 +20,18 @@ export const AUTH_DISABLED_CODE = 'AUTH_DISABLED_REMOTE'
 /**
  * The one place that reads a request's credentials, so the guard, the session
  * route and `/healthz` can never disagree about who is calling.
+ *
+ * The peer address travels with a bearer read: a wrong credential costs one scrypt (equalised on
+ * every failed answer, so a miss cannot name an id), and `<made-up-id>:<guess>` in a loop is an
+ * anonymous way to make the panel burn the event-loop thread. `AuthService` bounds that per address
+ * with the same lockout a failed sign-in uses, so the caller that is guessing is the one that is
+ * slowed down, and every other client — including a working script — is untouched.
  */
 export function requestIdentity(c: Context, auth: AuthService, options: { slide?: boolean } = {}): AuthIdentity {
   return auth.authenticate({
     cookieToken: auth.tokenFromCookie(c.req.header('cookie')),
     bearerToken: bearerToken(c.req.header('authorization')),
-  }, options)
+  }, { ...options, ip: requestIp(c) })
 }
 
 /**

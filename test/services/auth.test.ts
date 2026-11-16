@@ -419,6 +419,46 @@ describe('api tokens', () => {
   })
 
   /**
+   * A wrong bearer credential must not be an unbounded way to make the panel burn CPU.
+   *
+   * `login` is bounded twice over — per address, and panel-wide — because a guess costs a scrypt.
+   * The bearer path spends the *same* scrypt (equalised on every failed answer, so a miss cannot name
+   * an id) and had **no** bound at all: it is read on every `/api` request by `requestIdentity`, so an
+   * anonymous caller could loop `<made-up-id>:<guess>` and each attempt cost ~30 ms of synchronous
+   * scrypt on the event-loop thread. No valid credential and no known account id is needed.
+   *
+   * Measured against a scratch panel with 16 such workers: `/healthz` went from 2.3 ms to a sustained
+   * 1.02 s (~440×), the reverse proxy's health checks and every state frame queued behind the
+   * hashing, and it recovered the moment the load stopped. That is a denial of service available to
+   * anyone who can reach the port, on the one credential path that never got the login budget.
+   *
+   * The containment is **per address**, deliberately, not the panel-wide counter: the panel-wide one
+   * refuses a correct credential once spent (that is how it bounds a distributed guess), so reusing it
+   * here would let ~100 junk headers from one stranger stop every working script for ten minutes —
+   * trading a CPU DoS for an outage of the automation the panel exists to serve. The address that is
+   * guessing is the one that gets slowed down.
+   */
+  it('contains failed bearer guesses per address, and leaves other clients alone', async () => {
+    const { secrets, config } = await makeAuth()
+    const auth = new AuthService(secrets, () => config)
+    seedAccount(auth, secrets, 'a-good-secret-value', { id: 'script', scopes: ['read'] })
+
+    // One address guesses until `maxLoginAttempts` is reached.
+    const attempts = config.maxLoginAttempts
+    for (let index = 0; index < attempts; index++)
+      expect(auth.accountFromBearer(`script:wrong-${index}`, '203.0.113.7')).toBeNull()
+
+    // That address is now locked out, so even the correct secret waits — the lockout is the bound,
+    // and a bound the guesser's own valid credential could step over would bound nothing.
+    expect(auth.accountFromBearer('script:a-good-secret-value', '203.0.113.7')).toBeNull()
+
+    // Every other client is untouched: a working script authenticates normally from its own address.
+    expect(auth.accountFromBearer('script:a-good-secret-value', '198.51.100.2')).toMatchObject({ id: 'script' })
+
+    auth.dispose()
+  })
+
+  /**
    * A bearer credential survives a **session** rotation, because it is not that account's session.
    *
    * The old rule was that rotating the password did not clear the API token, which is why retiring one

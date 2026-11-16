@@ -206,8 +206,12 @@ export class AuthService {
   /**
    * Resolves whichever credential the request carried. The token is only
    * consulted when no session matched, so a stale cookie cannot mask it.
+   *
+   * `ip` is the peer address, used to contain failed **bearer** guesses. It is optional so a caller
+   * that has no request (a test, a CLI path) still works; with no address every failure is simply
+   * unbounded by address, which is the behaviour a process-local caller can have.
    */
-  authenticate(credentials: { cookieToken: string | null, bearerToken: string | null }, options: { slide?: boolean } = {}): AuthIdentity {
+  authenticate(credentials: { cookieToken: string | null, bearerToken: string | null }, options: { slide?: boolean, ip?: string | null } = {}): AuthIdentity {
     const session = this.validate(credentials.cookieToken, options)
     if (session !== null) {
       /**
@@ -224,7 +228,7 @@ export class AuthService {
       this.sessions.delete(session.token)
       return ANONYMOUS
     }
-    const account = credentials.bearerToken === null ? null : this.accountFromBearer(credentials.bearerToken)
+    const account = credentials.bearerToken === null ? null : this.accountFromBearer(credentials.bearerToken, options.ip ?? null)
     if (account !== null) {
       // Recorded so a settings page can show an account nobody uses any more. Best-effort: a write
       // here must never make a valid request fail.
@@ -247,8 +251,27 @@ export class AuthService {
    * which is both slower and a timing signal. Splitting on the first `:` keeps a secret containing one
    * intact, and a missing `:` is refused rather than guessed — a legacy single-value token is not an
    * account and must not silently become one.
+   *
+   * **A failed guess is contained per address, with the lockout a failed sign-in uses.** This method
+   * is read on every `/api` request by `requestIdentity`, and a miss costs one scrypt (equalised on
+   * every failed answer, so a miss cannot name an id). Without a bound, an anonymous caller loops
+   * `<made-up-id>:<guess>` and every attempt burns ~30 ms of **synchronous** scrypt on the event-loop
+   * thread; no valid credential and no known account id is needed. Measured against a scratch panel
+   * with 16 such workers: `/healthz` went from 2.3 ms to a sustained 1.02 s (~440×) and recovered the
+   * moment the load stopped, with the reverse proxy's health checks and every state frame queued
+   * behind the hashing. `login` was already bounded per address *and* panel-wide; this path had
+   * neither, so the panel's own login limits were bypassable by moving the guess to the header.
+   *
+   * It is the **per-address** budget, not the panel-wide one. The panel-wide counter refuses even a
+   * correct credential once spent, by design — that is what bounds a distributed guess. Applying it
+   * here would mean ~100 junk headers from one stranger stop every working script's bearer token for
+   * ten minutes, which trades a CPU DoS for a trivial outage of the automation the panel exists to
+   * serve. Bounding the offending address slows the guesser down and leaves everyone else alone.
+   *
+   * With no address (a caller outside a request) the guess is unbounded by address, as `login` is
+   * with no address: there is no rate to abuse when the caller is already inside the process.
    */
-  accountFromBearer(value: string): AccountRecord | null {
+  accountFromBearer(value: string, ip: string | null = null): AccountRecord | null {
     const separator = value.indexOf(':')
     if (separator <= 0 || separator === value.length - 1)
       return null
@@ -256,8 +279,41 @@ export class AuthService {
     const secret = value.slice(separator + 1)
     if (accountIdProblem(id) !== null)
       return null
-    if (!this.secrets.verifyAccountSecret(id, secret))
+
+    // Locked out: refuse without hashing at all, which is the whole point — the hashing is the cost
+    // being spent. A correct credential waits too; the lockout is short and the alternative is that
+    // the guesser simply keeps the address.
+    const key = ip ?? 'unknown'
+    const now = Date.now()
+    const attempt = this.attempts.get(key)
+    if (ip !== null && attempt !== undefined && attempt.blockedUntil > now)
       return null
+
+    if (!this.secrets.verifyAccountSecret(id, secret)) {
+      // Recorded against the shared per-address bookkeeping, so a script fumbling its own secret is
+      // throttled exactly as it would be on the login route, and the map cannot grow unbounded.
+      const failures = (attempt?.failures ?? 0) + 1
+      const { maxLoginAttempts, lockoutMs } = this.getConfig()
+      if (failures >= maxLoginAttempts) {
+        const blocks = (attempt?.blocks ?? 0) + 1
+        this.recordAttempt(key, {
+          failures: 0,
+          blockedUntil: Date.now() + Math.min(lockoutMs * 2 ** (blocks - 1), MAX_LOCKOUT_MS),
+          blocks,
+          lastAttemptAt: Date.now(),
+        })
+      }
+      else {
+        this.recordAttempt(key, { failures, blockedUntil: 0, blocks: attempt?.blocks ?? 0, lastAttemptAt: Date.now() })
+      }
+      return null
+    }
+
+    // A successful credential clears the address's failures — the same rule `login` follows, so a
+    // script that mistyped a secret is not penalised after fixing it.
+    if (ip !== null && attempt !== undefined)
+      this.attempts.delete(key)
+
     const account = this.secrets.account(id)
     return account !== null && account.enabled ? account : null
   }
