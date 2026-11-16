@@ -331,3 +331,10 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   for a limit — the same rule `GET /api/events` follows for its frames, for the same reason (the
   cheaper panel-wide read is the way to watch a workspace you may not read).
   (`src/api/metrics.ts`, `src/api/events.ts`; `test/middleware/token-scopes.test.ts`)
+- **A `read` route that spawns a process is a spawn amplifier** — `GET /api/host/temperature` runs
+  `host.tempCommand` through a shell to report a number. Unbounded, the cheapest scope in the model
+  became "spawn a process per request": 20 concurrent requests from a `read`-only account peaked at
+  **40** processes (shell + child each), and a monitor credential is exactly what `read` is for. Cache
+  the probe **and** share the in-flight promise — a cache alone lets twenty simultaneous requests all
+  miss it and all spawn. (`src/api/wsl-temperature.ts`; `test/api/routes.test.ts`, "does not spawn a
+  process per request")

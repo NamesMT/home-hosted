@@ -1611,3 +1611,54 @@ describe('accounts, from the panel', () => {
     expect(stillWorks.status).toBe(200)
   })
 })
+
+/**
+ * `GET /api/host/temperature` is a `read` that **spawns a process**, so it must not spawn one per
+ * request.
+ *
+ * The probe runs `host.tempCommand` through a shell. Unbounded, that made the cheapest scope in the
+ * model — the one a monitor gets, documented as "the readings" — into a process-spawn amplifier:
+ * measured on a scratch panel whose command was `sleep 2; echo 42`, 20 concurrent requests from an
+ * account holding only `read` all answered `200`, and counting `sleep 2` throughout the flood peaked
+ * at **40 processes** (the shell and its child per request). The fixed build peaked at 2.
+ *
+ * The route cannot simply refuse a caller without `config`: the panel's own settings page fetches it
+ * once on mount to show a live reading, and a temperature is one number, so a short reuse window is
+ * the honest trade. Concurrent callers also share the one in-flight probe, because a cache alone
+ * lets twenty simultaneous requests all miss it and all spawn.
+ *
+ * The command here is a real script that appends to a file, so this counts **actual spawns** rather
+ * than timing anything.
+ */
+describe('the temperature probe shares one spawn between concurrent readers', () => {
+  it('shares one probe between concurrent readers, and reuses it briefly', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-temp-probe-'))
+    const counter = path.join(dir, 'count.txt')
+    const created = await fixture({ password: 'a-good-password' })
+    // A `read`-only credential: the scope the concern is about.
+    const bearer = setApiToken(created, generateApiToken(), 'monitor')
+    new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global')
+      .updateAccount('monitor', { scopes: ['read'] })
+
+    // `true` is a command that always succeeds and prints nothing; the shell is what is being counted.
+    const command = process.platform === 'win32'
+      ? `cmd /c echo x>>"${counter}" & echo 42`
+      : `echo x >> '${counter}'; echo 42`
+    created.settings.updateHost({ tempCommand: command, tempCommandTimeoutMs: 5000 })
+    fs.writeFileSync(counter, '')
+
+    const spawns = (): number => fs.readFileSync(counter, 'utf8').split('\n').filter(line => line.length > 0).length
+
+    // Twenty readers arriving together: one probe, so one line in the counter.
+    const answers = await Promise.all(Array.from({ length: 20 }, () =>
+      created.app.request('/api/host/temperature', { headers: { authorization: `Bearer ${bearer}` } })))
+    for (const answer of answers) expect(answer.status).toBe(200)
+    expect(spawns(), 'concurrent readers must share one probe, not spawn per request').toBe(1)
+
+    // A repeat inside the reuse window is answered without spawning again.
+    expect((await created.app.request('/api/host/temperature', { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(200)
+    expect(spawns(), 'a repeat inside the window must not spawn').toBe(1)
+
+    await fs.promises.rm(dir, { recursive: true, force: true })
+  })
+})

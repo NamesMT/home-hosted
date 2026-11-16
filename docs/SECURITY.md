@@ -124,6 +124,12 @@ The four scopes are **cumulative**, and `workspaces` narrows an account to some 
 | `config` | server, workspace and settings writes, and backups (**if** the account names no workspace limit — an archive spans them all). **Also command execution:** it writes the command an entry or job runs, and the panel runs it |
 | `admin` | everything, including tokens, the password, a UI install and restoring secrets |
 
+`read` is not "cannot cause work to happen". `GET /api/host/temperature` is a reading, and answering
+it **runs `host.tempCommand`** through a shell, so it is cached and its concurrent callers share one
+probe — otherwise a `read` credential could spawn a process per request (measured: 20 simultaneous
+requests peaked at 40 processes before the cache). The one place a `read` token can still cost the
+panel a process is that probe, once per few seconds.
+
 **A `read` account is refused `403 TOKEN_SCOPE` on every non-GET**, and one limited to `default`
 cannot act on `staging`. **Leaving `?workspace=` out is not a way around that limit:** an omitted key
 resolves to the panel's default workspace, so a request that names none is checked against the

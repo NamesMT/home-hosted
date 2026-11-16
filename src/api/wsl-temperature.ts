@@ -28,6 +28,23 @@ function status(deps: AppDeps): WslTemperatureStatus {
 }
 
 /**
+ * The last live probe, and how long an answer from it may be reused.
+ *
+ * `GET /api/host/temperature` is declared `read`, and its probe **spawns `host.tempCommand`** through
+ * a shell. Unbounded, that made a reading route into a process-spawn amplifier: measured on a scratch
+ * panel with the command set to `sleep 2; echo 42`, 20 concurrent requests from an account holding
+ * only `read` all answered `200` after ~2.4 s, i.e. twenty shells ran at once, and each repeat of the
+ * request cost another one. `read` is documented as "the readings" and is the scope a monitor gets, so
+ * a leaked monitor credential could spawn as many processes as it had sockets — and the panel's own
+ * page calls this route once on mount, so a cache costs it nothing.
+ *
+ * Deliberately not "only probe when the command changed": the point of the route is to show a live
+ * reading, and a temperature is one number, so a short reuse window is the honest trade — the same
+ * shape `TlsStore.status` uses for its own per-frame filesystem work.
+ */
+const PROBE_CACHE_MS = 5000
+
+/**
  * The WSL2 temperature bridge, over the panel's own settings.
  *
  * Panel-wide (a temperature is the machine's, not a workspace's), and deliberately three small
@@ -35,6 +52,32 @@ function status(deps: AppDeps): WslTemperatureStatus {
  * a setting, so it is the one that can fail and has to say why.
  */
 export function createWslTemperatureRoute(deps: AppDeps) {
+  /**
+   * One in-flight probe, shared by every concurrent caller, plus its last answer.
+   *
+   * A cache alone is not enough: twenty requests arriving together all miss it and all spawn. So the
+   * promise is stored, not just its result — concurrent callers await the same shell.
+   */
+  let probing: Promise<{ celsius: number | null, error: string | null }> | null = null
+  let probedAt = 0
+  let last: { celsius: number | null, error: string | null } | null = null
+
+  async function probeOnce(): Promise<{ celsius: number | null, error: string | null }> {
+    const now = Date.now()
+    if (last !== null && now - probedAt < PROBE_CACHE_MS)
+      return last
+    probing ??= probeWslTemperature(deps.panel.settings.host.tempCommand, deps.panel.settings.host.tempCommandTimeoutMs)
+      .then((result) => {
+        last = result
+        probedAt = Date.now()
+        return result
+      })
+      .finally(() => {
+        probing = null
+      })
+    return probing
+  }
+
   return appFactory.createApp()
     .get(
       '/host/temperature',
@@ -49,7 +92,7 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         // that was never saved must not spawn a PowerShell on every page load.
         if (!current.configured)
           return c.json(current)
-        const probe = await probeWslTemperature(deps.panel.settings.host.tempCommand, deps.panel.settings.host.tempCommandTimeoutMs)
+        const probe = await probeOnce()
         return c.json({ ...current, lastReadingCelsius: probe.celsius, lastError: probe.error })
       },
     )
