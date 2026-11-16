@@ -113,7 +113,7 @@ The four scopes are **cumulative**, and `workspaces` narrows an account to some 
 | --- | --- |
 | `read` | the readings: state, logs, metrics, the live feed — every `GET` **except an archive download** |
 | `lifecycle` | start, stop, restart, free a port, clear logs |
-| `config` | server, workspace and settings writes, and backups |
+| `config` | server, workspace and settings writes, and backups (**if** the account names no workspace limit — an archive spans them all) |
 | `admin` | everything, including tokens, the password, a UI install and restoring secrets |
 
 **A `read` account is refused `403 TOKEN_SCOPE` on every non-GET**, and one limited to `default`
@@ -138,6 +138,16 @@ every workspace's `secrets.json` and the panel's own `.control-secrets.json` in 
 hashes, DDNS credentials, Telegram tokens, every server's secret environment values — so handing one
 to a monitor credential would walk around every rule that keeps a secret *value* off a route. `read`
 is the readings; an account that may take an archive (`POST /api/backups`) may fetch it.
+
+**A workspace limit refuses the archive routes outright.** An archive reaches every workspace at once,
+and it names no `?workspace=`, so there is nothing for the limit to narrow: an account limited to
+`staging` used to take a backup that carried `default`'s `secrets.json`, restore one over `default`'s
+`servers.config.json`, and delete an archive the owner had made. Every backup route (`GET
+/api/backups`, `POST /api/backups`, `GET …/:name/download`, `POST …/restore`, `DELETE …/:name`) is
+declared `workspaceScoped: 'all'` — the inverse of panel-wide-with-nothing-to-narrow — so an account
+with **no** workspace limit keeps them and one with a limit gets `403 TOKEN_SCOPE`. Narrowing them
+instead would need an archive format that names the workspaces a selection covers, and a restore that
+checks each one; refusing is the honest answer until something does.
 
 Only a hash is stored, compared in constant time against every token (an early return would make the
 timing depend on which token was presented). The single pre-0.14 token migrates to one named

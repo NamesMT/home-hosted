@@ -274,7 +274,69 @@ describe('an account limited to one workspace', () => {
 
     expect((await created.app.request('/api/state', { headers })).status).toBe(200)
     expect((await created.app.request('/api/workspaces', { headers })).status).toBe(200)
-    expect((await created.app.request('/api/backups', { headers })).status).toBe(200)
+  })
+
+  /**
+   * Backups span **every** workspace, so a workspace limit refuses them instead of narrowing them.
+   *
+   * They were declared panel-wide (`workspaceScoped: false`), which read as "no workspace to narrow" —
+   * but an archive names no `?workspace=` at all, so the limit simply never applied. Measured on a
+   * panel holding `default` and `staging`, with an account limited to `staging` and the `config` scope
+   * backups need:
+   *
+   * - `POST /api/backups` answered `200`, and the archive it produced held
+   *   `workspaces/default/secrets.json` verbatim — the secret value of a workspace it may not read;
+   * - `POST /api/backups/restore` with `include: ["workspace:default"]` and `confirm` answered `200`
+   *   and rewrote `default`'s `servers.config.json`, silently reverting an entry the admin had just
+   *   added — a destructive write to a workspace it may not act on, past every check that refuses
+   *   `PATCH /api/servers/:id?workspace=default`;
+   * - `DELETE /api/backups/:name` removed an archive the admin had taken.
+   *
+   * The honest declaration is `'all'`: not panel-wide-with-nothing-to-narrow, but panel-wide *because*
+   * it covers everything, so only an account with no limit may have it. An unlimited `config` account
+   * keeps all four routes — that is what `docs/SECURITY.md` means by "`config`: backups".
+   */
+  it('is refused the archive routes, which reach every workspace and cannot be narrowed', async () => {
+    const created = await makeFixture({
+      workspaces: [
+        { id: 'staging', servers: [{ id: 'stg', command: 'node' }] },
+        { id: 'default', servers: [{ id: 'web', command: 'node', secretEnv: ['API_KEY'] }] },
+      ],
+    })
+    fixtures.push(created)
+    created.workspaces.get('default')!.secrets.setServerEnv('web', { API_KEY: 'default-only-value' })
+
+    const admin = mint(created, ['admin'])
+    const made = await created.app.request('/api/backups', {
+      method: 'POST',
+      headers: { ...admin.headers, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(made.status).toBe(200)
+    const { file } = await made.json() as { file: { name: string } }
+
+    // Limited to `staging`, with the scopes every one of these routes asks for.
+    const limited = mint(created, ['read', 'lifecycle', 'config'], ['staging'])
+    for (const [method, url] of [
+      ['GET', '/api/backups'],
+      ['POST', '/api/backups'],
+      ['GET', `/api/backups/${file.name}/download`],
+      ['POST', '/api/backups/restore'],
+      ['DELETE', `/api/backups/${file.name}`],
+    ] as const) {
+      const response = await created.app.request(url, { method, headers: limited.headers })
+      expect(response.status, `${method} ${url}`).toBe(403)
+      expect(await response.json(), `${method} ${url}`).toMatchObject({ code: 'TOKEN_SCOPE' })
+    }
+
+    // Nothing was touched: the archive is still there, and `default`'s entry still has its value.
+    expect(created.backups.list().map(entry => entry.name)).toContain(file.name)
+    expect(created.workspaces.get('default')!.secrets.serverEnv('web')).toEqual({ API_KEY: 'default-only-value' })
+
+    // An account with **no** limit keeps them: `config` owns backups.
+    const unlimited = mint(created, ['read', 'config'])
+    expect((await created.app.request('/api/backups', { headers: unlimited.headers })).status).toBe(200)
+    expect((await created.app.request(`/api/backups/${file.name}/download`, { headers: unlimited.headers })).status).toBe(200)
   })
 })
 

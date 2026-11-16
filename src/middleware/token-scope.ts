@@ -31,8 +31,12 @@ export interface TokenScopeRule {
    * `'path'` is the variant for the two routes whose **subject is a workspace** rather than a request
    * inside one: `PATCH`/`DELETE /api/workspaces/:id` name it in the URL, not in `?workspace=`. A limit
    * that only read the query let a `staging`-limited account rename and delete `default`.
+   *
+   * `'all'` is the inverse of `false`: the route names no workspace **because it reaches every one**.
+   * An archive is the whole panel, so a limited account is refused rather than checked — see the
+   * backups block below for what that refused.
    */
-  workspaceScoped: boolean | 'path'
+  workspaceScoped: boolean | 'path' | 'all'
 }
 
 /**
@@ -59,7 +63,7 @@ const RULES: Record<string, TokenScopeRule> = {
   'GET /api/settings/workspace': { scope: 'read', workspaceScoped: true },
   'GET /api/ddns': { scope: 'read', workspaceScoped: true },
   'GET /api/proxy': { scope: 'read', workspaceScoped: false },
-  'GET /api/backups': { scope: 'read', workspaceScoped: false },
+  'GET /api/backups': { scope: 'read', workspaceScoped: 'all' },
   /**
    * `config`, not `read`, even though it is a GET.
    *
@@ -72,7 +76,7 @@ const RULES: Record<string, TokenScopeRule> = {
    * how `docs/SECURITY.md` describes it — so an account that may take an archive may fetch it, and
    * one that may only read may not.
    */
-  'GET /api/backups/:name/download': { scope: 'config', workspaceScoped: false },
+  'GET /api/backups/:name/download': { scope: 'config', workspaceScoped: 'all' },
   'GET /api/host/temperature': { scope: 'read', workspaceScoped: false },
   'GET /api/auth/session': { scope: 'read', workspaceScoped: false },
   // Login and logout need **no** credential (the session route is public for the SPA's first paint),
@@ -136,9 +140,29 @@ const RULES: Record<string, TokenScopeRule> = {
   'POST /api/notifications/destinations/:id/test': { scope: 'config', workspaceScoped: true },
   'POST /api/notifications/destinations/:id/detect-chats': { scope: 'config', workspaceScoped: true },
   'POST /api/notifications/test-webhook': { scope: 'config', workspaceScoped: true },
-  'POST /api/backups': { scope: 'config', workspaceScoped: false },
-  'DELETE /api/backups/:name': { scope: 'config', workspaceScoped: false },
-  'POST /api/backups/restore': { scope: 'config', workspaceScoped: false },
+  /**
+   * Backups reach **every** workspace, so a workspace limit refuses them rather than narrowing them.
+   *
+   * They were declared panel-wide (`workspaceScoped: false`), read as "no workspace to narrow" — and
+   * an archive names no `?workspace=` at all, so the limit never applied to one. Measured on a panel
+   * with `default` and `staging`, an account limited to `staging`:
+   *
+   * - `POST /api/backups` answered `200` and the archive it got held `workspaces/default/secrets.json`
+   *   verbatim, which is the workspace it may not read;
+   * - `POST /api/backups/restore {name, include: ["workspace:default"], confirm}` answered `200` and
+   *   rewrote `default`'s `servers.config.json` — the `marker` entry the admin had just added was
+   *   gone — which is a **write** to a workspace it may not act on;
+   * - `DELETE /api/backups/:name` removed the archive the admin had taken.
+   *
+   * `'all'` is the honest declaration: these routes are not panel-wide with nothing to narrow, they
+   * are panel-wide **because they span everything**, so only an account without a limit may have
+   * them. `GET /api/backups` too — it lists every archive and the capture tree of every workspace,
+   * including each one's on-disk paths. An unlimited `config` account keeps all four, which is what
+   * `docs/SECURITY.md` describes (`config`: "server, workspace and settings writes, and backups").
+   */
+  'POST /api/backups': { scope: 'config', workspaceScoped: 'all' },
+  'DELETE /api/backups/:name': { scope: 'config', workspaceScoped: 'all' },
+  'POST /api/backups/restore': { scope: 'config', workspaceScoped: 'all' },
   'POST /api/host/temperature': { scope: 'config', workspaceScoped: false },
   'DELETE /api/host/temperature': { scope: 'config', workspaceScoped: false },
 
@@ -333,6 +357,14 @@ export function createTokenScopeGuard(deps: TokenScopeGuardDeps) {
     // destructive act on a workspace the account does not name, by leaving a query key out. An empty
     // `?workspace=` resolves identically, so it is treated identically.
     if (rule.workspaceScoped !== false && account.workspaces !== undefined) {
+      // `'all'`: the route reaches **every** workspace by design (an archive), so there is nothing to
+      // check it against — a limit of any size is narrower than what it does. Refused, not narrowed.
+      if (rule.workspaceScoped === 'all') {
+        throw new DetailedError(
+          `this account is limited to ${account.workspaces.join(', ')} — ${method} ${path} spans every workspace, and a workspace limit cannot narrow it`,
+          { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: account.workspaces } },
+        )
+      }
       // `'path'`: the workspace **is** the subject and is named in the URL. Declared panel-wide, a
       // `staging`-limited account renamed and deleted `default` — the id moved out of the query and
       // the limit stopped applying.

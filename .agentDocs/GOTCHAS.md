@@ -299,3 +299,10 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   (2 MB → `400 INVALID_INPUT` naming the field, ~3 MB heap, instead of `403`). Put the credential check
   in middleware ahead of validation on any route that takes a body. (`src/api/control.ts`;
   `test/api/panel.test.ts`)
+- **`workspaceScoped: false` on a route that reaches every workspace is not "nothing to narrow"** — an
+  archive names no `?workspace=`, so a `staging`-limited `config` account took a backup carrying
+  `default`'s `secrets.json`, restored one over `default`'s `servers.config.json`, and deleted the
+  owner's archive. The declaration has a spelling for each answer: `false` (panel-wide, the limit does not
+  apply), `'path'` (the subject is a workspace named in the URL), and `'all'` (it reaches every one,
+  so a limit **refuses** it). Any new route that touches more than one workspace at once is `'all'`.
+  (`src/middleware/token-scope.ts`; `test/middleware/token-scopes.test.ts`)
