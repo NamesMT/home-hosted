@@ -1110,10 +1110,22 @@ export class SecretsStore {
    * account-enumeration oracle"). Measured on the fixture before this: median 1.2 ms vs 36.9 ms.
    *
    * The work now happens either way. An unknown, disabled or under-specified record still runs one
-   * scrypt against a throwaway salt, so the answer costs the same as a real mismatch. Choosing scrypt
-   * rather than sha256 is deliberate: it is the *slowest* path a real record can take, so an attacker
-   * learns nothing by the gap in the other direction (an account whose secret the panel generated
-   * still verifying faster is a property of that account, not a fact about an id they do not have).
+   * scrypt against a throwaway salt, so the answer costs the same as a real mismatch.
+   *
+   * **A `false` always costs a scrypt, whichever shape the record has.** Choosing scrypt for the
+   * unknown case was right and not enough: the panel stores two algorithms, so the *miss* matched
+   * only the `scrypt` half. A secret the panel generated is `sha256` (256 bits of randomness needs no
+   * stretching), and verifying one returns in microseconds — so the cheap answer was not "no such
+   * account" but "a real account whose secret was generated", which is what `account create` mints by
+   * default and what the first-run `default` account is. Measured on a store holding both shapes:
+   * unknown 29.7 ms, generated 0.011 ms, typed 34.2 ms — the fast answer named the id, and it named
+   * the ones an attacker most wants.
+   *
+   * So the equalising cost is spent **on a failed answer**, and only there. A successful `sha256`
+   * verification stays microseconds, which is the whole reason generated secrets use it: it runs on
+   * every authenticated request. A wrong guess pays the same scrypt whether the id exists with a
+   * generated secret, exists with a typed one, or does not exist — so a *failed* attempt says nothing
+   * about the id. A success is the answer and needs no cover.
    */
   verifyAccountSecret(id: string, secret: string): boolean {
     const record = this.account(id)
@@ -1127,6 +1139,7 @@ export class SecretsStore {
         spendVerifyWork(secret)
         return false
       }
+      // The verification *is* a scrypt, so a miss has already paid the equalising cost.
       return verifyPassword(secret, {
         algo: 'scrypt',
         salt: record.salt,
@@ -1136,7 +1149,12 @@ export class SecretsStore {
         updatedAt: record.updatedAt,
       })
     }
-    return verifyApiToken(secret, { algo: 'sha256', hash: record.hash, hint: '', updatedAt: record.updatedAt })
+    if (verifyApiToken(secret, { algo: 'sha256', hash: record.hash, hint: '', updatedAt: record.updatedAt }))
+      return true
+    // A miss on a generated record must cost what a miss on an unknown id costs, or the cheap answer
+    // is the oracle.
+    spendVerifyWork(secret)
+    return false
   }
 
   /** `true` when it removed one, `false` when no such id — a 404 is the caller's to answer. */

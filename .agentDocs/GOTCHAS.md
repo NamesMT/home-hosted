@@ -294,6 +294,14 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   id returned before scrypt, and `account === null || !verify(…)` never ran the verify at all, so the
   login route answered in 1.2 ms against 36.9 ms. Spend the hash on the miss too, and reach it at the
   call site. (`src/config/secrets.ts`, `src/services/auth.ts`; `test/config/secrets.test.ts`)
+- **A timing floor on the *unknown* case is not parity when the store holds two algorithms** — the miss
+  was made to cost one scrypt, which matched a typed secret and not a generated one. `sha256` records
+  verify in microseconds, so a wrong secret for a real generated account was ~2700× *cheaper* than an
+  unknown id (0.011 ms vs 29.7 ms): the fast answer named the account, and it named the ids that
+  `account create` mints by default. Spend the equalising cost on every **failed** answer, whichever
+  algorithm the record uses, and keep success fast — it runs on every authenticated request. Test the
+  ratio in both directions, against each stored shape. (`src/config/secrets.ts`;
+  `test/config/secrets.test.ts`)
 - **`validate('json', …)` reads the body, so a handler's own credential check runs too late** — an
   unauthenticated caller on the local channel decided how much work the panel did before refusing it
   (2 MB → `400 INVALID_INPUT` naming the field, ~3 MB heap, instead of `403`). Put the credential check

@@ -451,4 +451,46 @@ describe('an unknown id costs what a wrong secret costs', () => {
     expect(unknown, 'an unknown id must not answer before hashing').toBeGreaterThan(wrong / 4)
     expect(unknown).toBeLessThan(wrong * 4)
   })
+
+  /**
+   * The same oracle, from the other side: an account whose secret the panel **generated**.
+   *
+   * The existing test above pairs an unknown id with a `scrypt` record, and that pairing is what hid
+   * this one. `spendVerifyWork` spends a scrypt for an id with no record, so the two matched — but a
+   * generated secret is stored as `sha256` (256 bits of randomness needs no stretching), and
+   * `verifyAccountSecret` then returns in microseconds. So the cost of a miss did not depend on the
+   * id being unknown at all; it depended on the **algorithm of the record the id names**, and the
+   * two answers are 2700× apart in the direction that matters:
+   *
+   * - `account create` mints a generated secret by default, and the first-run `default` account is
+   *   generated too — so the ids an attacker most wants to find are exactly the fast ones;
+   * - an id with no record costs a full scrypt, so the *slow* answer means "no such account".
+   *
+   * Measured through `verifyAccountSecret` on a store holding both shapes: unknown 29.7 ms,
+   * generated 0.011 ms, typed 34.2 ms. That is a working account-enumeration oracle — the one thing
+   * `docs/SECURITY.md` promises the login form is not — and it is the inverse of what the comment
+   * above assumed ("an account whose secret the panel generated still verifying faster is a property
+   * of that account, not a fact about an id they do not have"). It is precisely a fact about the id:
+   * asking about a real generated account is the only way to get the fast answer.
+   *
+   * A miss must therefore not be slower than a `sha256` hit. It is not required to be *equal* to a
+   * scrypt record — a stored algorithm is allowed to cost what it costs — but the floor has to be no
+   * higher than the cheapest real record, or the floor itself is the signal.
+   */
+  it('spends no more on an unknown id than on a generated-secret account', async () => {
+    const file = await tempFile()
+    const store = new SecretsStore(file, undefined, 'global')
+    // The panel-generated shape: what `account create` and the first-run `default` both store.
+    const minted = store.createAccount({ id: 'generated', label: 'generated', scopes: ['read'] })
+
+    const unknown = medianMs(() => store.verifyAccountSecret('no-such-id', 'a-wrong-secret-value'))
+    const generated = medianMs(() => store.verifyAccountSecret(minted.account.id, 'a-wrong-secret-value'))
+
+    // A wrong secret on a real generated account and a probe for an absent one must land in the same
+    // order of magnitude, in **both** directions. The bug was one direction only — the miss on the
+    // real account was ~2700× cheaper — so asserting only one side would leave the other open. The
+    // factor is generous against CI noise and still far below that gap.
+    expect(generated, 'a wrong secret for a real generated account must not be the cheap answer').toBeGreaterThan(unknown / 10)
+    expect(unknown, 'an unknown id must not cost measurably more than a real generated account').toBeLessThan(generated * 10)
+  })
 })
