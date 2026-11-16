@@ -45,10 +45,82 @@ const router = useRouter()
 const active = ref(props.sections[0]?.id ?? '')
 const showChanges = ref(false)
 
+/**
+ * The page is still growing when a deep link resolves, so one scroll is not enough.
+ *
+ * `?section=` is read in `setup`, which runs before the late `/api/settings` fills the host and
+ * backups blocks; those blocks add real height *above* the target. A single `scrollIntoView`
+ * therefore picks its position against the shorter document, the page then grows underneath it, and
+ * the section ends up far below the fold. Measured at 1280x900 on
+ * `/global/settings?section=tls`: the scroll ran at `scrollHeight` 5227, the page grew to 6227, and
+ * the target that should sit at top 72 sat at **1072** — so a reload, a bookmark, and the command
+ * palette's "Global setting: TLS" all landed on unrelated content, while clicking the rail (which
+ * runs after the fill) was correct. Re-placing the target while the height keeps changing makes the
+ * two agree.
+ */
+const shell = ref<HTMLElement | null>(null)
+/** The section the URL asked for, until the page stops growing under it. */
+let pendingSection: string | null = null
+/** How long the page must hold its height before the placement is considered settled. */
+const SETTLE_MS = 300
+/** How often the height is re-read while following. */
+const FOLLOW_INTERVAL_MS = 100
+let followTimer: ReturnType<typeof setInterval> | null = null
+/** The last height seen, so a growth is distinguishable from a settled page. */
+let followHeight = -1
+let settleTimer: ReturnType<typeof setTimeout> | null = null
+
+function applySectionScroll(): void {
+  if (pendingSection !== null)
+    document.getElementById(pendingSection)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/**
+ * Let go of the placement: the page has settled, or a person took the viewport back by scrolling.
+ */
+function stopFollowing(): void {
+  pendingSection = null
+  if (followTimer !== null) {
+    clearInterval(followTimer)
+    followTimer = null
+  }
+  if (settleTimer !== null) {
+    clearTimeout(settleTimer)
+    settleTimer = null
+  }
+  window.removeEventListener('wheel', stopFollowing)
+  window.removeEventListener('touchstart', stopFollowing)
+}
+
+/**
+ * Place the target, then keep re-placing it while the document under it grows.
+ *
+ * A person who starts scrolling is done being placed, so the first wheel or touch drops the
+ * follow — a late block can never drag the viewport back.
+ */
+function followSectionIntoView(id: string): void {
+  stopFollowing()
+  pendingSection = id
+  followHeight = -1
+  void nextTick(applySectionScroll)
+
+  followTimer = setInterval(() => {
+    const height = shell.value?.scrollHeight ?? 0
+    if (height === followHeight)
+      return
+    followHeight = height
+    applySectionScroll()
+    if (settleTimer !== null)
+      clearTimeout(settleTimer)
+    settleTimer = setTimeout(stopFollowing, SETTLE_MS)
+  }, FOLLOW_INTERVAL_MS)
+  settleTimer = setTimeout(stopFollowing, SETTLE_MS)
+  window.addEventListener('wheel', stopFollowing, { passive: true })
+  window.addEventListener('touchstart', stopFollowing, { passive: true })
+}
+
 function scrollToSection(id: string): void {
-  void nextTick(() => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
+  followSectionIntoView(id)
 }
 
 function go(id: string): void {
@@ -83,9 +155,16 @@ onMounted(() => {
     if (element)
       observer.observe(element)
   }
+
+  // The `?section=` watch ran during setup, before this element existed to watch for growth.
+  if (pendingSection !== null)
+    followSectionIntoView(pendingSection)
 })
 
-onBeforeUnmount(() => observer?.disconnect())
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  stopFollowing()
+})
 
 /** Save from the list closes it — the click and the write are one act. */
 function saveFromModal(): void {
@@ -101,7 +180,7 @@ function saveFromModal(): void {
     could not be scrolled to at all and the sticky footer sat on top of it. A flex column that grows
     past `100%` is what lets the page scroll, and `pb-24` is then what clears the footer.
   -->
-  <div class="flex min-h-full flex-col">
+  <div ref="shell" class="flex min-h-full flex-col">
     <!--
       `pb-24` clears the **sticky footer** below. It was `pb-6`, so the last row of a page ran under
       the bar: measured on Global settings → Accounts, the create form's own Create/Cancel buttons sat

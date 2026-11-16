@@ -501,3 +501,76 @@ describe('the DDNS block counts only what it changed', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * A deep link has to survive the page growing under it.
+ *
+ * `?section=` is read in `setup`, before `/api/settings` fills the host and backups blocks. Those
+ * blocks add real height *above* the target, so a single `scrollIntoView` measured the shorter
+ * document and then let the page grow past it. Measured in Chromium at 1280x900 on
+ * `/global/settings?section=tls`: the scroll ran at `scrollHeight` 5227, the page grew to 6227, and
+ * the target sat at **1072** instead of 72 — a reload, a bookmark and the command palette's
+ * "Global setting: TLS" all landed on unrelated content, while clicking the rail (which runs after
+ * the fill) was correct.
+ *
+ * `happy-dom` lays nothing out, so the assertion is about the *order of operations*: the shell must
+ * keep re-issuing the scroll while its host element reports new height, and must stop once it is
+ * still, or when the person scrolls instead.
+ */
+describe('a section deep link follows the page as it grows', () => {
+  /** Records every `scrollIntoView`, and reports a height the shell's observer will see. */
+  function trackScrolls(heights: number[]) {
+    const scrolled: string[] = []
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id)
+    }
+    let index = 0
+    const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => {
+      // Grow on each read, as a late block filling does, then hold.
+      const value = heights[Math.min(index, heights.length - 1)] ?? 0
+      index += 1
+      return value
+    })
+    return {
+      scrolled,
+      restore() {
+        Element.prototype.scrollIntoView = original
+        scrollHeight.mockRestore()
+      },
+    }
+  }
+
+  it('re-issues the scroll while the page keeps growing, then stops', async () => {
+    vi.useFakeTimers()
+    const tracker = trackScrolls([500, 1200, 1800, 1800, 1800])
+    try {
+      const wrapper = await mountPage('global', { at: '/?section=paths' })
+      await flushPromises()
+
+      // The first placement happened in `setup`/`nextTick`.
+      expect(tracker.scrolled.length, 'the deep link must scroll at least once').toBeGreaterThan(0)
+      expect(tracker.scrolled.every(id => id === 'paths'), 'it must follow the section the URL named').toBe(true)
+
+      const afterFirst = tracker.scrolled.length
+      // A fill lands and the page grows: the next poll sees the new height and re-places.
+      await vi.advanceTimersByTimeAsync(150)
+      await flushPromises()
+      expect(tracker.scrolled.length, 'growth must be followed by another scroll').toBeGreaterThan(afterFirst)
+
+      // Once the height holds for the settle window, the shell lets go.
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      const settled = tracker.scrolled.length
+      await vi.advanceTimersByTimeAsync(5000)
+      await flushPromises()
+      expect(tracker.scrolled.length, 'a settled page must not keep scrolling').toBe(settled)
+
+      wrapper.unmount()
+    }
+    finally {
+      tracker.restore()
+      vi.useRealTimers()
+    }
+  })
+})
