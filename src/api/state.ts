@@ -7,7 +7,9 @@ import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { appVersion } from '#src/helpers/version'
+import { workspaceLimit } from '#src/helpers/workspace'
 import { requestIdentity } from '#src/middleware/auth'
+import { narrowStateFor } from '#src/services/state'
 import { appStateSchema, metaViewSchema } from '#src/shared/contracts'
 import { ERROR_CODES } from '#src/shared/error-codes'
 import { lazy } from '#src/shared/lazy'
@@ -67,7 +69,18 @@ export function createStateRoute(deps: AppDeps) {
         responses: { 200: { description: 'The snapshot', content: jsonBody(appStateSchema) } },
       }),
       validate('query', stateQuery),
-      c => c.json(deps.panel.getState()),
+      (c) => {
+        /*
+         * A workspace-limited credential gets only its own workspaces.
+         *
+         * The limit is enforced by the scope guard on every route that **names** a workspace, and
+         * this one names none — so "nothing to check it against" was answered by sending every
+         * workspace's full subtree, which is the same `ServerView` `GET /api/servers` refuses that
+         * account. `src/services/state.ts` carries the measurement; `narrowStateFor` is the one
+         * definition, shared with `GET /api/workspaces`.
+         */
+        return c.json(narrowStateFor(deps.panel.getState(), workspaceLimit(c)))
+      },
     )
 
     .get(

@@ -273,4 +273,57 @@ describe('a workspace-limited credential on the live feed', () => {
     expect(logTexts(text), 'its own workspace is delivered').toContain('OWN-OK')
     expect(logTexts(text), 'another workspace is not').not.toContain('DEFAULT-LEAK')
   })
+
+  /**
+   * The **snapshot** frames are narrowed too, not merely the per-frame `workspaceId` ones.
+   *
+   * Filtering on `workspaceId` covered `server` and `log` frames only, and left `hello`/`state` whole
+   * on the reasoning that they are "panel-wide". They are panel-wide in the sense that they carry
+   * every workspace — which is exactly why a limited credential's copy has to be cut down: the state
+   * payload is `workspaces[].servers[]`, the same `ServerView` its polling sibling refuses. Measured
+   * on a fixture whose `default` holds `secret-svc`, a `staging`-limited `read` account's opening
+   * `hello` frame carried `"default"`, the command `node --api-key=SUPERSECRET` and pid `4242`.
+   */
+  it('narrows the opening snapshot and every later state frame to its own workspaces', async () => {
+    const created = await makeFixture({
+      workspaces: [{ id: 'staging' }],
+      servers: [{ id: 'secret-svc', command: 'node --api-key=SUPERSECRET' }],
+      views: [makeView('secret-svc', {
+        config: { id: 'secret-svc', command: 'node --api-key=SUPERSECRET', enabled: true, label: 'private' } as never,
+        status: 'running',
+        pid: 4242,
+      })],
+    })
+    fixtures.push(created)
+    const { secret } = created.globalSecrets.createAccount({ id: 'limited', label: 'limited', scopes: ['read'], workspaces: ['staging'] })
+    const headers = { authorization: `Bearer limited:${secret}` }
+
+    const response = await created.app.request('/api/events', { headers })
+    expect(response.status).toBe(200)
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const hello = await readFrames(reader, decoder, '', all => all.includes('event: hello'), 3000)
+
+    expect(hello, 'the account\'s own workspace is named').toContain('"staging"')
+    expect(hello, 'another workspace\'s server id is not').not.toContain('secret-svc')
+    expect(hello, 'nor its command').not.toContain('SUPERSECRET')
+    expect(hello, 'nor its live pid').not.toContain('4242')
+
+    // The periodic frame goes through the same narrowing: the hub publishes the whole panel.
+    created.panel.getState()
+    created.hub.publish({ type: 'state', ts: Date.now(), state: created.panel.getState() })
+    const later = await readFrames(reader, decoder, hello, all => all.includes('event: state'), 3000)
+    await reader.cancel().catch(() => {})
+    expect(later, 'the later frame carries its own workspace').toContain('"staging"')
+    expect(later, 'and not another workspace\'s server').not.toContain('secret-svc')
+
+    // An unlimited credential keeps the whole panel.
+    const admin = created.globalSecrets.createAccount({ id: 'wide', label: 'wide', scopes: ['read'] })
+    const wide = await created.app.request('/api/events', { headers: { authorization: `Bearer wide:${admin.secret}` } })
+    const wideReader = wide.body!.getReader()
+    const wideHello = await readFrames(wideReader, decoder, '', all => all.includes('event: hello'), 3000)
+    await wideReader.cancel().catch(() => {})
+    expect(wideHello, 'an unlimited credential sees every workspace').toContain('"default"')
+    expect(wideHello).toContain('secret-svc')
+  })
 })

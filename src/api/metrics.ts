@@ -1,10 +1,10 @@
 import type { AppDeps } from '#src/app'
-import type { AuthIdentity } from '#src/services/auth'
 import type { ServerView } from '#src/shared/contracts'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { validate } from '#src/helpers/validator'
+import { limitAllows, workspaceLimit } from '#src/helpers/workspace'
 import { hostReadings } from '#src/shared/host-readings'
 import { lazy } from '#src/shared/lazy'
 
@@ -68,9 +68,8 @@ export function createMetricsRoute(deps: AppDeps) {
        * `limit === null` (a session, this machine, an unlimited credential) keeps the whole panel,
        * exactly as the feed does, so a person's dashboard is unchanged.
        */
-      const identity = (c.get as (key: string) => unknown)('identity') as AuthIdentity | undefined
-      const limit = identity?.account?.workspaces ?? null
-      const servers = deps.panel.serverViews().filter(server => limit === null || (server.workspaceId !== undefined && limit.includes(server.workspaceId)))
+      const limit = workspaceLimit(c)
+      const servers = deps.panel.serverViews().filter(server => server.workspaceId !== undefined && limitAllows(limit, server.workspaceId))
       const host = hostReadings(deps.panel.getState().host)
       const lines: string[] = []
 

@@ -1,5 +1,4 @@
 import type { AppDeps } from '#src/app'
-import type { AuthIdentity } from '#src/services/auth'
 import type { SseMessage } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
@@ -9,8 +8,9 @@ import { resumePoint, serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, sseResponse } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
-import { requireWorkspace } from '#src/helpers/workspace'
+import { requireWorkspace, workspaceLimit } from '#src/helpers/workspace'
 import { serverKey } from '#src/services/events'
+import { narrowStateFor } from '#src/services/state'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam, integerParam } from '#src/shared/query-params'
 
@@ -92,9 +92,9 @@ export function createEventsRoute(deps: AppDeps) {
         // The auth guard already resolved this request's credential and stored it, so the limit is
         // read from there rather than resolved a second time — a second `requestIdentity` would slide
         // the session, and this is a long-lived connection (the same reason `serveEventStream`
-        // re-checks with `{ slide: false }`).
-        const identity = (c.get as (key: string) => unknown)('identity') as AuthIdentity | undefined
-        const limit = identity?.account?.workspaces ?? null
+        // re-checks with `{ slide: false }`). One definition, in `src/helpers/workspace.ts`, so the
+        // guard, this feed, the scrape and the snapshots cannot disagree about who may see what.
+        const limit = workspaceLimit(c)
 
         // A server id is unique only inside its workspace, so naming one without a workspace means
         // the default workspace — the rule every other workspace-scoped route follows — never "any".
@@ -118,28 +118,38 @@ export function createEventsRoute(deps: AppDeps) {
 
         return serveEventStream(c, deps.auth, (send, resumeFrom) => {
           const subscription = workspaceId !== null && serverId !== null ? serverKey(workspaceId, serverId) : null
-          const accepts = (message: SseMessage): boolean => {
+          /**
+           * The frame to deliver, or `null` to drop it.
+           *
+           * A **snapshot** frame is narrowed rather than dropped: `hello`/`state` are the panel in one
+           * payload, so a limited credential's copy is cut down to its own workspaces (the same
+           * `narrowStateFor` `GET /api/state` uses). Filtering on `workspaceId` alone left them whole,
+           * which handed a `staging`-limited account `default`'s every server — id, command, pid and
+           * status — over the stream whose polling sibling refuses that same account.
+           */
+          const shape = (message: SseMessage): SseMessage | null => {
             if (!includeLogs && message.type === 'log')
-              return false
-            // A limited credential sees server and log frames only for the workspaces it names. State
-            // frames stay whole: they are panel-wide, and a `server` frame carries a `workspaceId` so
-            // the same check covers it.
+              return null
+            if (message.type === 'hello' || message.type === 'state')
+              return { ...message, state: narrowStateFor(message.state, limit) }
+            // A limited credential sees server and log frames only for the workspaces it names.
             if (limit !== null && 'workspaceId' in message && message.workspaceId !== undefined && !limit.includes(message.workspaceId))
-              return false
-            // `?workspace=` alone narrows server and log frames; state frames are panel-wide.
+              return null
+            // `?workspace=` alone narrows server and log frames; snapshots are panel-wide.
             if (subscription === null && workspaceId !== null && 'workspaceId' in message && message.workspaceId !== workspaceId)
-              return false
-            return true
+              return null
+            return message
           }
-          const hello: SseMessage = { type: 'hello', ts: Date.now(), state: deps.panel.getState() }
+          const hello: SseMessage = { type: 'hello', ts: Date.now(), state: narrowStateFor(deps.panel.getState(), limit) }
 
           // Both branches are synchronous from the first send to the subscription, so no frame can
           // slip in between and a client always reads `hello` before anything else. A fresh stream
           // subscribes first so a frame published as it opens is queued, not dropped.
           if (resumeFrom === null) {
             const unsubscribe = deps.hub.subscribe(subscription, (message, seq) => {
-              if (accepts(message))
-                send(message, seq)
+              const shaped = shape(message)
+              if (shaped !== null)
+                send(shaped, seq)
             })
             send(hello)
             return unsubscribe
@@ -148,8 +158,9 @@ export function createEventsRoute(deps: AppDeps) {
           // Resuming: the snapshot goes first (it is current), then the replay of older log frames.
           send(hello)
           return deps.hub.subscribeFrom(subscription, resumeFrom, (message, seq) => {
-            if (accepts(message))
-              send(message, seq)
+            const shaped = shape(message)
+            if (shaped !== null)
+              send(shaped, seq)
           })
         }, { since, currentSeq: () => deps.hub.lastSeq })
       },

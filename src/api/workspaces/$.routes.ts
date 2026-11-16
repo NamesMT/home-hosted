@@ -6,6 +6,7 @@ import { WorkspaceError } from '#src/config/workspaces'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
+import { limitAllows, workspaceLimit } from '#src/helpers/workspace'
 import { workspaceCreateSchema, workspaceRenameSchema, workspaceViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 
@@ -39,7 +40,21 @@ export function createWorkspacesRoute(deps: AppDeps) {
         summary: 'Every workspace, with its live state',
         responses: { 200: { description: 'The workspaces', content: jsonBody(workspacesResponse) } },
       }),
-      c => c.json({ workspaces: deps.panel.workspaces().map(workspace => workspace.view()) }),
+      /*
+       * A workspace-limited credential lists only the workspaces it names.
+       *
+       * Declared panel-wide, and deliberately so — the selector has to learn what it may name, and a
+       * new workspace is an addition to the panel rather than an act inside one. But the answer is
+       * not a registry of ids and labels: each entry is the workspace's **full view**, `servers[]`
+       * included, so a `staging`-limited `read` account read `default`'s server ids,
+       * `config.command`, live pid and status out of it while `GET /api/servers?workspace=default`
+       * refused it `403 TOKEN_SCOPE`. The list stays open; what it carries is narrowed, exactly as
+       * `GET /api/state` now is.
+       */
+      (c) => {
+        const limit = workspaceLimit(c)
+        return c.json({ workspaces: deps.panel.workspaces().filter(workspace => limitAllows(limit, workspace.id)).map(workspace => workspace.view()) })
+      },
     )
 
     .post(

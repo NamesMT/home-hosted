@@ -139,12 +139,20 @@ path:** `PATCH`/`DELETE /api/workspaces/:id` act on the workspace in the URL, so
 against that id too — a limited account may rename and remove only the workspaces it names, while
 creating one and listing the registry stay open. **The live feed is filtered too:** the stream carries
 a `log` frame for every workspace, so a limited account sees only its own workspaces' frames (and
-naming one it does not hold is the same `403`), rather than reading a workspace it may not poll. **So
-is the metrics scrape:** `GET /api/metrics` is panel-wide in its *query* but every sample carries a
-`workspace` label, so a limited account's scrape holds only its own workspaces' series — it would
-otherwise read another workspace's server ids, status, crash counts, restarts, uptime, response time,
-RSS and CPU, which is the same data `GET /api/servers?workspace=…` refuses it. An account with no
-limit scrapes the whole panel as before. The requirement is declared **once**, per route, in
+naming one it does not hold is the same `403`), rather than reading a workspace it may not poll. Its
+**snapshot** frames are narrowed rather than dropped: `hello` and every later `state` frame carry the
+whole panel, so a limited account's copy holds only its own workspaces' subtrees — otherwise the
+opening frame handed it every server id, command, pid and status, which is the data the polling route
+refuses. **So is the metrics scrape:** `GET /api/metrics` is panel-wide in its *query* but every
+sample carries a `workspace` label, so a limited account's scrape holds only its own workspaces'
+series — it would otherwise read another workspace's server ids, status, crash counts, restarts,
+uptime, response time, RSS and CPU, which is the same data `GET /api/servers?workspace=…` refuses it.
+**And so are the two panel-wide snapshots:** `GET /api/state` and `GET /api/workspaces` name no
+workspace, but each answers `workspaces[].servers[]` — the very `ServerView` the polling route
+refuses — plus each workspace's `configPath` and `logsDir`. A limited account's copy of either holds
+only the workspaces it names (and the proxy's flattened DNS-account list is cut the same way). An
+account with no limit reads the whole panel as before, so a person's overview and selector are
+unchanged. The requirement is declared **once**, per route, in
 `src/middleware/token-scope.ts`; a test walks every `/api` route in the published spec and fails on
 one that has no declaration, so a new route cannot ship without a scope. A route with no declaration
 is refused rather than allowed — the one somebody forgot must not be the one every token can use.

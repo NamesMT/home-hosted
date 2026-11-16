@@ -219,10 +219,10 @@ and `/healthz` operation with its body and responses — the two documents that 
 
 | Endpoint | What it is | |
 | --- | --- | --- |
-| `GET /api/state` | the whole snapshot: settings, every workspace and server, host vitals | |
+| `GET /api/state` | the whole snapshot: settings, every workspace and server, host vitals. An account with a `workspaces` limit gets only its own workspaces' subtrees | |
 | `GET /api/meta` | what this panel is, which credential answered and what that credential may not do (below) | |
-| `GET /api/events` | the live feed (below) | ✅ optional |
-| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry | |
+| `GET /api/events` | the live feed (below). Its `hello`/`state` frames are narrowed for a limited account the same way `/api/state` is | ✅ optional |
+| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry. `GET` narrows to the workspaces a limited account names — each entry carries that workspace's servers | |
 | `GET`/`POST /api/servers` | one workspace's entries. A create answers an optional `warnings` list when the entry cannot start as written (`command` holding a whole command line) | ✅ |
 | `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | one entry. `PUT` is create-or-replace (201, then 200): the idempotent form for config management. **A `PUT` body must repeat the path `id`** — a mismatch is `400 ID_MISMATCH`, never a rename. It writes config only — restart to apply, and the view's `restartRequired` says when that is needed; `warnings` appears here too | ✅ |
 | `POST /api/servers/:id/{start,stop,restart,free-port,clear-logs}` | lifecycle; `free-port` asks whatever holds the port to stop (a supervised holder is refused). A refusal's `code` names it: `SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`, `DEPENDENCY_FAILED`, else `ACTION_FAILED` | ✅ |

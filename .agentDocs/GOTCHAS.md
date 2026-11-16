@@ -335,6 +335,18 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   for a limit — the same rule `GET /api/events` follows for its frames, for the same reason (the
   cheaper panel-wide read is the way to watch a workspace you may not read).
   (`src/api/metrics.ts`, `src/api/events.ts`; `test/middleware/token-scopes.test.ts`)
+- **A panel-wide route whose *answer* is per-workspace data is the cheap way around a limit** — the
+  same sentence as the metrics scrape, and it had three more instances: `GET /api/state`,
+  `GET /api/workspaces` and the live feed's `hello`/`state` frames each declare
+  `workspaceScoped: false` (nothing to check a `?workspace=` against) and each answer
+  `workspaces[].servers[]` — the very `ServerView` the polling route refuses. Measured, a
+  `staging`-limited `read` account got `403` from `GET /api/servers?workspace=default` and read
+  `[{"id":"secret-svc","command":"node --api-key=SUPERSECRET","pid":4242}]` (plus `configPath` and
+  `logsDir`) out of both snapshots and the opening SSE frame. Narrow the **answer** with one helper
+  (`workspaceLimit`/`limitAllows` in `src/helpers/workspace.ts`, `narrowStateFor` in
+  `src/services/state.ts`); a snapshot frame is narrowed, never dropped, or the client loses its own.
+  (`src/api/state.ts`, `src/api/workspaces/$.routes.ts`, `src/api/events.ts`; `test/middleware/token-scopes.test.ts`,
+  `test/api/stream-resume.test.ts`)
 - **A `read` route that spawns a process is a spawn amplifier** — `GET /api/host/temperature` runs
   `host.tempCommand` through a shell to report a number. Unbounded, the cheapest scope in the model
   became "spawn a process per request": 20 concurrent requests from a `read`-only account peaked at

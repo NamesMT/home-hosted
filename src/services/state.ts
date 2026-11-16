@@ -2,7 +2,8 @@ import type { GlobalSettingsStore } from '#src/config/settings'
 import type { AuthService } from '#src/services/auth'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { TlsStore } from '#src/services/tls'
-import type { ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
+import type { AppState, ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
+import { limitAllows } from '#src/helpers/workspace'
 import { checkExposure } from '#src/services/exposure'
 
 export interface WorkspaceViewSource {
@@ -90,5 +91,38 @@ export function buildWorkspaceView(source: WorkspaceViewSource): WorkspaceView {
     // answers, and an empty array is the honest answer for "nothing is running stray".
     orphans: source.supervisor.orphans?.() ?? [],
     servers,
+  }
+}
+
+/**
+ * The whole-panel snapshot, cut down to the workspaces a credential may read.
+ *
+ * A workspace-limited token's limit is enforced by the scope guard on every route that **names** a
+ * workspace. `GET /api/state` names none — it is the panel in one payload — so the guard has nothing
+ * to check it against, and the snapshot handed a `staging`-limited `read` account `default`'s whole
+ * subtree: every server's id, `config.command`, live pid and status, plus `configPath` and `logsDir`.
+ * Measured on a fixture whose `default` holds `secret-svc`, the refused account read
+ * `[{"id":"secret-svc","command":"node --api-key=SUPERSECRET","pid":4242}]` out of `/api/state` while
+ * `/api/servers?workspace=default` answered it `403 TOKEN_SCOPE`.
+ *
+ * That is the sentence `GET /api/metrics` and `GET /api/events` were each fixed for: "there is no
+ * `?workspace=` to narrow" is true of the *query* and false of the *data*. Here the payload is the
+ * full view rather than a handful of gauges, which makes it the richest way to read a workspace the
+ * account may not poll.
+ *
+ * `limit === null` (a session, this machine, an unlimited credential) returns the snapshot untouched,
+ * so a person's own panel keeps its selector and its global overview.
+ */
+export function narrowStateFor(state: AppState, limit: string[] | null): AppState {
+  if (limit === null)
+    return state
+  const workspaces = state.workspaces.filter(workspace => limitAllows(limit, workspace.id))
+  return {
+    ...state,
+    workspaces,
+    // The proxy's DNS-account picker is flattened across every workspace, so it lists them too.
+    ...(state.proxy === undefined || state.proxy.dnsAccounts === undefined
+      ? {}
+      : { proxy: { ...state.proxy, dnsAccounts: state.proxy.dnsAccounts.filter(account => limitAllows(limit, account.workspace)) } }),
   }
 }

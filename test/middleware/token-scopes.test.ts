@@ -321,6 +321,54 @@ describe('an account limited to one workspace', () => {
   })
 
   /**
+   * The panel-wide **snapshots** carry every workspace's servers, so a limit has to narrow them too.
+   *
+   * `GET /api/state` and `GET /api/workspaces` declare `workspaceScoped: false` — there is no
+   * `?workspace=` to narrow — and both answer `workspaces[].servers[]`, the same `ServerView`s
+   * `GET /api/servers` answers. So `GET /api/servers?workspace=default` refused a `staging`-limited
+   * `read` account `403 TOKEN_SCOPE` while `GET /api/workspaces` handed it `default`'s server id,
+   * its `config.command`, its live pid and status, and its `configPath`/`logsDir`. Measured on a
+   * fixture whose `default` holds `secret-svc`, the refused account read
+   * `[{"id":"secret-svc","command":"node --api-key=SUPERSECRET","pid":4242}]` from both routes.
+   *
+   * That is the same sentence the metrics scrape was fixed for: "there is no `?workspace=` to narrow"
+   * is about the *query*, not the data. It is worse here, because the payload is the full view rather
+   * than a handful of gauges. A session or an unlimited credential still gets the whole panel, so the
+   * UIs' selector and the global overview are untouched.
+   */
+  it('narrows the panel-wide snapshots to the workspaces a limited account names', async () => {
+    const created = await makeFixture({
+      workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }],
+      servers: [{ id: 'secret-svc', command: 'node --api-key=SUPERSECRET', port: 7001 }],
+      views: [makeView('secret-svc', {
+        config: { id: 'secret-svc', command: 'node --api-key=SUPERSECRET', autostart: false, enabled: true, label: 'private', port: 7001, bind: 'local' } as never,
+        status: 'running',
+        pid: 4242,
+      })],
+      workspaceViews: { staging: [makeView('stg', { workspaceId: 'staging' })] },
+    })
+    fixtures.push(created)
+    const { headers } = mint(created, ['read'], ['staging'])
+
+    // The limit works on the route that names a workspace.
+    expect((await created.app.request('/api/servers?workspace=default', { headers })).status).toBe(403)
+
+    for (const url of ['/api/state', '/api/workspaces']) {
+      const response = await created.app.request(url, { headers })
+      expect(response.status, url).toBe(200)
+      const body = await response.json() as { workspaces: Array<{ id: string, servers: Array<{ id: string }> }> }
+      const ids = body.workspaces.map(workspace => workspace.id)
+      expect(ids, `${url} must not name a workspace the account does not hold`).toEqual(['staging'])
+      expect(JSON.stringify(body), `${url} must not carry another workspace's server`).not.toContain('secret-svc')
+    }
+
+    // An account with no limit keeps the whole panel, so a person's overview is unchanged.
+    const unlimited = mint(created, ['read'])
+    const all = await (await created.app.request('/api/workspaces', { headers: unlimited.headers })).json() as { workspaces: Array<{ id: string }> }
+    expect(all.workspaces.map(workspace => workspace.id)).toEqual(['default', 'staging'])
+  })
+
+  /**
    * A panel-wide read that **labels** its samples by workspace is still narrowable, so it is narrowed.
    *
    * `GET /api/metrics` declares `workspaceScoped: false` on the reasoning "there is no `?workspace=`
