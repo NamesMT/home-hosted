@@ -37,6 +37,31 @@ function block(selector: string): Record<string, [number, number, number]> {
   return out
 }
 
+/**
+ * The `*-soft` tints of one theme block, as the RGB they are and the alpha they are laid down at.
+ *
+ * `block` above reads `#rrggbb` only, because that is what the surfaces are; a tint is
+ * `rgb(R G B / a)`, so it needs its own reader or the guard below would silently see nothing.
+ */
+function softTints(selector: string): Record<string, { rgb: [number, number, number], alpha: number }> {
+  const start = styles.indexOf(`${selector} {`)
+  if (start === -1)
+    throw new Error(`no ${selector} block in styles.css`)
+  const body = styles.slice(start, styles.indexOf('\n}', start))
+  const out: Record<string, { rgb: [number, number, number], alpha: number }> = {}
+  for (const match of body.matchAll(/--([\w-]+)-soft:\s*rgb\((\d+\s+\d+\s+\d+)\s*\/\s*([\d.]+)\)/gi)) {
+    const [, name, channels, alpha] = match
+    const [r, g, b] = channels!.trim().split(/\s+/).map(Number)
+    out[name!] = { rgb: [r!, g!, b!], alpha: Number(alpha) }
+  }
+  return out
+}
+
+/** One colour laid over another at `alpha`, the way the compositor reads a tint. */
+function composite(fg: [number, number, number], alpha: number, bg: [number, number, number]): [number, number, number] {
+  return [0, 1, 2].map(i => Math.round(fg[i]! * alpha + bg[i]! * (1 - alpha))) as [number, number, number]
+}
+
 /** WCAG 2.x relative luminance. */
 function luminance([r, g, b]: [number, number, number]): number {
   const channel = (value: number): number => {
@@ -53,6 +78,12 @@ function contrast(a: [number, number, number], b: [number, number, number]): num
 
 /** Every surface the theme paints text on. A row's hover tint and the softest line are included. */
 const SURFACES = ['page', 'panel', 'panel-2', 'raise', 'hover', 'line-soft'] as const
+
+/**
+ * Where a **tinted box** sits: every panel surface, but not `--line-soft`, which is a border
+ * hairline rather than an area text is drawn on. A 10 % tint over a 1 px line is not a surface.
+ */
+const TINT_SURFACES = ['page', 'panel', 'panel-2', 'raise', 'hover'] as const
 const AA = 4.5
 
 describe('stock keeps its faint text above AA', () => {
@@ -106,5 +137,53 @@ describe('stock keeps its faint text above AA', () => {
       }
     }
     expect(failures, 'a status word in a sentence is body text').toEqual([])
+  })
+
+  /**
+   * A status tone is also painted **on its own tint**, and that was the surface nobody measured.
+   *
+   * `SystemNotices` and the proxy's notices are one box: `bg-warn-soft text-warn`. A tone tuned to
+   * clear the page by a hair does not clear a 10 % layer of *itself* over the page — the tint is
+   * the same hue the text already is, so it eats the margin. Measured in Chromium across
+   * page/panel/panel-2/raise/hover, the worst case in the light theme was accent **4.17**, ok 3.99,
+   * warn 3.94, danger 3.92, info 4.36 — and the dark theme's accent **3.83** and danger 4.44,
+   * which the first pass at this file never looked at because only `--faint` was asserted there.
+   * The failing text was the notice's own title (`No engine installed`, `A port below 1024 needs a
+   * privileged bind`), i.e. the one line in the box that has to be read.
+   *
+   * So the tones are fitted against the tint **and** the plain surfaces at once, in both themes,
+   * and the values are read from the sheet so a later palette tweak is measured rather than assumed.
+   */
+  for (const [theme, selector] of [['light', ':root'], ['dark', '.dark']] as const) {
+    it(`${theme}: every status tone clears 4.5:1 on its own tint, on every surface`, () => {
+      const T = block(selector)
+      const soft = softTints(selector)
+      const failures: string[] = []
+      for (const name of ['accent', 'ok', 'warn', 'danger', 'info'] as const) {
+        const tint = soft[name]
+        expect(tint, `${name}-soft in the ${theme} block`).toBeDefined()
+        for (const surface of TINT_SURFACES) {
+          const base = T[surface]!
+          const painted = composite(tint.rgb, tint.alpha, base)
+          const onTint = contrast(T[name]!, painted)
+          const onPlain = contrast(T[name]!, base)
+          if (onTint < AA)
+            failures.push(`${theme} --${name} on --${name}-soft/--${surface}: ${onTint.toFixed(2)} < ${AA}`)
+          // The dark theme's accent and danger were *also* under AA on the plain surfaces.
+          if (onPlain < AA)
+            failures.push(`${theme} --${name} on --${surface}: ${onPlain.toFixed(2)} < ${AA}`)
+        }
+      }
+      expect(failures, 'a notice title is the one line in its box that must be read').toEqual([])
+    })
+  }
+
+  it('measures the tint it replaced, so the guard is not vacuous', () => {
+    // The tones this test exists for, against their own tint over the light page.
+    const page = block(':root').page!
+    for (const [tone, rgb] of [['accent', [0x2F, 0x5F, 0xE0]], ['ok', [0x15, 0x7D, 0x3B]], ['warn', [0xA0, 0x5C, 0x09]], ['danger', [0xCD, 0x2F, 0x22]]] as const) {
+      const painted = composite(rgb as [number, number, number], 0.1, page)
+      expect(contrast(rgb as [number, number, number], painted), `${tone} on its own tint`).toBeLessThan(AA)
+    }
   })
 })

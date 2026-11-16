@@ -228,6 +228,20 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   and per theme block from the tokens themselves, and keep the quiet tones *ordered* —
   raising `--faint` to the AA floor alone left it 0.33 from `--dim`, collapsing a three-step
   hierarchy. (`uis/*/test/contrast.test.ts`)
+- **A status tone is painted on its own tint, and that is a different surface from the page** — a
+  notice box is `bg-warn-soft text-warn`, one element, so the text sits on a 10 % layer of *itself*
+  over the page and the tint eats the margin a tone tuned to the page barely had. Measured live in
+  Chromium across page/panel/panel-2/raise/hover, the worst case was light accent **4.17**, ok 3.99,
+  warn 3.94, danger 3.92, info 4.36, and dark accent **3.83**, danger 4.44 — while every one of them
+  cleared the plain surfaces, which is why the per-surface guards above passed. The failing text was
+  each notice's own title (`No engine installed`, `A port below 1024 needs a privileged bind`): the
+  one line in the box that has to be read. Fit each tone against its tint **and** the plain surfaces
+  at once, in **both** themes (the dark accent and danger were under AA on plain surfaces too), and
+  carry `--series-*` with the tone it draws. A tint's alpha cannot fix it: 0.035 was needed for
+  accent alone, and ok/warn/danger could not reach 4.5 at any alpha. `--faint` on the *selection*
+  tint is not the same case and is deliberately left alone — the row is the one you already chose,
+  and raising `--faint` to clear it collapsed the tone onto `--muted` (5.94 vs 5.52).
+  (`uis/stock/test/contrast.test.ts`, "every status tone clears 4.5:1 on its own tint")
 - **`(s)` is an unfinished plural, not a neutral one** — `1 server(s)` in a header and
   `restored 1 item(s)` in a toast are the placeholder an author leaves; the same sentence is spelled
   right a dozen other times in the same file (`{{ n }} server{{ n === 1 ? '' : 's' }}`). A

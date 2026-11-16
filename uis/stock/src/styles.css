@@ -101,29 +101,46 @@
    */
   --faint: #5d6c81;
 
-  --accent: #2f5fe0;
+  --accent: #2f5ad3;
   --accent-ink: #ffffff;
-  --accent-soft: rgb(47 95 224 / 0.1);
+  --accent-soft: rgb(47 90 211 / 0.1);
 
   /*
    * Measured against the two surfaces status text actually lands on — `--page` #eceff4 (a `· exit 0`
    * inside a row, a chip on the page) and `--panel` (the same inside a card). All three were a shade
    * under AA on the page: ok 4.41, warn 4.14, danger 4.46. Each is darkened along its own hue to
    * clear 4.5 there (ok 4.52, warn 4.52, danger 4.53) while improving on `--panel` too.
+   *
+   * That was still one surface short. The same tones paint their own **tint** — `SystemNotices`
+   * and the proxy's notices are `bg-warn-soft text-warn` in one box — and a tone that clears the
+   * page by a hair does not clear the 10 % layer of itself laid over the page: measured across
+   * page/panel/panel-2/raise/hover the worst case was accent **4.17**, ok 3.99, warn 3.94,
+   * danger 3.92, info 4.36 — a notice whose title is the one line that has to be read. Each tone is
+   * darkened again, keeping its hue, until it clears 4.5 on its own tint **and** on every plain
+   * surface at once (worst tint / worst plain: accent 4.51/5.17, ok 4.52/5.16, warn 4.52/5.24,
+   * danger 4.53/5.25, info 4.54/5.20). White on each only improved (5.48→5.96, 5.21→5.95,
+   * 5.21→6.04, 5.22→6.06, 5.75→5.99), so `--accent-ink` and a filled button stay as they were.
+   * `--series-*` follows the tone it draws, or the chart and the chip beside it disagree.
+   *
+   * `--faint` on the *accent* tint is a separate case and is left alone: it measures 4.07 there,
+   * but the row carrying it is the **selected** one, where `--muted` sets the neighbouring text and
+   * the label is already quieter by design; raising `--faint` to clear the tint collapsed it onto
+   * `--muted` (5.94 vs 5.52 — the ordering this file's comment above exists to protect). The
+   * selection tint is decoration on a row you have already chosen, not a status box you must read.
    */
-  --ok: #157d3b;
-  --warn: #a05c09;
-  --danger: #cd2f22;
-  --info: #0b6f89;
+  --ok: #157332;
+  --warn: #915409;
+  --danger: #b82f22;
+  --info: #0b6c86;
 
-  --ok-soft: rgb(21 125 59 / 0.1);
-  --warn-soft: rgb(160 92 9 / 0.11);
-  --danger-soft: rgb(205 47 34 / 0.1);
-  --info-soft: rgb(11 111 137 / 0.1);
+  --ok-soft: rgb(21 115 50 / 0.1);
+  --warn-soft: rgb(145 84 9 / 0.11);
+  --danger-soft: rgb(184 47 34 / 0.1);
+  --info-soft: rgb(11 108 134 / 0.1);
 
-  --series-cpu: #2f5fe0;
+  --series-cpu: #2f5ad3;
   --series-mem: #7c3aed;
-  --series-probe: #0b6f89;
+  --series-probe: #0b6c86;
 
   --shadow-card: 0 1px 2px rgb(15 23 34 / 0.04), 0 2px 8px -2px rgb(15 23 34 / 0.06);
   --shadow-float: 0 10px 30px -12px rgb(15 23 34 / 0.28), 0 2px 6px rgb(15 23 34 / 0.06);
@@ -146,21 +163,21 @@
   --muted: #93a2b8;
   --faint: #8494ab;
 
-  --accent: #6d8dff;
+  --accent: #919cff;
   --accent-ink: #08101f;
-  --accent-soft: rgb(109 141 255 / 0.15);
+  --accent-soft: rgb(145 156 255 / 0.15);
 
   --ok: #34d399;
   --warn: #fbbf24;
-  --danger: #f87171;
+  --danger: #f87575;
   --info: #38bdf8;
 
   --ok-soft: rgb(52 211 153 / 0.13);
   --warn-soft: rgb(251 191 36 / 0.13);
-  --danger-soft: rgb(248 113 113 / 0.13);
+  --danger-soft: rgb(248 117 117 / 0.13);
   --info-soft: rgb(56 189 248 / 0.13);
 
-  --series-cpu: #6d8dff;
+  --series-cpu: #919cff;
   --series-mem: #a78bfa;
   --series-probe: #22d3ee;
 
