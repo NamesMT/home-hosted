@@ -1,5 +1,6 @@
 import type { AppDeps } from '#src/app'
 import type { SseMessage } from '#src/shared/contracts'
+import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { unknownServerError } from '#src/helpers/action-result'
@@ -8,6 +9,7 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, sseResponse } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace } from '#src/helpers/workspace'
+import { requestIdentity } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam, integerParam } from '#src/shared/query-params'
@@ -72,6 +74,24 @@ export function createEventsRoute(deps: AppDeps) {
         const includeLogs = query.logs !== false
         const since = resumePoint(c, query.since)
 
+        /**
+         * The workspaces a credential may see frames from, or `null` for "no narrowing".
+         *
+         * The live feed is the one `/api` read that is **not** narrowed by `?workspace=` alone: it
+         * also carries a `log` frame for every workspace, and the state frame names every workspace.
+         * Declared panel-wide, it handed an account limited to `staging` the default workspace's
+         * output — measured, a `staging`-limited `read` account subscribed with no query at all and
+         * received `DEFAULT-LEAK` from `default`'s `web`. Its sibling `GET /api/logs?workspace=default`
+         * refuses that account, so a limit that held on the polling route and not on the streaming one
+         * was no limit: the stream is the cheaper way to watch a workspace you may not read.
+         *
+         * A session, this machine, and an unlimited credential get `null` — scopes are about
+         * credentials, and the UIs open the panel-wide stream with no query so their selector still
+         * works.
+         */
+        const identity = requestIdentity(c, deps.auth)
+        const limit = identity.account?.workspaces ?? null
+
         // A server id is unique only inside its workspace, so naming one without a workspace means
         // the default workspace — the rule every other workspace-scoped route follows — never "any".
         // The lookup runs whenever either is named, so both a bad workspace and a bad server 404.
@@ -82,10 +102,25 @@ export function createEventsRoute(deps: AppDeps) {
         if (serverId !== null && runtime !== null && !runtime.store.getServer(serverId))
           throw unknownServerError(serverId)
 
+        // Naming a workspace the credential may not read is the same refusal the polling route gives,
+        // rather than an empty stream: silence reads as "nothing is happening", which is the one thing
+        // a live feed must never say about a workspace it was asked for and declined.
+        if (limit !== null && workspaceId !== null && !limit.includes(workspaceId)) {
+          throw new DetailedError(
+            `this account is limited to ${limit.join(', ')} — it cannot watch "${workspaceId}"`,
+            { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: limit } },
+          )
+        }
+
         return serveEventStream(c, deps.auth, (send, resumeFrom) => {
           const subscription = workspaceId !== null && serverId !== null ? serverKey(workspaceId, serverId) : null
           const accepts = (message: SseMessage): boolean => {
             if (!includeLogs && message.type === 'log')
+              return false
+            // A limited credential sees server and log frames only for the workspaces it names. State
+            // frames stay whole: they are panel-wide, and a `server` frame carries a `workspaceId` so
+            // the same check covers it.
+            if (limit !== null && 'workspaceId' in message && message.workspaceId !== undefined && !limit.includes(message.workspaceId))
               return false
             // `?workspace=` alone narrows server and log frames; state frames are panel-wide.
             if (subscription === null && workspaceId !== null && 'workspaceId' in message && message.workspaceId !== workspaceId)

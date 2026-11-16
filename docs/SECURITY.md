@@ -123,7 +123,10 @@ default. An account limited to `staging` is therefore refused `GET /api/servers`
 read `default`) exactly as it is refused `?workspace=default`. **Nor is naming the workspace in the
 path:** `PATCH`/`DELETE /api/workspaces/:id` act on the workspace in the URL, so the limit is checked
 against that id too — a limited account may rename and remove only the workspaces it names, while
-creating one and listing the registry stay open. The requirement is declared **once**, per route, in
+creating one and listing the registry stay open. **The live feed is filtered too:** the stream carries
+a `log` frame for every workspace, so a limited account sees only its own workspaces' frames (and
+naming one it does not hold is the same `403`), rather than reading a workspace it may not poll. The
+requirement is declared **once**, per route, in
 `src/middleware/token-scope.ts`; a test walks every `/api` route in the published spec and fails on
 one that has no declaration, so a new route cannot ship without a scope. A route with no declaration
 is refused rather than allowed — the one somebody forgot must not be the one every token can use.

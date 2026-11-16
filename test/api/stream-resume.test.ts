@@ -226,3 +226,51 @@ describe('resumable per-server stream', () => {
     expect(await response.json()).toMatchObject({ code: 'INVALID_INPUT' })
   })
 })
+
+/**
+ * A workspace-limited credential watches only the workspaces it names.
+ *
+ * The live feed is the one `/api` read `?workspace=` does not narrow on its own: it also carries a
+ * `log` frame for **every** workspace, so declared panel-wide it handed an account limited to
+ * `staging` the default workspace's output. Measured before this test: a `staging`-limited `read`
+ * account opened `/api/events?logs=1` with no query at all and received `DEFAULT-LEAK` from
+ * `default`'s `web`, while `GET /api/logs?workspace=default` refused the same account — a limit that
+ * held on the polling route and not on the streaming one, which makes the stream the cheap way to
+ * watch a workspace you may not read.
+ *
+ * Naming a workspace the credential may not read is the polling route's refusal (not an empty
+ * stream: silence reads as "nothing is happening"), and the panel-wide stream a UI opens with no
+ * query still works — it is filtered to the account's own workspaces rather than refused.
+ */
+describe('a workspace-limited credential on the live feed', () => {
+  async function limitedFixture(): Promise<{ created: Fixture, headers: Record<string, string> }> {
+    const created = await makeFixture({ workspaces: [{ id: 'staging' }] })
+    fixtures.push(created)
+    const { secret } = created.globalSecrets.createAccount({ id: 'limited', label: 'limited', scopes: ['read'], workspaces: ['staging'] })
+    return { created, headers: { authorization: `Bearer limited:${secret}` } }
+  }
+
+  it('is refused a workspace it does not name', async () => {
+    const { created, headers } = await limitedFixture()
+    const response = await created.app.request('/api/events?workspace=default', { headers })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
+  })
+
+  it('receives no frame from a workspace it does not name, and still receives its own', async () => {
+    const { created, headers } = await limitedFixture()
+    const response = await created.app.request('/api/events?logs=1', { headers })
+    expect(response.status).toBe(200)
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    await readFrames(reader, decoder, '', all => all.includes('event: hello'), 3000)
+
+    created.hub.publish({ type: 'log', ts: Date.now(), workspaceId: 'default', serverId: 'web', lines: [{ ts: 1, stream: 'stdout', text: 'DEFAULT-LEAK' }] })
+    created.hub.publish({ type: 'log', ts: Date.now(), workspaceId: 'staging', serverId: 'stg', lines: [{ ts: 2, stream: 'stdout', text: 'OWN-OK' }] })
+
+    const text = await readFrames(reader, decoder, '', all => all.includes('OWN-OK'), 3000)
+    await reader.cancel().catch(() => {})
+    expect(logTexts(text), 'its own workspace is delivered').toContain('OWN-OK')
+    expect(logTexts(text), 'another workspace is not').not.toContain('DEFAULT-LEAK')
+  })
+})
