@@ -369,6 +369,43 @@ describe('an account limited to one workspace', () => {
   })
 
   /**
+   * The reverse proxy's flattened DNS-account picker is per workspace, so it is narrowed too.
+   *
+   * A proxy route names a DNS account as `<workspace>/<account>`, so the picker needs every one —
+   * which is why the view flattens `listDnsAccounts()` across the panel. Each row names the workspace
+   * that owns it, so a `staging`-limited `read` account read `default`'s account id, provider, label
+   * and the zones it serves out of `GET /api/proxy`. It is the same class as the two snapshots: the
+   * route names no workspace, and its answer does.
+   */
+  it('narrows the proxy DNS-account picker to the workspaces a limited account names', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging' }] })
+    fixtures.push(created)
+    created.workspaces.get('default')!.store.updateDdns({
+      enabled: false,
+      intervalMs: 300000,
+      accounts: [{ id: 'cf-default', provider: 'cloudflare', label: 'default-zone-owner' }],
+      domains: [{ id: 'd1', host: 'secret-home.example.com', zone: 'example.com', account: 'cf-default', proxies: [], records: [] }],
+    } as never)
+    created.workspaces.get('staging')!.store.updateDdns({
+      enabled: false,
+      intervalMs: 300000,
+      accounts: [{ id: 'cf-stg', provider: 'cloudflare', label: 'staging-zone' }],
+      domains: [],
+    } as never)
+    const { headers } = mint(created, ['read'], ['staging'])
+
+    const response = await created.app.request('/api/proxy', { headers })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { dnsAccounts: Array<{ workspace: string }> }
+    expect(body.dnsAccounts.map(account => account.workspace)).toEqual(['staging'])
+
+    // An account with no limit still sees the whole panel's picker.
+    const unlimited = mint(created, ['read'])
+    const all = await (await created.app.request('/api/proxy', { headers: unlimited.headers })).json() as { dnsAccounts: Array<{ workspace: string }> }
+    expect(all.dnsAccounts.map(account => account.workspace)).toEqual(['default', 'staging'])
+  })
+
+  /**
    * A panel-wide read that **labels** its samples by workspace is still narrowable, so it is narrowed.
    *
    * `GET /api/metrics` declares `workspaceScoped: false` on the reasoning "there is no `?workspace=`

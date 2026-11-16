@@ -9,6 +9,7 @@ import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
+import { limitAllows, workspaceLimit } from '#src/helpers/workspace'
 import { checkProxyExposure } from '#src/services/exposure'
 import {
   proxyCertificateUploadSchema,
@@ -89,7 +90,21 @@ export function createProxyRoute(deps: AppDeps) {
         summary: 'Reverse proxy policy, engine and resolved routes',
         responses: { 200: { description: 'The proxy view', content: jsonBody(proxyViewSchema) } },
       }),
-      c => c.json(view()),
+      /*
+       * The DNS-account picker is flattened across every workspace, so a limit narrows it.
+       *
+       * A route names an account as `<workspace>/<account>`, which is why `view()` lists them all —
+       * but each row names the workspace that owns it, so a `staging`-limited `read` account read
+       * `default`'s account id, provider, label and zones here. The same class as the two
+       * panel-wide snapshots: the route names no workspace and the answer does.
+       */
+      (c) => {
+        const limit = workspaceLimit(c)
+        const current = view()
+        if (limit === null || current.dnsAccounts === undefined)
+          return c.json(current)
+        return c.json({ ...current, dnsAccounts: current.dnsAccounts.filter(account => limitAllows(limit, account.workspace)) })
+      },
     )
 
     .patch(

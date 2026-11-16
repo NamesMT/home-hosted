@@ -342,11 +342,14 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   `workspaces[].servers[]` — the very `ServerView` the polling route refuses. Measured, a
   `staging`-limited `read` account got `403` from `GET /api/servers?workspace=default` and read
   `[{"id":"secret-svc","command":"node --api-key=SUPERSECRET","pid":4242}]` (plus `configPath` and
-  `logsDir`) out of both snapshots and the opening SSE frame. Narrow the **answer** with one helper
-  (`workspaceLimit`/`limitAllows` in `src/helpers/workspace.ts`, `narrowStateFor` in
-  `src/services/state.ts`); a snapshot frame is narrowed, never dropped, or the client loses its own.
-  (`src/api/state.ts`, `src/api/workspaces/$.routes.ts`, `src/api/events.ts`; `test/middleware/token-scopes.test.ts`,
-  `test/api/stream-resume.test.ts`)
+  `logsDir`) out of both snapshots and the opening SSE frame. `GET /api/proxy` is the fourth: it
+  flattens every workspace's DDNS accounts into a picker whose rows name their `workspace`. Narrow the
+  **answer** with one helper (`workspaceLimit`/`limitAllows` in `src/helpers/workspace.ts`,
+  `narrowStateFor` in `src/services/state.ts`); a snapshot frame is narrowed, never dropped, or the
+  client loses its own. Sweep a new panel-wide route for a per-workspace field the way the two-route
+  walk test does, or it joins this list.
+  (`src/api/state.ts`, `src/api/workspaces/$.routes.ts`, `src/api/events.ts`, `src/api/proxy.ts`;
+  `test/middleware/token-scopes.test.ts`, `test/api/stream-resume.test.ts`)
 - **A `read` route that spawns a process is a spawn amplifier** — `GET /api/host/temperature` runs
   `host.tempCommand` through a shell to report a number. Unbounded, the cheapest scope in the model
   became "spawn a process per request": 20 concurrent requests from a `read`-only account peaked at
