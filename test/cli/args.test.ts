@@ -2,7 +2,7 @@ import type { ArgsDef } from 'citty'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyDirFlags, buildDaemonArgv, extractDirFlags, rejectUnknownFlags, resolveInvocation } from '#src/cli/args'
+import { applyDirFlags, buildDaemonArgv, extractDirFlags, flagTarget, rejectUnknownFlags, resolveInvocation } from '#src/cli/args'
 
 /**
  * The work citty cannot do: the `--home`/`--project` pre-pass, the curated
@@ -260,5 +260,60 @@ describe('rejectUnknownFlags', () => {
 
   it('stops at `--`, which is where arguments start', () => {
     expect(rejectUnknownFlags(['--', '--not-an-option'], args)).toBeNull()
+  })
+})
+
+/**
+ * A group (`job`, whose words are `ls`/`run`/`log`) declares its flags one level down.
+ *
+ * `rejectUnknownFlags` was handed the group's own `args`, which is `undefined` — the spelling that
+ * means "this command parses its own argv". So every flag of every subcommand was accepted and
+ * dropped: measured on a live panel, `job ls --jsn` printed the human table (exit 0) and a script
+ * parsing it as JSON got prose, and `job run <id> --jsn` **ran the job**. `flagTarget` is the
+ * resolution the group case was missing.
+ */
+describe('flagTarget', () => {
+  const ls = { args: { json: { type: 'boolean' } } as ArgsDef }
+  const run = { args: { id: { type: 'positional' }, json: { type: 'boolean' } } as ArgsDef }
+  const group = { subCommands: { ls, run } }
+
+  it('resolves the subcommand\'s own definition, not the group\'s', async () => {
+    const resolved = await flagTarget(['ls', '--json'], group)
+    expect(resolved.args).toEqual(ls.args)
+    // The subcommand word is the group's to consume, so it must not reach the subcommand's
+    // positionals as an unexpected argument.
+    expect(resolved.argsFor).toEqual(['--json'])
+  })
+
+  it('takes the first bare word, wherever the flags around it sit', async () => {
+    expect((await flagTarget(['--json', 'ls'], group)).args).toEqual(ls.args)
+    expect((await flagTarget(['run', 'nightly', '--json'], group)).args).toEqual(run.args)
+    expect((await flagTarget(['run', 'nightly', '--json'], group)).argsFor).toEqual(['nightly', '--json'])
+  })
+
+  it('falls back to the group\'s own definition when no subcommand is named', async () => {
+    // `--json` with no subcommand is citty's to refuse ("No command specified"), not this guard's.
+    const none = await flagTarget(['--json'], group)
+    expect(none.args).toBeUndefined()
+    expect(none.argsFor).toEqual(['--json'])
+    // An unknown word is a subcommand citty refuses by name; validating it as one is not this guard's job.
+    expect((await flagTarget(['bogus'], group)).args).toBeUndefined()
+  })
+
+  it('passes a plain command through unchanged', async () => {
+    const plainArgs: ArgsDef = { port: { type: 'string', alias: 'p' } }
+    const resolved = await flagTarget(['--port', '4000'], { args: plainArgs })
+    expect(resolved.args).toEqual(plainArgs)
+    expect(resolved.argsFor).toEqual(['--port', '4000'])
+  })
+
+  it('works with lazily-defined subcommands, as citty takes them', async () => {
+    const lazy = { subCommands: { ls: () => ls } }
+    expect((await flagTarget(['ls'], lazy)).args).toEqual(ls.args)
+    const asyncLazy = { subCommands: { ls: async () => ls } }
+    expect((await flagTarget(['ls'], asyncLazy)).args).toEqual(ls.args)
+    // A `subCommands` that is itself lazy resolves too.
+    const lazyGroup = { subCommands: async () => ({ ls }) }
+    expect((await flagTarget(['ls'], lazyGroup)).args).toEqual(ls.args)
   })
 })

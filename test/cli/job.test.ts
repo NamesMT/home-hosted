@@ -252,4 +252,40 @@ describe('log reads a job\'s own output', () => {
     expect(noPanel.status).toBe(1)
     expect(noPanel.stderr).toContain('is not running')
   })
+
+  /**
+   * A flag the command does not take is refused, at the group level too.
+   *
+   * `cli.ts` validated the flags against `COMMANDS['job']`, whose `args` is `undefined` — the
+   * spelling that means "this command parses its own argv". Every subcommand flag was therefore
+   * accepted and dropped: `job ls --jsn` printed the human table and exited 0 (so a script parsing
+   * it as JSON found prose), `job run nightly --jsn` **ran the job**, and a stray word went nowhere.
+   * Measured against a real listener, all three exited 0 before `flagTarget`.
+   */
+  it('refuses a flag its subcommand does not take', async () => {
+    const created = await panel(200, JSON.stringify({ jobs: [] }))
+    writeRuntime(created.url)
+
+    // `--jsn` and not `--bogus`: the one-edit typo is the case that actually happens, and refusing
+    // it must not have reached the panel at all.
+    for (const argv of [['job', 'ls', '--jsn'], ['job', 'run', 'nightly', '--jsn'], ['job', 'log', 'nightly', '--jsn']]) {
+      const result = await runCli(argv)
+      expect(result.status, `${argv.join(' ')} — ${result.output}`).toBe(1)
+      expect(result.stderr).toContain('Unknown option')
+      // The near miss names the flag it meant, as every other command's does.
+      expect(result.stderr, argv.join(' ')).toContain('did you mean `--json`?')
+    }
+    // Nothing was sent: the refusal happens before any command runs.
+    expect(created.seen.path).toBeUndefined()
+  })
+
+  it('refuses a stray word its subcommand cannot take', async () => {
+    const created = await panel(200, JSON.stringify({ jobs: [] }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'ls', 'extra'])
+    expect(result.status, result.output).toBe(1)
+    expect(result.stderr).toContain('Unexpected argument')
+    expect(created.seen.path).toBeUndefined()
+  })
 })

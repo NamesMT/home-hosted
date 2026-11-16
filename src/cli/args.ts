@@ -180,6 +180,11 @@ function findArg(argsDef: ArgsDef, name: string): ArgsDef[string] | undefined {
  * is what let `ui-revert`, which has no parser at all, accept and discard anything:
  * `ui-revert --dry-run` deleted the installed UI and exited 0.
  *
+ * A **group** (`job`, whose `subCommands` are `ls`/`run`/`log`) declares no `args` of its
+ * own, so the definition that matters is its subcommand's. See `flagTarget`: without it
+ * every flag of a group's subcommand was checked against `undefined` and therefore
+ * accepted, and `job ls --jsn` printed the human table while a script parsed it as JSON.
+ *
  * Returns the message to print, or null.
  */
 export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined): string | null {
@@ -222,6 +227,61 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
   return null
 }
 
+/**
+ * The definition whose `args` actually govern this argv: the subcommand's, for a group.
+ *
+ * A group is a command with `subCommands` and no `args` of its own (`job`, whose words are
+ * `ls`/`run`/`log`). Calling `rejectUnknownFlags` with the group's own `undefined` returned
+ * "this command parses its own argv" for **every** spelling, so nothing a group's subcommand
+ * accepted was ever checked: `job ls --jsn` printed the human table (a script parsing it as
+ * JSON found prose), `job ls --bogus` exited 0, `job ls extra` was silently dropped, and
+ * `job run <id> --jsn` ran the job. The rule is the one `AGENTS.md` states — a flag the command
+ * cannot honour is refused — and a group is not a command that cannot honour flags, it is one
+ * whose flags live a level down.
+ *
+ * Resolved lazily because the group's subcommands are, and only a bare word is a subcommand name:
+ * `job ls --json` resolves `ls`, while `job --json` (no subcommand) falls back to the group's own
+ * definition — `undefined`, which citty itself then refuses.
+ *
+ * `CommandShape` rather than `CommandDef`: citty's `CommandDef` is generic over its own `ArgsDef`,
+ * and the variance between one command's literal args and another's makes the two unassignable to
+ * each other. Every field this reads is structural, so the narrow local type is the honest one.
+ */
+export interface CommandShape {
+  args?: ArgsDef | (() => ArgsDef | Promise<ArgsDef>) | Promise<ArgsDef>
+  subCommands?: Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)> | (() => Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)>)
+}
+
+/** A possibly-lazy value, as citty's `Resolvable`. */
+async function resolveLazy<T>(value: T | (() => T | Promise<T>) | Promise<T> | undefined): Promise<T | undefined> {
+  if (value === undefined)
+    return undefined
+  const resolved = typeof value === 'function' ? await (value as () => T | Promise<T>)() : await value
+  return resolved as T
+}
+
+export async function flagTarget(argv: string[], command: CommandShape | undefined): Promise<{ args: ArgsDef | undefined, argsFor: string[] }> {
+  if (command === undefined)
+    return { args: undefined, argsFor: argv }
+  const subCommands = await resolveLazy(command.subCommands)
+  if (subCommands === undefined)
+    return { args: await resolveLazy(command.args), argsFor: argv }
+
+  // The subcommand is the first bare word, wherever the flags around it sit. A leading `--` ends
+  // the search: everything after it is a payload (`add web -- node server.js`).
+  const dashDash = argv.indexOf('--')
+  const searchable = dashDash === -1 ? argv : argv.slice(0, dashDash)
+  const index = searchable.findIndex(token => !token.startsWith('-'))
+  if (index === -1)
+    return { args: await resolveLazy(command.args), argsFor: argv }
+  const sub = await resolveLazy(subCommands[searchable[index]!])
+  if (sub === undefined)
+    return { args: await resolveLazy(command.args), argsFor: argv }
+  // The subcommand word itself is consumed by the group, so it is not an unexpected argument to
+  // the subcommand's own definition — `job ls --json` validates `['--json']`, not `['ls','--json']`.
+  return { args: await resolveLazy(sub.args), argsFor: [...argv.slice(0, index), ...argv.slice(index + 1)] }
+}
+
 export interface UpFlags {
   port?: number
   host?: string
@@ -230,7 +290,6 @@ export interface UpFlags {
   foreground: boolean
   printConfig: boolean
 }
-
 /**
  * The daemon gets the same instructions, but never `--foreground` (that is what
  * makes it the daemon) and never `--print-config` (that one is answered in the
