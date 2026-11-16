@@ -244,6 +244,37 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
      hand-rolled stripper eats code at the first `/*` in a string.
   3. A `/g` regex is stateful under `.test()` — build it where it is used; and walk `.vue` as well as
      `.ts`.
+- **A download link names a file the panel lists, never one it assumes** — `GET
+  /api/logs/:id/download` answers `404 UNKNOWN_LOG_FILE` for a name that is not in the entry's file
+  list, so a link built from a convention (`<id>.log`) is a control that always fails. Both UIs had
+  one, each gated on a *different* wrong signal: stock's server detail page on
+  `config.logBufferLines > 0` (the in-memory buffer) and noc-console's Logs page on `enabled` (the
+  workspace's `logs.persist` setting). Measured at 1280 px: a visible 32×32 icon and a visible
+  126×24 text link, both `404`, while `/api/logs` reported `files: []` for the same entry. Gate on
+  the list; `src/shared/log-download.ts` is the shared rule.
+  (`uis/stock/test/server-detail-download.test.ts`, `uis/noc-console/test/logs-download-link.test.ts`)
+- **An outcome rendered at the end of a scrolling body is not an outcome** — both noc-console
+  settings pages put "nothing changed" / "saved" in a note that was the last child of the scroll
+  body, measured **1561 px** and **2269 px** below the Save button that produced it at 1280×900,
+  with the note off-screen until the person scrolled to the bottom. The console already had a fixed
+  toast (`flash()` in `composables/useUi.ts`, used by `ServerConfigView` for the same string) and
+  the settings pages never called it. Report beside the control that acted; the inline note can stay
+  as the record. (`uis/noc-console/test/settings-save-feedback.test.ts`)
+- **`minmax(<fixed px>, 1fr)` cannot shrink below its floor** — so a grid track stays 280 px in a
+  238 px container and its fields overflow the box instead of collapsing to one column.
+  `.grid--wide` measured 280 px inside a 238 px add-server dialog at 320 px, with five health-HTTP
+  fields reaching x=321 in a dialog ending at x=304 (17 px out, plus an unreported 18 px body
+  scroll); it still overflowed at 360 px. Use `minmax(min(280px, 100%), 1fr)`, which keeps the
+  preferred width where there is room and yields where there is not. Scoping matters: `.metrics`
+  (118 px) and `.logpage` (180 px) keep fixed floors because their containers never shrink below
+  them. (`uis/noc-console/test/mobile-layout.test.ts`)
+- **A template that reaches into the API namespace from markup does not mount with a mocked client**
+  — `:href="api.logDownloadUrl(...)"` reads a `__v_isRef` off the module namespace, so a
+  `vi.mock('@/lib/api')` that spreads `importOriginal` still throws "No __v_isRef export is defined"
+  and the render aborts before anything under test exists. Build the href in `<script setup>` and
+  bind a plain value; the view then mounts against a fake client, which is what makes the *gate*
+  testable rather than the helper.
+
 
 ## Data
 
