@@ -243,7 +243,9 @@ onScopeDispose(() => {
 <template>
   <div class="view">
     <div class="view__head">
-      <span class="view__title">logs</span>
+      <h1 class="view__title">
+        logs
+      </h1>
       <span class="view__count">{{ workspace.selected.value?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
       <span class="view__count">{{ servers.length }} server{{ servers.length === 1 ? '' : 's' }}</span>
 

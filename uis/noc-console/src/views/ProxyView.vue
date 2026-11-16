@@ -327,7 +327,9 @@ function removeCertificate(certificate: ProxyCertificateView): void {
 <template>
   <div class="view">
     <header class="view__head">
-      <span class="view__title">reverse proxy</span>
+      <h1 class="view__title">
+        reverse proxy
+      </h1>
       <span class="view__count">panel-wide · one engine for every workspace</span>
       <span v-if="stateMeta" class="chip" :class="stateMeta.chip">{{ stateMeta.label }}</span>
       <span class="view__spacer" />

@@ -42,7 +42,9 @@ function openServer(workspaceId: string, serverId: string): void {
 <template>
   <div class="view">
     <div class="view__head">
-      <span class="view__title">global overview</span>
+      <h1 class="view__title">
+        global overview
+      </h1>
       <span class="view__count">{{ groups.length }} workspace{{ groups.length === 1 ? '' : 's' }} · {{ all.length }} server{{ all.length === 1 ? '' : 's' }}</span>
       <span class="view__count">{{ running.length }}/{{ all.length }} running</span>
       <span v-if="attention.length > 0" class="chip chip--danger">{{ attention.length }} need attention</span>

@@ -267,12 +267,17 @@ onScopeDispose(() => {
       </div>
     </nav>
 
-    <div class="main">
+    <!--
+      A real `<main>`: the console had no main landmark at all, so a screen reader's "jump to
+      content" had nothing to jump to and the nav rail was the only region, on every route.
+      The element is the same box `.main` sized before, so the layout is unchanged.
+    -->
+    <main class="main">
       <!-- Panel-wide, so above every page. -->
       <SettingsProblem :problem="control.settingsError.value" />
       <RouterView />
       <LogDrawer v-if="drawerOpen && selectedId && activeId" :server-id="selectedId" :workspace-id="activeId" />
-    </div>
+    </main>
 
     <footer class="status">
       <span class="status__seg">

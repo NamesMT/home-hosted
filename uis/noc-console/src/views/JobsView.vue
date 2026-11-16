@@ -192,7 +192,9 @@ function when(ms: number | null | undefined): string {
 <template>
   <div class="view">
     <div class="view__head">
-      <span class="view__title">jobs</span>
+      <h1 class="view__title">
+        jobs
+      </h1>
       <span class="view__count">short-lived commands on a schedule — the exit code is the outcome</span>
       <span class="view__spacer" />
       <button type="button" class="btn btn--sm btn--primary" @click="startCreate">

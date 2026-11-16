@@ -161,7 +161,10 @@ describe('stock keeps its faint text above AA', () => {
       const failures: string[] = []
       for (const name of ['accent', 'ok', 'warn', 'danger', 'info'] as const) {
         const tint = soft[name]
-        expect(tint, `${name}-soft in the ${theme} block`).toBeDefined()
+        if (tint === undefined) {
+          failures.push(`${theme} has no --${name}-soft tint`)
+          continue
+        }
         for (const surface of TINT_SURFACES) {
           const base = T[surface]!
           const painted = composite(tint.rgb, tint.alpha, base)

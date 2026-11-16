@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { cssRules } from '../../../test/helpers/strip-comments'
+import { cssRules, stripComments } from '../../../test/helpers/strip-comments'
 
 /**
  * noc-console reflows on a phone — the 860 px breakpoint was already there. What was wrong was
@@ -372,5 +372,53 @@ describe('a grid floor never exceeds the container', () => {
     const wide = ruleIn(allRules, '.grid--wide')
     expect(grid, '.grid must yield to its container').toContain('min(190px, 100%)')
     expect(wide, '.grid--wide must yield to its container').toContain('min(280px, 100%)')
+  })
+})
+
+/**
+ * Every route needs a `main` landmark and a heading, and noc-console had neither.
+ *
+ * Measured in Chromium on the installed build: `document.querySelectorAll('main').length` was
+ * **0** and `h1` **0** on all eight routes — `/global/overview`, `/w/default/servers`, `/jobs`,
+ * `/logs`, `/settings`, `/global/settings`, `/proxy` and a server's config page — while the
+ * workspace settings page carried one stray `h4` (a group title) and the config page another. stock
+ * has both on every page. A screen reader's "skip to the main content" and its heading list are
+ * the two ways a keyboard-first console is actually used, and both were empty: the nav rail was the
+ * only region on the page.
+ *
+ * The fix is one element (the `.main` box became a `<main>`, so the layout is identical) and the
+ * page title became its `<h1>`. The guard reads the shell and every view, because a new view that
+ * keeps `span` is exactly how this returns.
+ */
+describe('every page has a landmark and a heading', () => {
+  it('renders a main landmark in the shell', () => {
+    // Comments stripped first: the note explaining this fix names `<main>`, and a scan that counted
+    // it would fail for the documentation that exists to prevent the bug.
+    const markup = stripComments(shell, 'App.vue')
+    expect(markup, 'the shell needs a <main>, not another <div>').toMatch(/<main[\s>]/)
+    // One, and not nested inside a second one.
+    expect((markup.match(/<main[\s>]/g) ?? []).length).toBe(1)
+  })
+
+  it('makes every view title the page h1', () => {
+    const views = fs.readdirSync(path.join(root, 'src/views')).filter(name => name.endsWith('.vue')).sort()
+    expect(views.length, 'the views are where the titles live').toBeGreaterThan(7)
+    const offenders: string[] = []
+    for (const name of views) {
+      const source = fs.readFileSync(path.join(root, 'src/views', name), 'utf8')
+      // The login page is its own shell (no nav, no view chrome) and has no `view__title`.
+      if (!source.includes('view__title'))
+        continue
+      if (!/<h1[^>]*class="[^"]*view__title/.test(source))
+        offenders.push(`${name}: view__title is not an <h1>`)
+    }
+    // The login page is its own shell and names itself with `overlay__title`.
+    const login = fs.readFileSync(path.join(root, 'src/views/LoginView.vue'), 'utf8')
+    if (!/<h1[^>]*class="[^"]*overlay__title/.test(login))
+      offenders.push('LoginView.vue: the sign-in page has no <h1>')
+    expect(offenders, 'the page title is the heading a screen reader announces').toEqual([])
+    // And every view that owns a title was found, so a renamed class cannot pass for free.
+    const titled = views.filter(name => fs.readFileSync(path.join(root, 'src/views', name), 'utf8').includes('view__title'))
+    expect(titled.length, 'a view with a title was found').toBeGreaterThan(6)
   })
 })

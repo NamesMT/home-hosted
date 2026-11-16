@@ -179,7 +179,9 @@ async function remove(): Promise<void> {
       <RouterLink :to="workspacePath(activeId, 'servers')" class="btn btn--sm btn--ghost">
         ← servers
       </RouterLink>
-      <span class="view__title">{{ id }} · config</span>
+      <h1 class="view__title">
+        {{ id }} · config
+      </h1>
       <StatusChip v-if="server" :status="server.status" />
       <span v-if="server && !server.config.enabled" class="chip chip--idle">disabled</span>
       <!-- The config on disk is not what this process is running; the button is on the detail view. -->

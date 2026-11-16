@@ -527,7 +527,9 @@ async function sendTest(): Promise<void> {
 <template>
   <div class="view">
     <header class="view__head">
-      <span class="view__title">workspace settings</span>
+      <h1 class="view__title">
+        workspace settings
+      </h1>
       <span class="view__count">{{ selected?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
       <span v-if="workspace.configError.value" class="chip chip--danger">config problem</span>
       <span v-if="selected?.configWarnings?.length" class="chip chip--warn">{{ selected.configWarnings.length }} warning{{ selected.configWarnings.length === 1 ? '' : 's' }}</span>

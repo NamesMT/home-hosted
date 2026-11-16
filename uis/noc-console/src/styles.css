@@ -503,8 +503,13 @@ textarea {
 }
 
 .view__title {
+  /* The `<h1>` of the page: `.view__title` is where it is styled, and the element is a heading so
+     the outline exists at all (every route had zero headings except one stray h4). The resets that
+     keep a `span`'s metrics are repeated here because a `h1` arrives with its own size and margin. */
+  margin: 0;
   font-size: var(--fs-sm);
   font-weight: 600;
+  line-height: inherit;
   color: var(--text-hi);
   font-family: var(--mono);
   letter-spacing: 0.02em;
@@ -1978,6 +1983,10 @@ input[type='file'] {
 }
 
 .overlay__title {
+  /* Also the login page's `<h1>`, so the metrics a `span` did not need are stated explicitly. */
+  margin: 0;
+  font-weight: 600;
+  line-height: inherit;
   font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--text-hi);

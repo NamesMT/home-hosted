@@ -207,6 +207,20 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   bundled.
 - **Chrome is not content, so it does not shrink** — a header row gets `flex: none`; a horizontal
   scroll with no signal is a clipped row.
+- **A page title rendered as a `<span>` leaves the page with no heading and no landmark** —
+  noc-console's eight routes each named themselves in `.view__title`, styled identically to a
+  heading and marked up as a span, and the shell's content box was a plain `<div class="main">`.
+  Measured in Chromium on the installed build: `main` **0** and `h1` **0** on every route
+  (`/global/overview`, `/w/default/servers`, `/jobs`, `/logs`, `/settings`, `/global/settings`,
+  `/proxy`, a server's config page) — the workspace settings page had one stray `h4` and the config
+  page another, so the outline was one group title with no page title above it. "Skip to the main
+  content" and the heading list are how a keyboard-first console is used, and both were empty. stock
+  has both on every page. The shell's `.main` box becomes `<main>` (same class, same box — verified
+  172,46 1108×828 at 1280 and 0,206 320×468 at 320, identical before and after) and the title
+  becomes its `<h1>`, which needs the `span`-equivalent `margin: 0`, `line-height: inherit` restored
+  because a `h1` arrives with its own. (`uis/noc-console/test/mobile-layout.test.ts`, "every page has
+  a landmark and a heading"; strip comments before counting tags — the note explaining the fix names
+  `<main>` and made the scan count two.)
 - **`navigator.clipboard` does not exist on a plain-`http://` LAN origin** — copy through `copyText`
   (`execCommand` fallback) and report the verdict. (`uis/stock/src/lib/clipboard.ts`)
 - **`pointer: coarse` raises icon targets to 44 px** — check a header change in a real browser at

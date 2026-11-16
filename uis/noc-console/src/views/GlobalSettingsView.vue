@@ -655,7 +655,9 @@ async function revertUi(): Promise<void> {
 <template>
   <div class="view">
     <header class="view__head">
-      <span class="view__title">global settings</span>
+      <h1 class="view__title">
+        global settings
+      </h1>
       <span class="view__count">panel-wide · shared by every workspace</span>
       <span v-if="controlView?.restartRequired" class="chip chip--warn">restart required</span>
       <span class="view__spacer" />

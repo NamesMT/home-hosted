@@ -48,7 +48,9 @@ async function submit(): Promise<void> {
     <div class="login__panel">
       <div class="login__head">
         <span class="brand__mark" />
-        <span class="overlay__title">home-hosted</span>
+        <h1 class="overlay__title">
+          home-hosted
+        </h1>
         <span class="view__spacer" />
         <span class="chip chip--accent">sign in</span>
       </div>

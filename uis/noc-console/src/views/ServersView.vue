@@ -198,7 +198,9 @@ useKeyHandler((key, event) => {
 <template>
   <div class="view">
     <div class="view__head">
-      <span class="view__title">servers</span>
+      <h1 class="view__title">
+        servers
+      </h1>
       <span class="view__count">{{ workspace.selected.value?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
       <span class="view__count">{{ workspace.runningCount.value }}/{{ servers.length }} running</span>
 
