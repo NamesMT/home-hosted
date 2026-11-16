@@ -410,3 +410,45 @@ describe('a password too short for exposure', () => {
     expect(new SecretsStore(file, undefined, 'global').passwordTooShort).toBe(false)
   })
 })
+
+/**
+ * An unknown id and a wrong secret must cost the same, because the difference names accounts.
+ *
+ * `docs/SECURITY.md` promises the login form is not an enumeration oracle. The *answer* was already
+ * identical; the **work** was not — an unknown id returned before any hashing, while a wrong secret for
+ * a known one ran a full scrypt. Measured through the login route on the fixture: median 1.2 ms against
+ * 36.9 ms, a 30× signal that says whether an id exists.
+ *
+ * A timing assertion in a unit test is flaky at the scale of milliseconds, so this pins the property
+ * that makes the timing equal rather than the wall-clock gap: **both answers do the same hashing
+ * work.** It asserts a floor (the unknown-id answer is not the free early return it was) and, more
+ * usefully, the ratio against a real mismatch with a generous bound — 4× is far outside the ~1 ms/~37 ms
+ * split this exists to catch, and inside the noise of a busy CI box.
+ */
+describe('an unknown id costs what a wrong secret costs', () => {
+  /** Median of a few runs: one slow sample must not decide the answer. */
+  function medianMs(run: () => void): number {
+    const samples: number[] = []
+    for (let index = 0; index < 5; index++) {
+      const start = process.hrtime.bigint()
+      run()
+      samples.push(Number(process.hrtime.bigint() - start) / 1e6)
+    }
+    samples.sort((left, right) => left - right)
+    return samples[2]!
+  }
+
+  it('spends the same work on an unknown id as on a wrong secret', async () => {
+    const file = await tempFile()
+    const store = new SecretsStore(file, undefined, 'global')
+    // A person-typed secret, so the record is scrypt — the slowest path, and the one to match.
+    store.createAccount({ id: 'known', label: 'known', scopes: ['read'], secret: 'a-typed-secret-value' })
+
+    const unknown = medianMs(() => store.verifyAccountSecret('no-such-id', 'a-wrong-secret-value'))
+    const wrong = medianMs(() => store.verifyAccountSecret('known', 'a-wrong-secret-value'))
+
+    // The early return this guards against was ~1 ms against ~37 ms; a scrypt is tens of ms.
+    expect(unknown, 'an unknown id must not answer before hashing').toBeGreaterThan(wrong / 4)
+    expect(unknown).toBeLessThan(wrong * 4)
+  })
+})

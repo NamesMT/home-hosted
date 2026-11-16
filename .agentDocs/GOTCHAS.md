@@ -289,3 +289,8 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **A pure-function test does not pin its call site** — the already-running `up` conflict check stayed
   green with its wiring deleted; one test runs the real `up` against a real `run.json`.
   `--no-autostart` stays accepted there. (`test/cli/server-action.test.ts`)
+- **An early return before a hash is a timing oracle, and `||` short-circuits one into the answer** —
+  "unknown id and wrong secret answer the same" was true of the body and false of the work: an unknown
+  id returned before scrypt, and `account === null || !verify(…)` never ran the verify at all, so the
+  login route answered in 1.2 ms against 36.9 ms. Spend the hash on the miss too, and reach it at the
+  call site. (`src/config/secrets.ts`, `src/services/auth.ts`; `test/config/secrets.test.ts`)

@@ -45,8 +45,9 @@ person possible.
 
 - **The id is not secret.** It is what a login is keyed on, what the rate limit counts, and what
   makes a stolen secrets file unusable without the matching id. The **secret** is the credential.
-- **A wrong id and a wrong secret answer identically.** The refusal never confirms that an id exists,
-  so the login form is not an account-enumeration oracle.
+- **A wrong id and a wrong secret answer identically, and cost the same.** The refusal never confirms
+  that an id exists, so the login form is not an account-enumeration oracle — and an unknown id still
+  runs one scrypt before answering, so the *timing* does not confirm it either.
 - **Two hash algorithms, deliberately.** A secret a person chooses is stretched with scrypt, because
   it may be guessable and an offline attacker with the file would otherwise walk it. A secret the
   panel *generates* is 256 bits of randomness, where scrypt would only tax every request for a space

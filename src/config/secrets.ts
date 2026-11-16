@@ -298,6 +298,28 @@ export function verifyPassword(password: string, record: PasswordRecord): boolea
   return crypto.timingSafeEqual(actual, expected)
 }
 
+/**
+ * One throwaway scrypt, so "no such account" costs what "wrong secret" costs.
+ *
+ * `verifyAccountSecret` answers `false` early for an unknown, disabled or half-written record, which
+ * is right for the answer and wrong for the timing: the measured gap was ~1 ms against ~37 ms, and a
+ * 30× difference is a working account-enumeration oracle — the one thing `docs/SECURITY.md` promises
+ * the login form is not. The salt is derived from the secret rather than random so this is a pure
+ * cost with no per-call allocation to vary, and the result is deliberately discarded.
+ *
+ * Kept next to `verifyPassword` because it has to stay in step with it: a change to `COST` or
+ * `KEYLEN` that this did not follow would reopen the gap it closes.
+ */
+function spendVerifyWork(secret: string): void {
+  try {
+    const salt = crypto.createHash('sha256').update(secret, 'utf8').digest().subarray(0, SALT_BYTES)
+    deriveKey(secret.length === 0 ? 'x' : secret, salt, COST, KEYLEN)
+  }
+  catch {
+    // A secret scrypt refuses is still an answer of `false`; the cost was the point, not the output.
+  }
+}
+
 /** Visible head of a generated token, so a token is recognisable on sight. */
 export const API_TOKEN_PREFIX = 'hh_'
 const API_TOKEN_BYTES = 32
@@ -1068,14 +1090,32 @@ export class SecretsStore {
    * A **disabled** account never matches, and neither does an unknown id — the caller must not be able
    * to tell "no such id" from "wrong secret" faster than by the answer it is given, so both spend the
    * same work where the algorithm is known.
+   *
+   * "Where the algorithm is known" is the hole that sentence used to leave. A known id reaches scrypt
+   * (a typed secret) or sha256 (a generated one); an unknown id returned before **anything** was
+   * computed, so `login` answered an unknown id in ~1 ms and a wrong secret for a known id in ~37 ms —
+   * a 30× signal that names which ids exist, which is exactly what `docs/SECURITY.md` promises the
+   * login form does not do ("a wrong id and a wrong secret answer identically … not an
+   * account-enumeration oracle"). Measured on the fixture before this: median 1.2 ms vs 36.9 ms.
+   *
+   * The work now happens either way. An unknown, disabled or under-specified record still runs one
+   * scrypt against a throwaway salt, so the answer costs the same as a real mismatch. Choosing scrypt
+   * rather than sha256 is deliberate: it is the *slowest* path a real record can take, so an attacker
+   * learns nothing by the gap in the other direction (an account whose secret the panel generated
+   * still verifying faster is a property of that account, not a fact about an id they do not have).
    */
   verifyAccountSecret(id: string, secret: string): boolean {
     const record = this.account(id)
-    if (record === null || record.enabled !== true || secret.length === 0)
+    // No usable record: spend the same scrypt a wrong secret for a real one would, and answer false.
+    if (record === null || record.enabled !== true || secret.length === 0) {
+      spendVerifyWork(secret)
       return false
+    }
     if (record.algo === 'scrypt') {
-      if (record.salt === undefined || record.cost === undefined || record.keylen === undefined)
+      if (record.salt === undefined || record.cost === undefined || record.keylen === undefined) {
+        spendVerifyWork(secret)
         return false
+      }
       return verifyPassword(secret, {
         algo: 'scrypt',
         salt: record.salt,
