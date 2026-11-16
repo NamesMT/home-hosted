@@ -1,3 +1,4 @@
+import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
 import type { ProxyConfig } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
@@ -9,8 +10,9 @@ import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
-import { limitAllows, workspaceLimit } from '#src/helpers/workspace'
+import { workspaceLimit } from '#src/helpers/workspace'
 import { checkProxyExposure } from '#src/services/exposure'
+import { narrowProxyFor } from '#src/services/state'
 import {
   proxyCertificateUploadSchema,
   proxyConfigSchema,
@@ -43,7 +45,14 @@ function candidateConfig(current: ProxyConfig, patch: Record<string, unknown>): 
  */
 export function createProxyRoute(deps: AppDeps) {
   const proxy = () => deps.proxy
-  const view = () => proxy().view()
+  /**
+   * The view, narrowed to what the credential may act on.
+   *
+   * Every route here answers `view()` — the writes too — and the table names a workspace per row, so
+   * narrowing only the GET left the same rows on a `PATCH` answer. `narrowProxyFor` is the one
+   * definition, shared with `GET /api/state` and the live feed's snapshots.
+   */
+  const answer = (c: Context) => c.json(narrowProxyFor(proxy().view(), workspaceLimit(c)))
 
   /** Everything that has to hold before a change is written to disk. */
   const guard = (candidate: ProxyConfig): void => {
@@ -91,20 +100,17 @@ export function createProxyRoute(deps: AppDeps) {
         responses: { 200: { description: 'The proxy view', content: jsonBody(proxyViewSchema) } },
       }),
       /*
-       * The DNS-account picker is flattened across every workspace, so a limit narrows it.
+       * The route table names a workspace per row, and the DNS-account picker is flattened across
+       * every workspace, so a limit narrows both.
        *
-       * A route names an account as `<workspace>/<account>`, which is why `view()` lists them all —
-       * but each row names the workspace that owns it, so a `staging`-limited `read` account read
-       * `default`'s account id, provider, label and zones here. The same class as the two
-       * panel-wide snapshots: the route names no workspace and the answer does.
+       * A route names an entry as `<workspace>/<server>` and an account as `<workspace>/<account>`,
+       * which is why `view()` lists them all — but each row names the workspace that owns it, so a
+       * `staging`-limited `read` account read `default`'s route id, public hostname and the entry it
+       * forwards to here. The same class as the two panel-wide snapshots: the route names no
+       * workspace and the answer does. `narrowProxyFor` is the one definition, shared with
+       * `GET /api/state` and the live feed's snapshots.
        */
-      (c) => {
-        const limit = workspaceLimit(c)
-        const current = view()
-        if (limit === null || current.dnsAccounts === undefined)
-          return c.json(current)
-        return c.json({ ...current, dnsAccounts: current.dnsAccounts.filter(account => limitAllows(limit, account.workspace)) })
-      },
+      answer,
     )
 
     .patch(
@@ -116,7 +122,37 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       validate('json', proxyPatchSchema),
       async (c) => {
-        const patch = c.req.valid('json')
+        const limit = workspaceLimit(c)
+        /**
+         * A workspace limit confines the **rows** of the route table, not the engine's own knobs.
+         *
+         * A route names the entry it forwards to, so writing one into another workspace is acting on
+         * that workspace — and the write side is worse than the read side, because a patch *replaces*
+         * the list: a `staging`-limited `admin` account that sent its own one route deleted every
+         * other workspace's, and one that named `default` redirected a public hostname at
+         * `default`'s entry. Measured on a scratch panel: `PATCH /api/proxy` with a route into
+         * `default` answered `200` and the table served it.
+         *
+         * So the rows it may not touch are kept in place, and a row naming a workspace outside the
+         * limit is refused rather than silently dropped — the same pair `GET` answers with, one
+         * direction each. The panel-wide settings (`enabled`, ports, the engine, `dns01`,
+         * `certificates`) name no workspace, so a limit does not reach them: they are the panel's,
+         * exactly as `PATCH /api/settings` is.
+         */
+        let patch = c.req.valid('json')
+        if (limit !== null && patch.routes !== undefined) {
+          const outside = patch.routes.filter(route => route.workspace !== undefined && route.workspace.length > 0 && !limit.includes(route.workspace))
+          if (outside.length > 0) {
+            throw new DetailedError(
+              `this account is limited to ${limit.join(', ')} — ${outside.map(route => `"${route.id}"`).join(', ')} would act on a workspace it does not name`,
+              { statusCode: 403, code: 'TOKEN_SCOPE', detail: { workspaces: limit } },
+            )
+          }
+          // The list is a replacement, so what it does not name would be deleted: carry over every row
+          // that names a workspace this account cannot write.
+          const kept = proxy().config.routes.filter(route => route.workspace.length > 0 && !limit.includes(route.workspace))
+          patch = { ...patch, routes: [...kept, ...patch.routes] }
+        }
         const candidate = candidateConfig(proxy().config, patch)
         guard(candidate)
 
@@ -130,7 +166,7 @@ export function createProxyRoute(deps: AppDeps) {
         }
 
         await reconcile()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -145,7 +181,7 @@ export function createProxyRoute(deps: AppDeps) {
       async (c) => {
         await proxy().install(c.req.valid('json').version)
         await reconcile()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -158,7 +194,7 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       async (c) => {
         await proxy().start()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -171,7 +207,7 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       async (c) => {
         await proxy().stop()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -188,7 +224,7 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       async (c) => {
         await proxy().retryCertificate(c.req.param('id'))
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -201,7 +237,7 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       async (c) => {
         await proxy().apply()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -214,7 +250,7 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       async (c) => {
         await proxy().revert()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -236,7 +272,7 @@ export function createProxyRoute(deps: AppDeps) {
 
         if (proxy().status().state === 'running')
           await proxy().apply()
-        return c.json(view())
+        return answer(c)
       },
     )
 
@@ -252,7 +288,7 @@ export function createProxyRoute(deps: AppDeps) {
         proxy().clearCertificate(c.req.valid('param').id)
         if (proxy().status().state === 'running')
           await proxy().apply()
-        return c.json(view())
+        return answer(c)
       },
     )
 }

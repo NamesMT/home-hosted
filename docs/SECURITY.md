@@ -150,10 +150,18 @@ uptime, response time, RSS and CPU, which is the same data `GET /api/servers?wor
 **And so are the two panel-wide snapshots:** `GET /api/state` and `GET /api/workspaces` name no
 workspace, but each answers `workspaces[].servers[]` — the very `ServerView` the polling route
 refuses — plus each workspace's `configPath` and `logsDir`. A limited account's copy of either holds
-only the workspaces it names. **And the reverse proxy's DNS-account picker:** `GET /api/proxy`
-flattens every workspace's DDNS accounts into one list (a route names an account as
-`<workspace>/<account>`), so a limited account's copy holds only its own — otherwise it read another
-workspace's account id, provider and zones. An account with no limit reads the whole panel as before,
+only the workspaces it names. **And the reverse proxy:** `GET /api/proxy` flattens every workspace's
+DDNS accounts into one list (a route names an account as `<workspace>/<account>`) and answers a route
+table whose rows name the entry they forward to (a route names one as `<workspace>/<server>`), so a
+limited account's copy holds only its own rows and its own accounts — otherwise it read another
+workspace's account id, provider and zones *and* its route id, public hostname and target entry.
+**The write side follows the same limit, and is the dangerous half:** a `PATCH` sends a route list,
+and a list is replaced whole, so a limited account that sent its own one row used to delete every
+other workspace's and could point a public hostname at an entry it may not act on. A row naming a
+workspace outside the limit is `403 TOKEN_SCOPE`, and the rows it may not touch are carried over so
+the replacement cannot drop them. The engine's own knobs (`enabled`, ports, `dns01`, certificates)
+name no workspace, so a limit does not reach them — they are the panel's, like `PATCH /api/settings`.
+An account with no limit reads and writes the whole panel as before,
 so a person's overview, selector and proxy form are unchanged. The requirement is declared **once**, per route, in
 `src/middleware/token-scope.ts`; a test walks every `/api` route in the published spec and fails on
 one that has no declaration, so a new route cannot ship without a scope. A route with no declaration

@@ -350,6 +350,14 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   walk test does, or it joins this list.
   (`src/api/state.ts`, `src/api/workspaces/$.routes.ts`, `src/api/events.ts`, `src/api/proxy.ts`;
   `test/middleware/token-scopes.test.ts`, `test/api/stream-resume.test.ts`)
+- **Narrowing what a route *reads* is half a limit when a write replaces the same list** — the
+  proxy's route table is one list for the whole panel, and every row names the workspace whose entry
+  it forwards to. `GET /api/proxy` narrowed its `dnsAccounts` picker and left `routes` whole, so a
+  `staging`-limited `read` account read `default`'s route id, public hostname and target entry. The
+  write was worse: a list is replaced whole, so a limited `admin`'s `PATCH` naming `default/<entry>`
+  answered `200` and served that hostname, and one sending only its own row **deleted** every other
+  workspace's. Narrow the answer, refuse a row outside the limit, and carry over the rows it may not
+  touch. (`src/api/proxy.ts`, `src/services/state.ts`; `test/middleware/token-scopes.test.ts`)
 - **A `read` route that spawns a process is a spawn amplifier** — `GET /api/host/temperature` runs
   `host.tempCommand` through a shell to report a number. Unbounded, the cheapest scope in the model
   became "spawn a process per request": 20 concurrent requests from a `read`-only account peaked at

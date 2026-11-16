@@ -406,6 +406,102 @@ describe('an account limited to one workspace', () => {
   })
 
   /**
+   * The reverse proxy's **route table** is per workspace, so a limit narrows it too.
+   *
+   * The DNS-account picker beside it was already narrowed, and the route rows were not: a route names
+   * its target as `workspace`/`server`, so `GET /api/proxy` answered a `staging`-limited `read`
+   * account `default`'s route id, its public hostname, its upstream and the **entry it forwards to** —
+   * while `GET /api/servers?workspace=default` refused the same account `403 TOKEN_SCOPE`. Both halves
+   * of the view carry it (`routes` is the resolved table, `config.routes` is the stored one), and the
+   * snapshots (`/api/state`, the feed's `hello`) carry the whole proxy view, so they are narrowed by
+   * the same helper.
+   */
+  it('narrows the proxy route table to the workspaces a limited account names', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }], servers: [{ id: 'secret-svc', command: 'node' }] })
+    fixtures.push(created)
+    created.settings.updateProxy({
+      routes: [
+        { id: 'private-git', host: 'git.example.com', target: 'server', workspace: 'default', server: 'secret-svc', tls: 'off' },
+        { id: 'stg-site', host: 'stg.example.com', target: 'server', workspace: 'staging', server: 'stg', tls: 'off' },
+      ],
+    } as never)
+    const { headers } = mint(created, ['read'], ['staging'])
+
+    // The limit works on the route that names a workspace.
+    expect((await created.app.request('/api/servers?workspace=default', { headers })).status).toBe(403)
+
+    const response = await created.app.request('/api/proxy', { headers })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { routes: Array<{ route: { id: string } }>, config: { routes: Array<{ id: string }> } }
+    expect(body.routes.map(view => view.route.id)).toEqual(['stg-site'])
+    expect(body.config.routes.map(route => route.id)).toEqual(['stg-site'])
+    expect(JSON.stringify(body), 'another workspace\'s route names its entry').not.toContain('secret-svc')
+
+    // The panel-wide snapshots carry the proxy view, so they are narrowed by the same rule.
+    const state = await created.app.request('/api/state', { headers })
+    expect(state.status).toBe(200)
+    expect(JSON.stringify(await state.json())).not.toContain('private-git')
+
+    // An account with no limit still sees the whole table: a person's proxy page is unchanged.
+    const unlimited = mint(created, ['read'])
+    const all = await (await created.app.request('/api/proxy', { headers: unlimited.headers })).json() as { routes: Array<{ route: { id: string } }>, config: { routes: Array<{ id: string }> } }
+    expect(all.routes.map(view => view.route.id)).toEqual(['private-git', 'stg-site'])
+    expect(all.config.routes.map(route => route.id)).toEqual(['private-git', 'stg-site'])
+  })
+
+  /**
+   * The same limit on the **write** side of the route table, where it is the more dangerous half.
+   *
+   * A `PATCH` sends a route *list*, and a list is replaced whole — so a limited account that sent its
+   * own one route deleted every other workspace's, and one that named another workspace redirected a
+   * public hostname at that workspace's entry. Measured on a scratch panel with `default` holding
+   * `secret-svc`: a `staging`-limited `admin` account's `PATCH` naming `default/secret-svc` answered
+   * `200`, and the engine served it.
+   *
+   * So a row outside the limit is `403 TOKEN_SCOPE` — the same refusal the read half answers — and the
+   * rows it may not touch are **kept**, because the list it sends is a replacement, not a merge. The
+   * engine's own knobs name no workspace, so a limit does not reach them.
+   */
+  it('may not write a route into a workspace it is not limited to, and does not delete the rest', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging', servers: [{ id: 'stg', command: 'node' }] }], servers: [{ id: 'secret-svc', command: 'node' }] })
+    fixtures.push(created)
+    created.settings.updateProxy({
+      routes: [
+        { id: 'private-git', host: 'git.example.com', target: 'server', workspace: 'default', server: 'secret-svc', tls: 'off' },
+        { id: 'stg-site', host: 'stg.example.com', target: 'server', workspace: 'staging', server: 'stg', tls: 'off' },
+      ],
+    } as never)
+    const { headers } = mint(created, ['admin'], ['staging'])
+    const patch = (body: unknown): RequestInit => ({ method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+
+    // Naming another workspace's entry is refused, and nothing is written.
+    const refused = await created.app.request('/api/proxy', patch({
+      routes: [{ id: 'pwned', host: 'pwn.example.com', target: 'server', workspace: 'default', server: 'secret-svc', tls: 'off' }],
+    }))
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
+    expect(created.settings.proxy.routes.map(route => route.id)).toEqual(['private-git', 'stg-site'])
+
+    // Its own row is accepted, and the row it may not touch survives a list that does not name it.
+    const saved = await created.app.request('/api/proxy', patch({
+      routes: [{ id: 'stg-site', host: 'stg2.example.com', target: 'server', workspace: 'staging', server: 'stg', tls: 'off' }],
+    }))
+    expect(saved.status).toBe(200)
+    expect(created.settings.proxy.routes.map(route => route.id)).toEqual(['private-git', 'stg-site'])
+    expect(created.settings.proxy.routes.find(route => route.id === 'stg-site')?.host).toBe('stg2.example.com')
+
+    // An unlimited account still replaces the whole list, which is what its page sends.
+    const unlimited = mint(created, ['admin'])
+    const whole = await created.app.request('/api/proxy', {
+      method: 'PATCH',
+      headers: { ...unlimited.headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ routes: [{ id: 'stg-site', host: 'stg3.example.com', target: 'server', workspace: 'staging', server: 'stg', tls: 'off' }] }),
+    })
+    expect(whole.status).toBe(200)
+    expect(created.settings.proxy.routes.map(route => route.id)).toEqual(['stg-site'])
+  })
+
+  /**
    * A panel-wide read that **labels** its samples by workspace is still narrowable, so it is narrowed.
    *
    * `GET /api/metrics` declares `workspaceScoped: false` on the reasoning "there is no `?workspace=`

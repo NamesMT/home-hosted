@@ -2,7 +2,7 @@ import type { GlobalSettingsStore } from '#src/config/settings'
 import type { AuthService } from '#src/services/auth'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { TlsStore } from '#src/services/tls'
-import type { AppState, ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
+import type { AppState, ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ProxyView, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
 import { limitAllows } from '#src/helpers/workspace'
 import { checkExposure } from '#src/services/exposure'
 
@@ -120,9 +120,43 @@ export function narrowStateFor(state: AppState, limit: string[] | null): AppStat
   return {
     ...state,
     workspaces,
-    // The proxy's DNS-account picker is flattened across every workspace, so it lists them too.
-    ...(state.proxy === undefined || state.proxy.dnsAccounts === undefined
+    ...(state.proxy === undefined ? {} : { proxy: narrowProxyFor(state.proxy, limit) }),
+  }
+}
+
+/** Whether a proxy route reaches a workspace the credential may not act on. */
+function routeAllowed(route: { workspace: string }, limit: string[]): boolean {
+  // A route names a workspace only when it points at one of its entries: `target: "panel"` and
+  // `target: "external"` describe the panel and a literal upstream, so there is no workspace to
+  // narrow — the same "adds no workspace attribution" reading `backups.includePaths` gets. A route
+  // that does name one names **another workspace's server id** when it is not filtered, which is
+  // what the polling route refuses.
+  return route.workspace.length === 0 || limitAllows(limit, route.workspace)
+}
+
+/**
+ * The reverse-proxy view, cut down to the workspaces a credential may read.
+ *
+ * The same sentence as the two snapshots and the metrics scrape, one level down: the route table is
+ * **panel-wide with an empty query**, and every row it answers names a `workspace`/`server` pair.
+ * Declared panel-wide and answered whole, `GET /api/proxy` handed a `staging`-limited `read` account
+ * `default`'s routes — id, public hostname, upstream and the entry each one forwards to — while
+ * `GET /api/servers?workspace=default` refused it `403`. It is worse than the DNS-account picker
+ * fixed beside it, because the row carries the *entry*, not only the account.
+ *
+ * Both halves travel: `routes` is the resolved view, `config.routes` is the stored table it is built
+ * from, and filtering one alone would leave the other reporting every workspace's entries.
+ */
+export function narrowProxyFor(proxy: ProxyView, limit: string[] | null): ProxyView {
+  if (limit === null)
+    return proxy
+  return {
+    ...proxy,
+    routes: proxy.routes.filter(view => routeAllowed(view.route, limit)),
+    config: { ...proxy.config, routes: proxy.config.routes.filter(route => routeAllowed(route, limit)) },
+    // The DNS-account picker is flattened across every workspace, so it lists them too.
+    ...(proxy.dnsAccounts === undefined
       ? {}
-      : { proxy: { ...state.proxy, dnsAccounts: state.proxy.dnsAccounts.filter(account => limitAllows(limit, account.workspace)) } }),
+      : { dnsAccounts: proxy.dnsAccounts.filter(account => limitAllows(limit, account.workspace)) }),
   }
 }
