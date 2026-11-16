@@ -38,7 +38,7 @@ export interface DurationWords {
   /** The moment has arrived. */
   now: () => string
   /** A forward countdown: `in 4s`. */
-  ahead: (value: number, unit: 's' | 'm') => string
+  ahead: (value: number, unit: DurationUnit) => string
   /** A moment in the past: `12s ago`. */
   ago: (value: number, unit: DurationUnit) => string
   /** No such moment ever happened. */
@@ -74,14 +74,26 @@ function remainder<U extends string>(value: number, unit: U): { value: number, u
   return value === 0 ? null : { value, unit }
 }
 
-/** A **forward** countdown to an expiry: a moment already past clamps to `now`, never negative. */
+/**
+ * A **forward** countdown to an expiry: a moment already past clamps to `now`, never negative.
+ *
+ * The units are the ones `formatAgo` uses, and for the same reason: a countdown that stops at
+ * minutes reads `in 694m` for a job that runs tomorrow morning, which a person has to divide in
+ * their head. It keeps the *ceiling* rather than `formatAgo`'s floor — a run due in 333 minutes is
+ * still "in 6 hours", and rounding down to 5 would understate it — but the tier boundaries are the
+ * same s/m/h/d ladder.
+ */
 export function relativeFrom(ts: number, now: number, words: DurationWords = ENGLISH_DURATION_WORDS): string {
   const delta = Math.max(0, ts - now)
   if (delta < 1000)
     return words.now()
-  if (delta < 60000)
+  if (delta < 60_000)
     return words.ahead(Math.ceil(delta / 1000), 's')
-  return words.ahead(Math.ceil(delta / 60000), 'm')
+  if (delta < 3_600_000)
+    return words.ahead(Math.ceil(delta / 60_000), 'm')
+  if (delta < 86_400_000)
+    return words.ahead(Math.ceil(delta / 3_600_000), 'h')
+  return words.ahead(Math.ceil(delta / 86_400_000), 'd')
 }
 
 /** How long ago, coarsely. `null` is "never", and a backwards clock clamps to `0s ago`. */

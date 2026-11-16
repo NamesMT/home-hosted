@@ -87,4 +87,24 @@ describe('relativeFrom', () => {
       ).format(4, 'second'))
     }
   })
+
+  /**
+   * A countdown an hour or more out names its hours, in every language.
+   *
+   * The tiers above minutes were missing, so the Jobs page read `in 694m` for a run due tomorrow —
+   * a number a person has to divide by 60 before it means anything. The unit word is `Intl`'s
+   * (`時間`, `ч`, `Std.`), so this asserts the *unit*, not its spelling: the hour formatter's own
+   * output must be what came back, and it must not still be a minute count.
+   */
+  it('names the hours on a long countdown, in the reader’s language', async () => {
+    const tags: Record<string, string> = { 'ja': 'ja-JP', 'ru': 'ru-RU', 'de': 'de-DE', 'zh-CN': 'zh-CN', 'ko': 'ko-KR', 'es': 'es-ES', 'fr': 'fr-FR', 'vi': 'vi-VN' }
+    for (const locale of Object.keys(tags)) {
+      await setLocale(locale)
+      // 12 hours and 23 minutes away — the shape a nightly job actually has.
+      const text = relativeFrom(1_000 + 12 * 3_600_000 + 23 * 60_000, 1_000)
+      const expected = new Intl.RelativeTimeFormat(tags[locale], { numeric: 'always', style: 'short' }).format(13, 'hour')
+      expect(text, `${locale} did not name the hours`).toBe(expected)
+      expect(text, `${locale} still counts in minutes`).not.toMatch(/\bm\b|分|мин|min/i)
+    }
+  })
 })

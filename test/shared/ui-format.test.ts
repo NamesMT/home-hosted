@@ -31,6 +31,22 @@ describe('shared UI formatting', () => {
     expect(relativeFrom(121_000, 1_000)).toBe('in 2m')
   })
 
+  /**
+   * The countdown climbs the same s/m/h/d ladder `formatAgo` does.
+   *
+   * It stopped at minutes, so a job due tomorrow morning rendered `in 694m` — the Jobs page's
+   * **Next** column, where every row past an hour needed dividing by 60 to mean anything. noc-console
+   * already grouped those by hand (`in 12 hours`), which is how the two UIs disagreed about one
+   * number.
+   */
+  it('climbs to hours and days on a long countdown', () => {
+    expect(relativeFrom(1_000 + 3_600_000, 1_000), 'an hour').toBe('in 1h')
+    expect(relativeFrom(1_000 + 19_980_000, 1_000), 'just over 5h20m rounds up').toBe('in 6h')
+    expect(relativeFrom(1_000 + 3_599_999, 1_000), 'just under an hour stays minutes').toBe('in 60m')
+    expect(relativeFrom(1_000 + 41_640_000, 1_000), 'just under 12h').toBe('in 12h')
+    expect(relativeFrom(1_000 + 86_400_000, 1_000), 'a day').toBe('in 1d')
+  })
+
   it('says how long ago, and never goes negative when the clock moves backwards', () => {
     expect(formatAgo(null, 0)).toBe('never')
     expect(formatAgo(2_000, 1_000), 'a future timestamp clamps').toBe('0s ago')
