@@ -127,6 +127,8 @@
 
   --shadow-card: 0 1px 2px rgb(15 23 34 / 0.04), 0 2px 8px -2px rgb(15 23 34 / 0.06);
   --shadow-float: 0 10px 30px -12px rgb(15 23 34 / 0.28), 0 2px 6px rgb(15 23 34 / 0.06);
+  /* The edge of a horizontally scrolling table: dark enough to read on `--panel`. */
+  --scroll-edge: rgb(15 23 34 / 0.13);
 }
 
 .dark {
@@ -164,6 +166,8 @@
 
   --shadow-card: 0 1px 0 rgb(255 255 255 / 0.02), 0 10px 26px -18px rgb(0 0 0 / 0.9);
   --shadow-float: 0 24px 60px -20px rgb(0 0 0 / 0.75), 0 2px 10px rgb(0 0 0 / 0.35);
+  /* A pale edge, not a dark one: the light theme's shadow is invisible on a dark panel. */
+  --scroll-edge: rgb(255 255 255 / 0.10);
 }
 
 @theme inline {
@@ -318,6 +322,33 @@
 
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  /*
+   * Edge shadows that say "there is more table to the right".
+   *
+   * Every overflow in this UI is `overflow-x-auto` and every one of them is silent: the scrollbar
+   * is invisible on a touch device, so a table 197 px wider than its box reads as a table that
+   * simply ends. The jobs table is the worst case — on a 320 px viewport its action cell alone is
+   * 240 px of a 288 px scroller, so `Run now` sat 14 px past the right edge at rest, and the
+   * schedule above it wrapped `0 3 * * *` across two lines into `0 3` / `* * *`. There was no
+   * signal that either was a scroll away.
+   *
+   * `background-attachment: local` is what makes the shadows appear and disappear with the scroll
+   * position, with no script: the two `local` layers travel with the content, the two `scroll`
+   * layers stay with the box, and the difference paints only where content continues. A scroller
+   * that fits shows no shadow at all. Same technique as noc-console's `.tblwrap`.
+   */
+  .scroll-hint-x {
+    background-image:
+      linear-gradient(to right, var(--panel) 40%, transparent),
+      linear-gradient(to left, var(--panel) 40%, transparent),
+      linear-gradient(to right, var(--scroll-edge), transparent),
+      linear-gradient(to left, var(--scroll-edge), transparent);
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
+    background-attachment: local, local, scroll, scroll;
   }
 }
 

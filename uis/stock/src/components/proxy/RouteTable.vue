@@ -100,7 +100,7 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
       </EmptyState>
     </div>
 
-    <div v-else class="overflow-x-auto sm:col-span-2">
+    <div v-else class="overflow-x-auto scroll-hint-x sm:col-span-2">
       <table class="w-full text-left text-xs">
         <thead>
           <tr class="text-2xs text-faint">

@@ -327,6 +327,19 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   `.tblwrap`, which already owns the edge shadows that say a middle column exists.
   (`uis/noc-console/test/mobile-layout.test.ts`, "scrolls the jobs table itself and caps its
   identity column on a phone")
+- **`overflow-x: auto` with nothing else is an invisible scroll, so it reads as a clipped table** —
+  a phone has no scrollbar, so a box 197 px wider than its 288 px frame looks like a table that
+  simply ends. stock's jobs table is the case: at 320 px its action cell alone is **240 px of the
+  288 px** scroller, so `Run now` sat **14 px past the right edge at rest**, and the schedule above
+  it wrapped `0 3 * * *` into `0 3` / `* * *` — neither of which announces that a drag would
+  reveal it. (Focusing the button does not help either: `focus()` left `scrollLeft` at 0.) Give
+  the box an edge shadow that rides the scroll position — four background layers, `local` on the
+  two content ones and `scroll` on the two box ones, which is what makes the shadow appear only
+  on an edge that still has content behind it and vanish once the box fits. Keep the shadow
+  colour a **theme token**: stock's light edge is a dark 13 % and its dark edge a pale 10 %, so a
+  hardcoded colour is invisible in one of the two themes. (`uis/stock/src/styles.css`,
+  `.scroll-hint-x`; `uis/stock/test/mobile-layout.test.ts`, "gives a horizontally scrolling box a
+  visible edge hint", which also fails for any new `overflow-x-auto` box that omits the class.)
 
 
 ## Data

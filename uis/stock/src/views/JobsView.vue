@@ -324,7 +324,7 @@ const sheetTitle = computed(() => (mode.value === 'create' ? t('jobs.create') : 
       edge (measured: `New job` at 60–116 after a 188 px scroll, title at -172). `overflow-x-auto`
       is what `RouteTable` already uses for the same reason.
     -->
-    <div v-else class="overflow-x-auto">
+    <div v-else class="overflow-x-auto scroll-hint-x">
       <table class="w-full text-left text-xs">
         <thead>
           <tr class="border-b border-line-soft text-2xs text-faint">

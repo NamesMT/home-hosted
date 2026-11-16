@@ -172,7 +172,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
         320 px window and the whole page scrolled sideways instead of the table. `RouteTable`
         wraps its table the same way.
       -->
-      <div v-else-if="accounts.length > 0" class="overflow-x-auto">
+      <div v-else-if="accounts.length > 0" class="overflow-x-auto scroll-hint-x">
         <table class="w-full text-left text-xs">
           <thead>
             <tr class="border-b border-line-soft text-2xs text-faint">

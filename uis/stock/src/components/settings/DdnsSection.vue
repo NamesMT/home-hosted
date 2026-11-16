@@ -507,7 +507,7 @@ defineExpose({ reload: load })
           <span v-if="status.ipv6" class="font-mono text-2xs text-faint">{{ t('settings.ddns.ipv6Value', { address: status.ipv6 }) }}</span>
           <span v-if="status.lastRunAt" class="ml-auto text-2xs text-faint">{{ formatAgo(status.lastRunAt, control.now.value) }}</span>
         </header>
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto scroll-hint-x">
           <table class="w-full text-left text-xs">
             <thead>
               <tr class="text-2xs text-faint">

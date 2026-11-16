@@ -145,4 +145,43 @@ describe('the layout survives a phone', () => {
       expect(source, `${file} must scroll its table in a box`).toContain('overflow-x-auto')
     }
   })
+
+  /**
+   * A scroll with no signal is a clipped table.
+   *
+   * The box above is `overflow-x: auto`, and on a phone its scrollbar is invisible: the Jobs table
+   * is 197 px wider than its 288 px box at a 320 px viewport, and its action cell alone is 240 px
+   * of it — so `Run now` sat **14 px past the right edge** at rest, and the schedule above it wrapped
+   * `0 3 * * *` across two lines into `0 3` / `* * *`. Nothing on the page said either was a scroll
+   * away. `scroll-hint-x` paints an edge shadow that appears and disappears with the scroll
+   * position, through `background-attachment: local` for the content layers and `scroll` for the
+   * box layers — the technique noc-console's `.tblwrap` already uses.
+   *
+   * The guard is written over the sheet rather than the DOM: it asserts the four-layer declaration
+   * and the theme-aware edge token exist, and that every `overflow-x-auto` box in a view or
+   * component carries the hint class, so a fifth table cannot ship silent.
+   */
+  it('gives a horizontally scrolling box a visible edge hint', () => {
+    const styles = fs.readFileSync(path.join(root, '..', '..', 'uis/stock', 'src/styles.css'), 'utf8')
+    const rule = styles.slice(styles.indexOf('.scroll-hint-x'))
+    expect(rule, 'the hint needs four layers').toContain('background-attachment: local, local, scroll, scroll')
+    // A hardcoded colour would be invisible in one theme: the light shadow is dark, the dark pale.
+    expect(rule, 'the edge must come from a theme token').toContain('var(--scroll-edge)')
+    const light = styles.slice(0, styles.indexOf('.dark {'))
+    const dark = styles.slice(styles.indexOf('.dark {'))
+    expect(light, 'light theme edge token').toContain('--scroll-edge:')
+    expect(dark, 'dark theme edge token').toContain('--scroll-edge:')
+
+    // Every horizontal scroller in a template opts into it.
+    const silent: string[] = []
+    for (const file of templateFiles()) {
+      const source = fs.readFileSync(file, 'utf8')
+      for (const match of source.matchAll(/class="([^"]*\boverflow-x-auto\b[^"]*)"/g)) {
+        const classes = match[1] ?? ''
+        if (!classes.split(/\s+/).includes('scroll-hint-x'))
+          silent.push(`${path.relative(root, file)}: "${classes}"`)
+      }
+    }
+    expect(silent).toEqual([])
+  })
 })
