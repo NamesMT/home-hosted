@@ -110,7 +110,7 @@ The four scopes are **cumulative**, and `workspaces` narrows an account to some 
 
 | scope | what it allows |
 | --- | --- |
-| `read` | every `GET`: state, logs, metrics, the live feed |
+| `read` | the readings: state, logs, metrics, the live feed — every `GET` **except an archive download** |
 | `lifecycle` | start, stop, restart, free a port, clear logs |
 | `config` | server, workspace and settings writes, and backups |
 | `admin` | everything, including tokens, the password, a UI install and restoring secrets |
@@ -126,6 +126,12 @@ declaration is refused rather than allowed — the one somebody forgot must not 
 can use.
 
 Sessions and this machine are unaffected: scopes are about **tokens**.
+
+**A backup archive is `config`, not `read`, although fetching one is a `GET`.** An archive carries
+every workspace's `secrets.json` and the panel's own `.control-secrets.json` in the clear — account
+hashes, DDNS credentials, Telegram tokens, every server's secret environment values — so handing one
+to a monitor credential would walk around every rule that keeps a secret *value* off a route. `read`
+is the readings; an account that may take an archive (`POST /api/backups`) may fetch it.
 
 Only a hash is stored, compared in constant time against every token (an early return would make the
 timing depend on which token was presented). The single pre-0.14 token migrates to one named

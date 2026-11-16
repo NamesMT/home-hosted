@@ -61,6 +61,50 @@ describe('an account with only read', () => {
       expect(await response.json(), `${method} ${url}`).toMatchObject({ code: 'TOKEN_SCOPE' })
     }
   })
+
+  /**
+   * A `read` account may not download a backup archive.
+   *
+   * The archive is not a log or a state frame: it contains `secrets.json` for every workspace and the
+   * panel's own `.control-secrets.json` **in the clear** — the account hashes, the DDNS KDF salt, the
+   * Telegram tokens, every server's secret environment values. Declared `read`, `GET
+   * /api/backups/:name/download` handed all of it to a monitor credential: measured with a real
+   * fixture, a `read` token downloaded the archive and it contained `"API_KEY":"super-secret-…"` and
+   * the `default` account's scrypt hash. That is a scope escalation in the direction the whole scoped-
+   * accounts model exists to prevent — `read` is documented as "state, logs, metrics, the live feed",
+   * and the panel goes to some length to make secret *values* unreachable from every route
+   * (`PUT …/secrets` is write-only, `secretEnvSet` names only). Downloading the store walked around all
+   * of it.
+   *
+   * `config` is the scope that already owns backups (`docs/SECURITY.md`: "server, workspace and
+   * settings writes, and backups"), and `POST /api/backups` needs it, so an account that may write a
+   * config and take an archive may also fetch it. A `read` account gets `403 TOKEN_SCOPE`.
+   */
+  it('may not download a backup archive, which carries the secrets store in the clear', async () => {
+    const created = await makeFixture({ password: 'correct-horse-battery', servers: [{ id: 'web', command: 'node', secretEnv: ['API_KEY'] }] })
+    fixtures.push(created)
+    created.workspaces.get('default')!.secrets.setServerEnv('web', { API_KEY: 'super-secret-value-xyz' })
+
+    const admin = mint(created, ['admin'])
+    const created201 = await created.app.request('/api/backups', {
+      method: 'POST',
+      headers: { ...admin.headers, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(created201.status).toBe(200)
+    const { file } = await created201.json() as { file: { name: string } }
+
+    const reader = mint(created, ['read'])
+    const refused = await created.app.request(`/api/backups/${file.name}/download`, { headers: reader.headers })
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toMatchObject({ code: 'TOKEN_SCOPE', detail: { needed: 'config' } })
+
+    // The scope that owns backups still reaches it.
+    const config = mint(created, ['read', 'config'])
+    const allowed = await created.app.request(`/api/backups/${file.name}/download`, { headers: config.headers })
+    expect(allowed.status).toBe(200)
+    expect(allowed.headers.get('content-type')).toBe('application/zip')
+  })
 })
 
 describe('an account with lifecycle', () => {

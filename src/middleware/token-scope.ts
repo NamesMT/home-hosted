@@ -58,7 +58,19 @@ const RULES: Record<string, TokenScopeRule> = {
   'GET /api/notifications': { scope: 'read', workspaceScoped: true },
   'GET /api/proxy': { scope: 'read', workspaceScoped: false },
   'GET /api/backups': { scope: 'read', workspaceScoped: false },
-  'GET /api/backups/:name/download': { scope: 'read', workspaceScoped: false },
+  /**
+   * `config`, not `read`, even though it is a GET.
+   *
+   * The archive is not a reading: it holds every workspace's `secrets.json` and the panel's own
+   * `.control-secrets.json` **in the clear** — account hashes, the DDNS KDF salt, Telegram tokens,
+   * every server's secret environment values. Declared `read`, a monitor credential downloaded all of
+   * it, which walked around every rule that keeps a secret *value* off a route (`PUT …/secrets` is
+   * write-only, the views name only what is set). `config` is the scope that already owns backups —
+   * it is what `POST /api/backups` needs, and "server, workspace and settings writes, and backups" is
+   * how `docs/SECURITY.md` describes it — so an account that may take an archive may fetch it, and
+   * one that may only read may not.
+   */
+  'GET /api/backups/:name/download': { scope: 'config', workspaceScoped: false },
   'GET /api/host/temperature': { scope: 'read', workspaceScoped: false },
   'GET /api/auth/session': { scope: 'read', workspaceScoped: false },
   // Login and logout need **no** credential (the session route is public for the SPA's first paint),
