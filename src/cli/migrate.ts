@@ -150,6 +150,17 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
   if (existing.length === 0)
     fail(`no home-hosted state to migrate — nothing at ${globalSettingsPath} or any workspace`)
 
+  // Refused before anything is written, and before the dry run reports a plan it cannot carry out.
+  // A job id that both files declare is a real question — which command, which schedule — and the
+  // move cannot answer it without picking one. Left to `first wins` the servers file loses the entry
+  // anyway (every `kind: "job"` one leaves), so the loser would be a job that simply stopped existing
+  // with the command reporting success.
+  for (const move of moves) {
+    if (move.collisions.length === 0)
+      continue
+    fail(`${move.serversFile} declares job(s) ${move.collisions.map(id => `"${id}"`).join(', ')}, which ${move.jobsFile} already has — renaming one is a decision only you can make.\n  Nothing was written. Rename the entry in one of the two files, then run this again.`)
+  }
+
   // Every file is read and checked before any is written, so a refusal — or a "no" — on the third
   // file cannot leave the first two rewritten behind a line saying nothing was.
   //
@@ -272,6 +283,15 @@ export interface JobMove {
   jobsFile: string
   /** The ids leaving the servers file. */
   ids: string[]
+  /**
+   * Ids the move has to leave behind because `jobs.config.json` already declares one.
+   *
+   * The servers file loses **every** `kind: "job"` entry, moved or not, so a collision it does not
+   * write out is a job that ceases to exist — silently, with exit 0. `runMigrate` refuses the whole
+   * run while this is non-empty; guessing `first wins` (or `last wins`) would pick a schedule for a
+   * backup nobody asked it to pick.
+   */
+  collisions: string[]
   /** The servers file without them, ready to write. */
   servers: Record<string, unknown>
   /** The jobs file with them added. */
@@ -329,12 +349,16 @@ export function planJobMoves(): JobMove[] {
     })
     // An id that already exists in the jobs file is **not** overwritten: the file a person wrote by
     // hand wins, and the collision is named by the refusal that follows rather than silently resolved.
+    // Every `kind: "job"` entry leaves the servers file, so an id dropped here would be the entry
+    // ceasing to exist with nothing said — which is what `collisions` makes `runMigrate` refuse.
+    const collisions = incoming.map(job => String(job.id)).filter(id => already.some(job => job.id === id))
     const ids = incoming.map(job => String(job.id)).filter(id => !already.some(job => job.id === id))
     moves.push({
       workspaceId: workspace.id,
       serversFile,
       jobsFile,
       ids,
+      collisions,
       servers: { ...document, servers: staying },
       jobs: {
         meta: { writtenBy: `home-hosted ${appVersion()}`, schema: CONFIG_SCHEMA },

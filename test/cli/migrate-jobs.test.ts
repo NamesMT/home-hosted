@@ -125,4 +125,70 @@ describe('migrate, with a job still in the servers file', () => {
     expect(result.output).not.toContain('moving')
     expect(fs.existsSync(path.join(workspace, 'jobs.config.json'))).toBe(false)
   })
+
+  /**
+   * A job id both files declare is refused, because the move cannot answer it.
+   *
+   * Every `kind: "job"` entry leaves the servers file whether or not it was written to
+   * `jobs.config.json`, so the id that lost the collision ceased to exist — under `exit 0` and a
+   * summary saying a stamp had happened. Measured before the fix: a servers file declaring
+   * `nightly` (a real `backup.sh`, `--full`, `BACKUP_TOKEN`) beside a hand-written `jobs.config.json`
+   * `nightly` (`/bin/echo`) came out with `servers: []` and only the `/bin/echo` job; `migrate --yes`
+   * printed "moved 0 job(s)" and exited 0. A lost backup schedule is the one thing this command
+   * must not do quietly.
+   */
+  it('refuses a job id the jobs file already has, rather than dropping it', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-collide-'))
+    dirs.push(home)
+    const workspace = path.join(home, '.hh', 'default')
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(home, '.hh', 'workspaces.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      workspaces: [{ id: 'default', label: 'Default' }],
+      defaultId: 'default',
+    }))
+    const servers = path.join(workspace, 'servers.config.json')
+    const jobs = path.join(workspace, 'jobs.config.json')
+    fs.writeFileSync(servers, JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      servers: [{ id: 'nightly', kind: 'job', schedule: '0 3 * * *', command: './backup.sh', args: ['--full'], secretEnv: ['BACKUP_TOKEN'] }],
+    }))
+    fs.writeFileSync(jobs, JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      jobs: [{ id: 'nightly', schedule: '*/5 * * * *', command: '/bin/echo' }],
+    }))
+    const before = { servers: fs.readFileSync(servers, 'utf8'), jobs: fs.readFileSync(jobs, 'utf8') }
+
+    const result = runCli(['migrate', '--yes'], { home, env: { HHOSTED_HOME: home } })
+
+    expect(result.status, result.output).toBe(1)
+    expect(result.stderr).toContain('"nightly"')
+    // Nothing written, either file — the refusal is the whole run, not a half one.
+    expect(fs.readFileSync(servers, 'utf8')).toBe(before.servers)
+    expect(fs.readFileSync(jobs, 'utf8')).toBe(before.jobs)
+  })
+
+  it('refuses a colliding dry run too, rather than planning a move it will not make', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-collide-dry-'))
+    dirs.push(home)
+    const workspace = path.join(home, '.hh', 'default')
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(home, '.hh', 'workspaces.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      workspaces: [{ id: 'default', label: 'Default' }],
+      defaultId: 'default',
+    }))
+    fs.writeFileSync(path.join(workspace, 'servers.config.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      servers: [{ id: 'nightly', kind: 'job', schedule: '0 3 * * *', command: './backup.sh' }],
+    }))
+    fs.writeFileSync(path.join(workspace, 'jobs.config.json'), JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      jobs: [{ id: 'nightly', schedule: '*/5 * * * *', command: '/bin/echo' }],
+    }))
+
+    const result = runCli(['migrate', '--dry-run'], { home, env: { HHOSTED_HOME: home } })
+    expect(result.status, result.output).toBe(1)
+    expect(result.stderr).toContain('"nightly"')
+  })
 })
