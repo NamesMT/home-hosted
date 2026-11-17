@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createOfflineBackup } from '#src/cli/backup-offline'
 import { entryStatePath, readEntryState } from '#src/providers/entry-state'
+import { runCli } from '../support/run-cli'
 
 /**
  * `backup` used to need the panel, because the service is built inside the daemon — so backing up
@@ -162,5 +163,40 @@ describe('the offline backup service on a fresh home', () => {
 
     expect(service.selection().entries.length).toBeGreaterThan(0)
     expect(fs.existsSync(hh), 'nothing under .hh may be created by a read').toBe(false)
+  })
+})
+
+/**
+ * `backup list` prints the archive's time in the **host's** zone, and says which zone.
+ *
+ * The archive *name* is UTC — it is the retention key and `archiveStamp` parses it back — but the
+ * column beside it was rendered from `toISOString()` too, so an archive taken at 10:11 +07 printed
+ * `03:11`. Every other surface (jobs, logs, the UIs) is local, so that one column read as seven hours
+ * ago and disagreed with the clock in front of the person reading it.
+ */
+describe('the backup list column', () => {
+  it('renders the archive time in the host zone, with its offset', async () => {
+    const home = makeHome()
+    const hh = path.join(home, '.hh')
+    fs.mkdirSync(path.join(hh, '.backups'), { recursive: true })
+    // A real archive name: the stamp is UTC, and its `.zip` must satisfy ARCHIVE_NAME for the list to
+    // show it at all. `03:11:43.654Z` is 10:11:43 +07:00, the case the audit measured.
+    fs.writeFileSync(path.join(hh, '.backups', 'backup-2026-11-17-03-11-43-654.zip'), 'x')
+
+    const listed = runCli(['backup', 'list'], { home })
+    expect(listed.status, listed.stderr).toBe(0)
+
+    // The local reading and the offset are both present, so the line cannot be misread.
+    const line = listed.stdout.split('\n').find(text => text.includes('backup-2026-11-17-03-11-43-654'))!
+    expect(line).toBeDefined()
+    const expected = (() => {
+      const date = new Date(Date.UTC(2026, 10, 17, 3, 11, 43, 654))
+      const pad = (value: number): string => String(value).padStart(2, '0')
+      const minutes = -date.getTimezoneOffset()
+      const sign = minutes < 0 ? '-' : '+'
+      const absolute = Math.abs(minutes)
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} ${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`
+    })()
+    expect(line, 'the column follows the host zone').toContain(expected)
   })
 })

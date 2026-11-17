@@ -1,7 +1,7 @@
 # Backups
 
-One `.zip` holds the panel and the workspaces you pick — settings, servers, secrets and the data
-each entry declares — and puts it back, on this machine or a blank one. Plain, or AES-256 with a
+One `.zip` holds the panel and the workspaces you pick — settings, servers, **jobs**, secrets and the
+data each entry declares — and puts it back, on this machine or a blank one. Plain, or AES-256 with a
 password. **Global settings → Backups**, or the CLI:
 
 ```bash
@@ -11,6 +11,10 @@ home-hosted backup create --all --exclude global:secrets --confirm
 home-hosted backup restore <name> --all --confirm
 home-hosted backup restore --from /media/usb/x.zip --all --confirm
 ```
+
+`backup list` prints each archive's **taken-at time in this machine's zone**, with the offset beside
+it (`2026-11-17 10:11 +07:00`). The file **name** stays UTC — it is the retention key, and
+`archiveStamp` parses it back — so the name and the column legitimately differ by the host's offset.
 
 Both work with the panel **stopped**, which is when you usually need them. Without `--confirm` they
 plan first: at a terminal they ask, and without one (cron, CI) they print the plan and exit 1, so an
