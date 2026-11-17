@@ -130,6 +130,14 @@ probe — otherwise a `read` credential could spawn a process per request (measu
 requests peaked at 40 processes before the cache). The one place a `read` token can still cost the
 panel a process is that probe, once per few seconds.
 
+**`read` also sees more than counters.** A monitor can read the **reverse-proxy table** (each public
+hostname, the workspace and entry it forwards to) and the **DDNS panel** (provider, zone and account
+names), because those are readings of panel state rather than of anyone's secrets — `GET /api/proxy`
+and `GET /api/ddns` are both `read`. Neither route returns a credential value or a secret: a
+certificate's *subject and issuer* are visible, its key is not. A workspace limit narrows the proxy
+rows and the DDNS accounts to the workspaces it names. Give a monitor an account limited to the
+workspaces whose hostnames it is allowed to know.
+
 **A `read` account is refused `403 TOKEN_SCOPE` on every non-GET**, and one limited to `default`
 cannot act on `staging`. **Leaving `?workspace=` out is not a way around that limit:** an omitted key
 resolves to the panel's default workspace, so a request that names none is checked against the
