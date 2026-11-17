@@ -16,6 +16,7 @@ import {
   parseRepoSlug,
   repoSlug,
 } from '#src/providers/ui-release'
+import { formatDateTimeIso } from '#src/shared/ui-format'
 
 /**
  * `home-hosted ui-update` keeps an installed UI in step with the panel it talks to.
@@ -278,7 +279,7 @@ function printIdentity(io: { write: (text: string) => void }, identity: UiIdenti
   io.write(`  version  ${identity.version ?? 'unspecified'}\n`)
   io.write(`  repo     ${identity.repo ?? 'unspecified'}${identity.tag === null ? '' : ` @ ${identity.tag}`}\n`)
   if (identity.unix !== null)
-    io.write(`  built    ${new Date(identity.unix * 1000).toISOString()}\n`)
+    io.write(`  built    ${formatDateTimeIso(identity.unix * 1000)}\n`)
 }
 
 function printCheck(

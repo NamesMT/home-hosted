@@ -8,6 +8,7 @@ import { bold, dim, fail, green, invocation, paint, prompt } from '#src/cli/io'
 import { resolveUserPath } from '#src/helpers/paths'
 import { unknownBackupIds } from '#src/shared/backup-scope'
 import { errorMessage } from '#src/shared/error-message'
+import { formatDateTimeIso } from '#src/shared/ui-format'
 
 /**
  * `backup` — take an archive, list them, or restore one, without a browser.
@@ -421,28 +422,12 @@ function printList(view: { files?: BackupFileView[], dir?: string } | null, json
   const noun = files.length === 1 ? 'archive' : 'archives'
   process.stdout.write(`${bold(String(files.length))} ${noun}${view?.dir === undefined ? '' : ` in ${dim(view.dir)}`}\n`)
   for (const file of files) {
-    // **Local**, like every other time this panel prints. The archive *name* is UTC — it is the
-    // retention key and `archiveStamp` parses it back — but a column read by a person has to agree
-    // with the clock in front of them: an archive taken at 10:11 +07 printed `03:11`, which reads as
-    // seven hours ago. `${offset}` makes the frame explicit so a stored log stays unambiguous.
-    const when = file.createdAt == null ? '' : `${localStamp(file.createdAt)} ${localOffsetLabel(file.createdAt)}`
+    // **Local ISO**, the one spelling the whole panel uses. The archive *name* stays UTC — it is the
+    // retention key and `archiveStamp` parses it back — but a column read by a person has to agree with
+    // the clock in front of them: this printed UTC `03:11` for an archive taken at 10:11 +07.
+    const when = file.createdAt == null ? '' : formatDateTimeIso(file.createdAt)
     process.stdout.write(`  ${file.name.padEnd(36)} ${human(file.sizeBytes).padStart(8)}  ${dim(when)}${file.automatic ? dim(' auto') : ''}\n`)
   }
-}
-
-/** `YYYY-MM-DD HH:MM` in the **host's** local timezone, the frame every other surface uses. */
-function localStamp(at: number): string {
-  const date = new Date(at)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-/** `+07:00` — carried so the printed time is unambiguous once it is out of the terminal. */
-function localOffsetLabel(at: number): string {
-  const minutes = -new Date(at).getTimezoneOffset()
-  const sign = minutes < 0 ? '-' : '+'
-  const absolute = Math.abs(minutes)
-  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`
 }
 
 /**

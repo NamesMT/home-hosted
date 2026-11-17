@@ -3,6 +3,7 @@ import type { AccountRow } from '@shared/api-client'
 import { computed, onMounted, ref } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import * as api from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 
 /**
  * The panel's accounts: one credential signs in to the panel and authenticates the API.
@@ -113,11 +114,11 @@ async function toggleEnabled(account: AccountRow): Promise<void> {
   }
 }
 
-/** `Intl`, per the UI rules — never a hand-assembled date. */
+/** The shared spelling: `YYYY-MM-DD HH:MM:SS`, like every other timestamp in the panel. */
 function when(ms: number | undefined): string {
   if (ms === undefined)
     return 'never used'
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(ms)
+  return formatDateTime(ms)
 }
 
 const scopeKeys = computed(() => Object.keys(SCOPE_HINTS))

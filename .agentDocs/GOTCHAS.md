@@ -198,8 +198,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   — mount the component (`happy-dom`) for anything with a setter. (`uis/stock/test/number-field.test.ts`)
 - **A UI cannot translate text the panel formatted** — the panel sends an optional catalog key beside
   the required text, and the UI falls back to the text.
-- **`Intl` beats a catalog for numbers, dates and durations** — `numeric: 'always'`; non-English uses
-  `short` unit style (`narrow` falls back to Latin in Japanese).
+- **`Intl` beats a catalog for numbers, durations and relative times — but not for dates.** A **date**
+  is ISO, `YYYY-MM-DD` / `YYYY-MM-DD HH:MM:SS`, from `formatDateIso`/`formatDateTimeIso` in
+  `src/shared/ui-format.ts`, in the host's timezone, identical in both UIs and the CLI. Formatting one
+  through `Intl` follows the *browser* (an English date on a Japanese panel) and spells the same moment
+  three ways across the product — and `03/04/2026` is a different day in two of the nine languages
+  shipped. Relative times stay `Intl` with `numeric: 'always'`; non-English uses `short` unit style
+  (`narrow` falls back to Latin in Japanese). (`uis/stock/test/format-locale.test.ts` scans both UIs.)
 - **A plural rule is per language** — `plural.ts` resolves the CLDR category through `Intl.PluralRules`.
 - **A lifecycle refusal is `{ ok: false, error }`, not the `DetailedError` envelope** — every failed
   response is read through `failureMessage`. (`src/shared/api-client.ts`)

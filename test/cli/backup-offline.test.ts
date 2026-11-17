@@ -167,15 +167,15 @@ describe('the offline backup service on a fresh home', () => {
 })
 
 /**
- * `backup list` prints the archive's time in the **host's** zone, and says which zone.
+ * `backup list` prints the archive's time in the **host's** zone, in the panel's one spelling.
  *
  * The archive *name* is UTC — it is the retention key and `archiveStamp` parses it back — but the
  * column beside it was rendered from `toISOString()` too, so an archive taken at 10:11 +07 printed
- * `03:11`. Every other surface (jobs, logs, the UIs) is local, so that one column read as seven hours
- * ago and disagreed with the clock in front of the person reading it.
+ * `03:11`. It now uses the shared `formatDateTimeIso`, the same `YYYY-MM-DD HH:MM:SS` the UIs and every
+ * other CLI surface print, so a log line and a row on screen agree character for character.
  */
 describe('the backup list column', () => {
-  it('renders the archive time in the host zone, with its offset', async () => {
+  it('renders the archive time in the host zone, as the panel spells a date', async () => {
     const home = makeHome()
     const hh = path.join(home, '.hh')
     fs.mkdirSync(path.join(hh, '.backups'), { recursive: true })
@@ -186,17 +186,17 @@ describe('the backup list column', () => {
     const listed = runCli(['backup', 'list'], { home })
     expect(listed.status, listed.stderr).toBe(0)
 
-    // The local reading and the offset are both present, so the line cannot be misread.
     const line = listed.stdout.split('\n').find(text => text.includes('backup-2026-11-17-03-11-43-654'))!
     expect(line).toBeDefined()
     const expected = (() => {
       const date = new Date(Date.UTC(2026, 10, 17, 3, 11, 43, 654))
       const pad = (value: number): string => String(value).padStart(2, '0')
-      const minutes = -date.getTimezoneOffset()
-      const sign = minutes < 0 ? '-' : '+'
-      const absolute = Math.abs(minutes)
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} ${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
     })()
-    expect(line, 'the column follows the host zone').toContain(expected)
+    expect(line, 'the column follows the host zone, in ISO').toContain(expected)
+    // And it is not the UTC reading of the same instant, which is the bug this replaced — skipped on a
+    // machine whose zone *is* UTC, where the two spellings are legitimately identical.
+    if (new Date().getTimezoneOffset() !== 0)
+      expect(line).not.toContain('03:11:43')
   })
 })

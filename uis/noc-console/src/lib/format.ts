@@ -1,14 +1,22 @@
-// The subset both UIs share; see that module for why only these four live there.
-export { formatAgo, formatClock, formatDuration, formatRatio, relativeFrom } from '@shared/ui-format'
+// The subset both UIs share, plus the panel's one date spelling; see that module for what belongs there.
+import { formatClockIso, formatDateTimeIso } from '@shared/ui-format'
 
+export { formatAgo, formatClock, formatDateIso, formatDateTimeIso, formatDuration, formatRatio, relativeFrom } from '@shared/ui-format'
+
+/** `HH:MM:SS` — a log line's clock, from the shared formatter so both UIs agree. */
 export function formatStamp(ts: number): string {
-  const date = new Date(ts)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  return formatClockIso(ts).slice(0, 8)
 }
 
+/**
+ * The panel's one timestamp spelling: `YYYY-MM-DD HH:MM:SS`, host timezone.
+ *
+ * It used to be `toLocaleString(undefined, { hour12: false })`, which follows the **browser** and
+ * renders `11/17/2026, 10:11:43` — a third spelling, beside stock's `Nov 17, 2026, 10:11:43` and the
+ * accounts table's `11/17/26, 10:11 AM`. A date is now ISO everywhere, in both UIs and the CLI.
+ */
 export function formatDateTime(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { hour12: false })
+  return formatDateTimeIso(ts)
 }
 
 /** Compact htop-style uptime: `3d04h`, `2h11m`, `07m42s`, `42s`. */

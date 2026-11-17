@@ -126,12 +126,13 @@ async function toggleEnabled(account: AccountRow): Promise<void> {
 }
 
 /**
- * `Intl`, per the UI rules — never a hand-assembled date, and never the browser's locale.
+ * The shared timestamp helper — ISO, in the host's timezone, like every other date in the panel.
  *
- * A local `Intl.DateTimeFormat(undefined, …)` follows the **browser**, which is not the panel's
- * language: with the UI set to 日本語 this one column still rendered `Nov 16, 2026, 12:57 AM` while
- * every other timestamp on the page read `2026年11月17日 04:48:03` — measured in Chromium on
- * `/global/settings`. `formatDateTime` is the shared helper; it passes `activeLocaleTag()`.
+ * A local `Intl.DateTimeFormat(undefined, …)` used to be here, and it followed the **browser**, which
+ * is not the panel's language: with the UI set to 日本語 this one column still rendered
+ * `Nov 16, 2026, 12:57 AM` while every other timestamp read `2026年11月17日 04:48:03` — measured in
+ * Chromium on `/global/settings`. Dates are no longer localised at all (see `formatDateIso`): every
+ * surface reads `YYYY-MM-DD HH:MM:SS`, so this column cannot drift from its neighbours again.
  */
 function when(ms: number | undefined): string {
   if (ms === undefined)

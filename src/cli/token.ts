@@ -2,6 +2,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, green, invocation } from '#src/cli/io'
 import { API_TOKEN_SCOPES, generateApiToken } from '#src/config/secrets'
+import { formatDateTimeIso } from '#src/shared/ui-format'
 
 /**
  * `token create|ls|revoke` — the named, scoped API tokens, from a terminal.
@@ -69,7 +70,7 @@ export const tokenCommand = defineCommand({
       for (const token of tokens) {
         const scope = token.scopes.join(',')
         const limit = token.workspaces === undefined ? 'all workspaces' : token.workspaces.join(',')
-        const used = token.lastUsedAt === undefined ? 'never used' : `last used ${new Date(token.lastUsedAt).toISOString().slice(0, 16).replace('T', ' ')}`
+        const used = token.lastUsedAt === undefined ? 'never used' : `last used ${formatDateTimeIso(token.lastUsedAt)}`
         process.stdout.write(`${bold(token.id.padEnd(16))} ${token.name.padEnd(20)} ${scope.padEnd(20)} ${dim(`${limit} · ${used}`)}\n`)
       }
       process.stdout.write(`${dim('the value of a token is shown once, at creation — it is not stored anywhere')}\n`)

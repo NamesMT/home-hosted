@@ -1,9 +1,10 @@
 /**
  * Formatting both UIs share, so a fix lands once instead of in two copies.
  *
- * Only the genuinely identical functions live here: `formatBytes`, `formatBytesShort` and
- * `formatDateTime` differ between the products on purpose (signatures, thresholds, locale options)
- * and stay where they are.
+ * Only the genuinely identical functions live here: `formatBytes` and `formatBytesShort` differ
+ * between the products on purpose (thresholds) and stay where they are. A **date** is no longer one of
+ * the differences: `formatDateIso` / `formatDateTimeIso` are the panel's single spelling, and both UIs
+ * and the CLI use them (see the note on `formatDateIso` for why a localised date was the wrong call).
  *
  * The relative-time functions take **words**. The rule (which unit, which threshold, the
  * backwards-clock clamp) belongs here; the words do not, because `src/shared/` may not import a
@@ -20,6 +21,52 @@ export function formatRatio(value: number | null): string {
 /** Wall-clock time, 24-hour, in the host locale. */
 export function formatClock(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour12: false })
+}
+
+/**
+ * The panel's **one** calendar/timestamp spelling: `YYYY-MM-DD`, and `YYYY-MM-DD HH:MM:SS` with a time.
+ *
+ * Dates used to be rendered through `Intl` in each surface's own way, so the same moment read
+ * `Nov 17, 2026, 10:11:43` on stock's jobs page, `11/17/2026, 10:11:43` in noc-console and
+ * `11/17/26, 10:11 AM` in its accounts table — and in a localised UI `2026年11月17日 …`. Three
+ * spellings of one value is a bug the moment somebody compares a log line with a row on screen, and a
+ * localised* date is worse for a control panel: `03/04/2026` is a different day in two of the nine
+ * languages the stock UI ships.
+ *
+ * So a date is **ISO 8601, in the host's timezone**, everywhere: sortable as a string, unambiguous
+ * across locales, and the same characters in the panel, the CLI and a pasted bug report. `T` is
+ * replaced by a space for reading; the machine-readable form with `T` belongs in a filename or an API
+ * body, and those build their own (`archiveStamp`).
+ *
+ * Time-only values (`formatClock`, a log row's `HH:MM:SS.mmm`) keep their own helper: a bare time is
+ * not a date, and the seconds a log needs are not what a "when did this happen" row wants.
+ */
+export function formatDateIso(ts: number): string {
+  const date = new Date(ts)
+  if (!Number.isFinite(date.getTime()))
+    return '—'
+  return `${String(date.getFullYear()).padStart(4, '0')}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+}
+
+/** `YYYY-MM-DD HH:MM:SS` — the same date, with a 24-hour time, in the host's timezone. */
+export function formatDateTimeIso(ts: number): string {
+  const date = new Date(ts)
+  if (!Number.isFinite(date.getTime()))
+    return '—'
+  return `${formatDateIso(ts)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+}
+
+/** `HH:MM:SS.mmm` — a log line's stamp. Sub-second, because two lines in one second are common. */
+export function formatClockIso(ts: number): string {
+  const date = new Date(ts)
+  if (!Number.isFinite(date.getTime()))
+    return '—'
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}.${String(date.getMilliseconds()).padStart(3, '0')}`
+}
+
+/** Two digits, for the parts of a timestamp. */
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
 }
 
 /** The unit a span counts in. `s`/`m`/`h`/`d` keep the call sites free of a translated word. */

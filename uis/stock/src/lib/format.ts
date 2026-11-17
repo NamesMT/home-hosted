@@ -1,5 +1,5 @@
 import type { DurationUnit, DurationWords } from '@shared/ui-format'
-import { formatAgo as sharedFormatAgo, formatDuration as sharedFormatDuration, relativeFrom as sharedRelativeFrom } from '@shared/ui-format'
+import { formatClockIso, formatDateTimeIso, formatAgo as sharedFormatAgo, formatDuration as sharedFormatDuration, relativeFrom as sharedRelativeFrom } from '@shared/ui-format'
 import { currentLocale, t } from '@/i18n'
 import { localeMeta } from '@/i18n/locales'
 
@@ -103,21 +103,20 @@ export function formatAgo(ts: number | null, now: number): string {
 
 /** `HH:MM:SS.mmm` — the log viewer needs the sub-second part to be useful. */
 export function formatClockMs(ts: number): string {
-  const date = new Date(ts)
-  const base = date.toLocaleTimeString(activeLocaleTag(), { hour12: false })
-  return `${base}.${String(date.getMilliseconds()).padStart(3, '0')}`
+  return formatClockIso(ts)
 }
 
+/**
+ * The panel's one timestamp spelling: `YYYY-MM-DD HH:MM:SS`, host timezone.
+ *
+ * It used to be `toLocaleString(activeLocaleTag(), …)`, which meant the same moment read `Nov 17,
+ * 2026, 10:11:43` here, `11/17/2026, 10:11:43` in noc-console and `2026年11月17日 …` once the UI was
+ * switched to Japanese. A control panel is read across languages and compared against log lines, so
+ * the date is ISO in every one of them: sortable, unambiguous, and identical in the panel and the CLI.
+ * See `formatDateIso` in `@shared/ui-format` for the full argument.
+ */
 export function formatDateTime(ts: number): string {
-  return new Date(ts).toLocaleString(activeLocaleTag(), {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
+  return formatDateTimeIso(ts)
 }
 
 export function formatBytes(bytes: number): string {

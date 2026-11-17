@@ -142,6 +142,14 @@ stamps. A BOM or UTF-16 file (Notepad, PowerShell) is read fine.
 - **An event's `actor`** (`policy`, `user`, `agent`, `boot`) says what asked for it; absent on older
   events, and on a `start`/`exit` nobody asked for — a process that ended on its own has no actor.
   A `start` carries whoever asked for it, and an `exit` only when a stop asked for it.
+- **A timestamp is ISO, in the host's timezone, and never localised.** Render it as
+  `YYYY-MM-DD` / `YYYY-MM-DD HH:MM:SS` through `formatDateIso`/`formatDateTimeIso` in
+  `src/shared/ui-format.ts`; a log line's clock is `HH:MM:SS.mmm` from `formatClockIso`. Do **not**
+  format one with `Intl` or `toLocaleString`: passing `undefined` follows the *browser* rather than the
+  panel's language (an English date on a Japanese panel), and a localised date spells the same moment
+  differently in each language — `03/04/2026` is a different day in two of the nine the stock UI
+  ships. A control panel's date is read against a log line and pasted into a bug report, so it has to
+  sort and match as a string. Relative times (`in 4s`, `12s ago`) are the opposite: those stay `Intl`.
 - `GET /api/backups` is not in the state frame (it reads secrets and stats archives): fetch it when
   a dialog opens.
 

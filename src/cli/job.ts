@@ -2,6 +2,7 @@ import type { JobRunResultBody } from '#src/shared/contracts'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { dim, fail, green, invocation, paint } from '#src/cli/io'
+import { formatClockIso } from '#src/shared/ui-format'
 
 /**
  * `home-hosted job` — a workspace's jobs: list them, and run one.
@@ -209,7 +210,9 @@ export const jobLogCommand = defineCommand({
       return
     }
     for (const line of lines) {
-      const stamp = new Date(line.ts).toISOString().slice(11, 23)
+      // Local, like every other stamp the CLI prints. `toISOString()` here showed a job's run lines in
+      // UTC while the run's own `next`/`last` columns were local — the same run read two hours apart.
+      const stamp = formatClockIso(line.ts)
       process.stdout.write(`${dim(stamp)} ${line.stream === 'stderr' ? paint('31', line.stream) : line.stream.padEnd(6)} ${line.text}\n`)
     }
   },
