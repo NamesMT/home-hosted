@@ -17,7 +17,7 @@ export interface LeafChoice {
   id: string
   label: string
   hint: string
-  kind: 'settings' | 'servers' | 'secrets' | 'data'
+  kind: 'settings' | 'servers' | 'jobs' | 'secrets' | 'data'
   selected: boolean
 }
 
@@ -50,6 +50,8 @@ function leafHint(item: BackupEntry['items'][number]): string {
     return t('settings.backup.leafSettingsHint')
   if (item.kind === 'servers')
     return t('settings.backup.leafServersHint')
+  if (item.kind === 'jobs')
+    return t('settings.backup.leafJobsHint')
   if (item.kind === 'secrets') {
     const key = item.secret === undefined ? undefined : SECRET_HINTS[item.secret]
     return key === undefined ? t('settings.backup.leafSecretsHint') : t(key)

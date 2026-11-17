@@ -27,6 +27,9 @@ const selection: BackupSelection = {
       items: [
         { id: 'workspace:default:settings', label: 'Settings', kind: 'settings', included: true, note: null },
         { id: 'workspace:default:servers', label: 'Servers', kind: 'servers', included: true, note: null },
+        // A job is its own leaf, so a schedule can be told to keep a workspace's scheduled work
+        // without keeping its servers — or the other way round.
+        { id: 'workspace:default:jobs', label: 'Jobs', kind: 'jobs', included: true, note: null },
       ],
     },
   ],

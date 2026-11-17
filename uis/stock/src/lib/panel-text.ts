@@ -44,6 +44,7 @@ export function panelNote(source: PanelNote): string | null {
 const KIND_KEY: Record<string, string> = {
   settings: 'settings.backups.kindSettings',
   servers: 'settings.backups.kindServers',
+  jobs: 'settings.backups.kindJobs',
   secrets: 'settings.backups.kindSecrets',
   tls: 'settings.backups.kindTls',
   data: 'settings.backups.kindData',

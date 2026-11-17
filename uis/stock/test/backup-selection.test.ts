@@ -1,4 +1,5 @@
 import type { BackupEntry } from '@shared/contracts'
+import { scopeOf } from '@shared/backup-scope'
 import { describe, expect, it } from 'vitest'
 import {
   allLeavesSelected,
@@ -212,5 +213,37 @@ describe('backup selection', () => {
 
     entries[2]!.leaves[1]!.selected = false
     expect(selectionCount(entries)).toEqual({ entries: 3, leaves: 3 })
+  })
+})
+
+/**
+ * A job is its own leaf, and the scope ids have to be able to name it.
+ *
+ * The backup captured no `jobs.config.json` at all, so a restored host ran none of its scheduled
+ * work while its secrets file still held every job's credential. The panel now offers the leaf; these
+ * cases pin that ticking it (or only it) produces the ids the API's selection actually honours.
+ */
+describe('the jobs leaf', () => {
+  /** The workspace's jobs file, as the panel's tree carries it. */
+  function jobsLeaf(overrides: Partial<BackupEntryItem> = {}): BackupEntryItem {
+    return { id: 'workspace:default:jobs', label: 'Jobs', kind: 'jobs', included: true, note: null, ...overrides }
+  }
+
+  it('travels as its own id when its siblings are unticked', () => {
+    const entries = captureEntries([workspaceEntry([leaf(), jobsLeaf()])])
+    entries[0]!.leaves.find(choice => choice.id === 'workspace:default:settings')!.selected = false
+
+    expect(includeIds(entries)).toEqual(['workspace:default:jobs'])
+    expect(selectionCount(entries)).toEqual({ entries: 1, leaves: 1 })
+  })
+
+  it('is named by the complement when it is the one thing left out', () => {
+    const entries = captureEntries([workspaceEntry([leaf(), jobsLeaf(), dataLeaf()])])
+    expect(capturesEverything(entries)).toBe(true)
+
+    entries[0]!.leaves.find(choice => choice.id === 'workspace:default:jobs')!.selected = false
+    // The stored scope is written as the complement: "everything except this one leaf" — which is
+    // the spelling the docs recommend, and the one `--exclude workspace:<id>:jobs` round-trips.
+    expect(scopeOf(entries, 'except')).toEqual({ kind: 'scope', scope: { mode: 'except', ids: ['workspace:default:jobs'] } })
   })
 })

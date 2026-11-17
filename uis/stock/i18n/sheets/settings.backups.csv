@@ -45,6 +45,7 @@ settings.backups.confirmDelete,Confirm delete,Xác nhận xoá,确认删除,削�
 settings.backups.deleted,Deleted {name}.,Đã xoá {name}.,已删除 {name}。,{name} を削除しました。,Se eliminó {name}.,{name}을(를) 삭제했습니다.,{name} удалён.,{name} supprimé.,{name} gelöscht.
 settings.backups.kindSettings,settings,cài đặt,设置,設定,ajustes,설정,настройки,paramètres,Einstellungen
 settings.backups.kindServers,servers,máy chủ,服务器,サーバー,servidores,서버,серверы,serveurs,Server
+settings.backups.kindJobs,jobs,tác vụ,任务,ジョブ,tareas,작업,задания,tâches,Aufgaben
 settings.backups.kindSecrets,secrets,bí mật,密钥,シークレット,secretos,시크릿,секреты,secrets,Geheimnisse
 settings.backups.kindTls,tls,tls,tls,tls,tls,tls,tls,tls,tls
 settings.backups.kindData,data,dữ liệu,数据,データ,datos,데이터,данные,données,Daten
@@ -58,7 +59,7 @@ settings.backups.scopeMode,Mode,Chế độ,模式,モード,Modo,모드,Реж�
 settings.backups.scopeOnly,Only these,Chỉ những mục này,仅这些,これだけ, Solo estos,이것만,Только это,Seulement ceci,Nur diese
 settings.backups.scopeExcept,Everything except,Mọi thứ trừ,除此之外的全部,これ以外のすべて,Todo menos,이것을 제외한 전부,Всё кроме,Tout sauf,Alles außer
 settings.backups.scopeOnlyHint,The archive carries only what is ticked.,Bản lưu chỉ chứa những gì được chọn.,归档只包含勾选的内容。,アーカイブにはチェックしたものだけが入ります。,El archivo solo lleva lo marcado.,아카이브에는 체크한 것만 담깁니다.,Архив содержит только отмеченное.,L'archive ne contient que ce qui est coché.,Das Archiv enthält nur das Angekreuzte.
-settings.backups.scopeExceptHint,"The archive carries everything except what is ticked.","Bản lưu chứa mọi thứ trừ những gì được chọn.",归档包含除勾选内容之外的一切。,アーカイブにはチェックしたもの以外のすべてが入ります。,"El archivo lleva todo menos lo marcado.",아카이브에는 체크한 것을 제외한 전부가 담깁니다.,"Архив содержит всё, кроме отмеченного.","L'archive contient tout sauf ce qui est coché.","Das Archiv enthält alles außer dem Angekreuzten."
+settings.backups.scopeExceptHint,The archive carries everything except what is ticked.,Bản lưu chứa mọi thứ trừ những gì được chọn.,归档包含除勾选内容之外的一切。,アーカイブにはチェックしたもの以外のすべてが入ります。,El archivo lleva todo menos lo marcado.,아카이브에는 체크한 것을 제외한 전부가 담깁니다.,"Архив содержит всё, кроме отмеченного.",L'archive contient tout sauf ce qui est coché.,Das Archiv enthält alles außer dem Angekreuzten.
 settings.backups.scopeNothing,"Nothing is ticked — an archive of nothing is refused, so tick at least one item.","Không có mục nào được chọn — bản lưu rỗng bị từ chối, hãy chọn ít nhất một mục.",没有勾选任何内容——空归档会被拒绝，请至少勾选一项。,何もチェックされていません。空のアーカイブは拒否されるため、少なくとも 1 つ選んでください。,"No hay nada marcado: un archivo vacío se rechaza, así que marca al menos un elemento.",아무것도 체크되지 않았습니다. 빈 아카이브는 거부되므로 최소 하나를 선택하세요.,"Ничего не отмечено — пустой архив будет отклонён, отметьте хотя бы один пункт.","Rien n'est coché — une archive vide est refusée, cochez au moins un élément.","Nichts ist angekreuzt — ein leeres Archiv wird abgelehnt, kreuzen Sie mindestens einen Eintrag an."
 settings.backups.scopeSummaryAll,Everything (the default scope),Tất cả (phạm vi mặc định),全部（默认范围）,すべて（既定の範囲）,Todo (el ámbito predeterminado),전부(기본 범위),Всё (диапазон по умолчанию),Tout (la portée par défaut),Alles (der Standardumfang)
 settings.backups.scopeSummaryOnly,Only {count} selected,Mỗi {count} mục được chọn,仅 {count} 项已选,{count} 件のみ選択, Solo {count} seleccionados,{count}개만 선택,Только {count} выбранных,Seulement {count} sélectionnés,Nur {count} ausgewählt
