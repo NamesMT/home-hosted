@@ -289,6 +289,7 @@ export class PanelService {
         // The runtime's own paths, never ones re-derived from the module constants.
         settingsPath: runtime.store.settingsPath,
         serversPath: runtime.store.path,
+        jobsPath: runtime.jobs.path,
         secretsPath: runtime.secrets.path,
         servers: runtime.store.servers,
       })),

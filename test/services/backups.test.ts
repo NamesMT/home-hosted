@@ -16,6 +16,7 @@ import { appVersion } from '#src/helpers/version'
 import * as archive from '#src/providers/archive'
 import { createZip as createZipFile, extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { admitArchive, BackupService, isInside, isInsideResolved, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
+import { JobsService } from '#src/services/jobs'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
 
 // An absolute path in the platform's own syntax: these fixtures used POSIX `/srv/…`,
@@ -54,6 +55,7 @@ interface Fixture {
   registryPath: string
   workspaceSettingsPath: string
   serversPath: string
+  jobsPath: string
   workspaceSecretsPath: string
   dataDir: string
   config: BackupsConfig
@@ -127,6 +129,13 @@ async function makeFixture(
     /** Declare the fixture's own state root, which contains the archive directory. */
     coverStateRoot?: boolean
     ignoreGenerated?: boolean
+    /**
+     * The workspace's `jobs.config.json`, written as `{ meta, jobs }`.
+     *
+     * Omitted, the fixture has **no** jobs file — which is the state the capture has to leave alone:
+     * a workspace with no jobs must not gain an empty one on restore.
+     */
+    jobs?: Array<Record<string, unknown>>
     /** Raw contents of the two secrets files, when a test needs real secrets in them. */
     globalSecrets?: string
     workspaceSecrets?: string
@@ -148,6 +157,7 @@ async function makeFixture(
   const workspaceDir = path.join(dataRoot, 'default')
   const workspaceSettingsPath = path.join(workspaceDir, 'settings.json')
   const serversPath = path.join(workspaceDir, 'servers.config.json')
+  const jobsPath = path.join(workspaceDir, 'jobs.config.json')
   const workspaceSecretsPath = path.join(workspaceDir, '.secrets.json')
   const dataDir = path.join(root, 'data')
 
@@ -180,6 +190,8 @@ async function makeFixture(
     ...options.serverFields,
   })]
   fs.writeFileSync(serversPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers }, null, 2)}\n`)
+  if (options.jobs !== undefined)
+    fs.writeFileSync(jobsPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, jobs: options.jobs }, null, 2)}\n`)
 
   const sources: BackupSources = {
     globalSettingsPath,
@@ -192,6 +204,7 @@ async function makeFixture(
       label: 'Default',
       settingsPath: workspaceSettingsPath,
       serversPath,
+      jobsPath,
       secretsPath: workspaceSecretsPath,
       servers,
     }],
@@ -215,6 +228,7 @@ async function makeFixture(
     registryPath,
     workspaceSettingsPath,
     serversPath,
+    jobsPath,
     workspaceSecretsPath,
     dataDir,
     config: parsed,
@@ -329,6 +343,9 @@ describe('backup service', () => {
     expect(workspace.items.map(item => item.id)).toEqual([
       'workspace:default:settings',
       'workspace:default:servers',
+      // A job is its own domain, so its file is its own leaf: a person has to be able to see and
+      // tick it, or a scheduled workspace is archived without the schedule.
+      'workspace:default:jobs',
       'workspace:default:secrets',
       // The known slots, listed whether or not they hold a value.
       'workspace:default:secrets:telegram',
@@ -2842,5 +2859,216 @@ describe('backup and restore defects', () => {
 
     fixture.service.tick(now + 1000)
     await vi.waitFor(() => expect(fixture.service.list()).toHaveLength(1), { timeout: 15_000 })
+  })
+})
+
+/**
+ * A backup that silently omits every job.
+ *
+ * The engine had no notion of a job: an archive carried the workspace's servers, settings and
+ * secrets — the last of which holds every job's `jobEnv` — and no `jobs.config.json`. A host restored
+ * from it held the **credential** for a scheduled job it no longer had, looked complete on the
+ * Servers page, and ran none of its work. These cases pin both directions: what the archive carries,
+ * and what a restore writes.
+ */
+describe('jobs travel in an archive, like a workspace\'s servers do', () => {
+  /** A job the release can run: a real command and a valid 5-field expression. */
+  const nightly = {
+    id: 'nightly',
+    command: process.execPath,
+    args: ['-e', 'process.exitCode = 0'],
+    schedule: '0 3 * * *',
+  }
+
+  it('captures jobs.config.json beside servers.config.json', async () => {
+    const fixture = await makeFixture({ jobs: [nightly] })
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(fixture.service.directory, created.file!.name))).map(entry => entry.name)
+    expect(names, 'the archive carries the schedule').toContain('workspaces/default/jobs.config.json')
+  })
+
+  /**
+   * A workspace with no jobs must not gain one.
+   *
+   * The fixture's default has no `jobs.config.json` at all, which is the normal state of a
+   * workspace with nothing scheduled. Capturing an absent file as an empty one would restore a
+   * document nobody wrote — and `capturesWorkspace` already answers this for the servers leaf.
+   */
+  it('leaves a workspace with no jobs without a jobs file in the archive', async () => {
+    const fixture = await makeFixture()
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(fixture.service.directory, created.file!.name))).map(entry => entry.name)
+    expect(names).not.toContain('workspaces/default/jobs.config.json')
+  })
+
+  /**
+   * The round trip the defect is about: take an archive on one home, restore it into a second one,
+   * and the job is there — not merely its secret.
+   */
+  it('round-trips a job into a home that never had one, and the restored job runs', async () => {
+    const fixture = await makeFixture({ jobs: [nightly] })
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    // A second, blank home: its own data root, nothing in it.
+    const other = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-target-'))
+    dirs.push(other)
+    const otherRoot = path.join(other, '.hh')
+    const service = new BackupService({
+      dataRoot: otherRoot,
+      getConfig: () => fixture.config,
+      getSources: () => ({ ...fixture.sources, workspaces: [] }),
+    })
+
+    const plan = await service.restore(archive, { confirm: true })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    const restoredPath = path.join(otherRoot, 'default', 'jobs.config.json')
+    expect(fs.existsSync(restoredPath), 'the job file is there').toBe(true)
+    const restored = JSON.parse(fs.readFileSync(restoredPath, 'utf8')) as { jobs: Array<{ id: string }> }
+    expect(restored.jobs.map(job => job.id)).toEqual(['nightly'])
+
+    // And it is a job the release can actually run: its exit code is the outcome.
+    const service2 = new JobsService({ workspaceId: 'default', file: restoredPath, logDir: path.join(otherRoot, 'default', '.logs', 'jobs') })
+    const record = await service2.run('nightly')
+    expect(record?.exitCode, 'the restored job runs').toBe(0)
+    service2.dispose()
+  })
+
+  /**
+   * A restore onto a host that already has a jobs file keeps the previous one beside it.
+   *
+   * The same promise `home-hosted migrate` makes for every file it rewrites: the old bytes are
+   * recoverable. A restore replaces the schedule wholesale, so there is nothing else to go back to.
+   */
+  it('keeps the previous jobs file as a .bak', async () => {
+    const fixture = await makeFixture({ jobs: [nightly] })
+    const created = await fixture.service.create()
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    const local = JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, jobs: [{ ...nightly, id: 'local-only' }] })
+    fs.writeFileSync(fixture.jobsPath, local)
+
+    const plan = await fixture.service.restore(archive, { confirm: true, include: ['workspace:default:jobs'] })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    expect(fs.readFileSync(`${fixture.jobsPath}.bak`, 'utf8'), 'the file that was replaced').toBe(local)
+    const after = JSON.parse(fs.readFileSync(fixture.jobsPath, 'utf8')) as { jobs: Array<{ id: string }> }
+    expect(after.jobs.map(job => job.id), 'and the archive\'s is what is live').toEqual(['nightly'])
+  })
+
+  /**
+   * A restore must not create an empty jobs file for a workspace the archive carried none for.
+   */
+  it('does not create a jobs file for an archive that carries none', async () => {
+    const fixture = await makeFixture()
+    const created = await fixture.service.create()
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    const other = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-target-'))
+    dirs.push(other)
+    const otherRoot = path.join(other, '.hh')
+    const service = new BackupService({
+      dataRoot: otherRoot,
+      getConfig: () => fixture.config,
+      getSources: () => ({ ...fixture.sources, workspaces: [] }),
+    })
+
+    const plan = await service.restore(archive, { confirm: true })
+    expect(plan.error, plan.error).toBeUndefined()
+    expect(fs.existsSync(path.join(otherRoot, 'default', 'jobs.config.json')), 'nothing scheduled, nothing written').toBe(false)
+  })
+
+  /**
+   * A jobs file from a **newer** release is refused, exactly as a servers file is.
+   *
+   * Writing it back blind would leave a workspace whose file this release then refuses to load —
+   * the restored host would report a broken config instead of the missing one it replaced.
+   */
+  it('refuses a jobs file from a newer schema instead of writing it', async () => {
+    const fixture = await makeFixture()
+    const archive = path.join(fixture.root, 'future-jobs.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), hostname: 'new-box', data: [] }),
+      'workspaces/default/jobs.config.json': JSON.stringify({ meta: { writtenBy: '9.9.9', schema: CONFIG_SCHEMA + 1 }, jobs: [nightly] }),
+    })
+
+    const plan = await fixture.service.restore(archive, { confirm: false })
+    expect(plan.items.map(item => item.id)).not.toContain('workspace:default:jobs')
+    expect(plan.skipped.join(' ')).toContain('Jobs')
+    expect(fs.existsSync(fixture.jobsPath)).toBe(false)
+  })
+})
+
+/**
+ * The `workspace:<id>:jobs` scope id, in the two directions a person uses it.
+ *
+ * A leaf nobody can name is a leaf nobody can select or exclude: without this id a workspace's
+ * scheduled work was captured or dropped only as a side effect of the whole workspace.
+ */
+describe('the workspace jobs scope id', () => {
+  const nightly = {
+    id: 'nightly',
+    command: process.execPath,
+    args: ['-e', 'process.exitCode = 0'],
+    schedule: '0 3 * * *',
+  }
+
+  it('restores only the jobs when that is the only id selected', async () => {
+    const fixture = await makeFixture({ jobs: [nightly] })
+    const created = await fixture.service.create()
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    // Every leaf the archive could write is changed locally first, so "nothing else" is observable.
+    const serversBefore = fs.readFileSync(fixture.serversPath, 'utf8')
+    const settingsBefore = fs.readFileSync(fixture.workspaceSettingsPath, 'utf8')
+    fs.writeFileSync(fixture.jobsPath.replace('jobs.config.json', 'marker.txt'), 'untouched')
+
+    const plan = await fixture.service.restore(archive, { confirm: true, include: ['workspace:default:jobs'] })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    expect(plan.appliedIds).toEqual(['workspace:default:jobs'])
+    expect(fs.readFileSync(fixture.serversPath, 'utf8'), 'the servers file is not touched').toBe(serversBefore)
+    expect(fs.readFileSync(fixture.workspaceSettingsPath, 'utf8'), 'nor the settings').toBe(settingsBefore)
+    const jobs = JSON.parse(fs.readFileSync(fixture.jobsPath, 'utf8')) as { jobs: Array<{ id: string }> }
+    expect(jobs.jobs.map(job => job.id)).toEqual(['nightly'])
+  })
+
+  it('leaves the jobs behind when that is the one id excluded', async () => {
+    const fixture = await makeFixture({ jobs: [nightly] })
+    const created = await fixture.service.create()
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    const before = JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, jobs: [{ ...nightly, id: 'local-only' }] })
+    fs.writeFileSync(fixture.jobsPath, before)
+    // Something only the archive can restore, so "everything else came back" is observable rather
+    // than a comparison of two files the restore happens to write identically.
+    fs.writeFileSync(fixture.workspaceSettingsPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, logs: { keep: 99 } }, null, 2)}\n`)
+
+    const plan = await fixture.service.restore(archive, { confirm: true, exclude: ['workspace:default:jobs'] })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    expect(fs.readFileSync(fixture.jobsPath, 'utf8'), 'the local schedule survives').toBe(before)
+    expect(fs.existsSync(`${fixture.jobsPath}.bak`), 'and nothing was rewritten, so no .bak').toBe(false)
+    expect(fs.readFileSync(fixture.workspaceSettingsPath, 'utf8'), 'everything else came back').not.toContain('99')
+    expect(plan.appliedIds).not.toContain('workspace:default:jobs')
+    expect(plan.appliedIds, 'every other workspace leaf is written').toContain('workspace:default:servers')
+  })
+
+  it('lists the jobs leaf in the selection tree, and leaves it out of an archive that excludes it', async () => {
+    const fixture = await makeFixture({ jobs: [nightly] })
+    const items = fixture.service.selection().entries.find(entry => entry.id === 'workspace:default')!.items
+    expect(items.find(item => item.id === 'workspace:default:jobs')).toMatchObject({ kind: 'jobs', included: true, note: null })
+
+    const created = await fixture.service.create({ exclude: ['workspace:default:jobs'] })
+    expect(created.ok, created.error).toBe(true)
+    const names = (await listZip(path.join(fixture.service.directory, created.file!.name))).map(entry => entry.name)
+    expect(names).not.toContain('workspaces/default/jobs.config.json')
+    expect(names, 'its siblings are still captured').toContain('workspaces/default/servers.config.json')
   })
 })

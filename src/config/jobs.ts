@@ -26,6 +26,11 @@ import { errorMessage } from '#src/shared/error-message'
 export class JobStore {
   constructor(private readonly file: string) {}
 
+  /** Where this store reads and writes. A backup captures exactly this file, not a re-derived name. */
+  get path(): string {
+    return this.file
+  }
+
   /**
    * Every job, in the order the file lists them.
    *

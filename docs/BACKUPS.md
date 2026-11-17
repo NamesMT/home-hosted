@@ -26,9 +26,12 @@ Selection is two-level: whole workspaces, or single pieces of one.
 | id | what |
 | --- | --- |
 | `global:settings`, `global:secrets`, `global:tls` | panel-wide settings, the password/token hashes, the TLS pair |
-| `workspace:<id>:settings` · `:servers` · `:secrets` | a workspace's settings, its `servers.config.json`, its notification/DDNS credentials |
+| `workspace:<id>:settings` · `:servers` · `:jobs` · `:secrets` | a workspace's settings, its `servers.config.json`, its `jobs.config.json`, its notification/DDNS credentials |
 | `workspace:<id>:secrets:<name>` | one secret, restored on its own. `:serverEnv` carries every server's secret environment — the values a move to a new machine would otherwise lose, since they used to live in an `envFile` beside the code and that is not in any backup |
 | `workspace:<id>:data:<path>` | one declared data directory |
+
+A workspace with no `jobs.config.json` carries no jobs entry, and a restore writes none: a host never
+gains an empty schedule it did not declare.
 
 A data directory is anything an entry declares in `dataEnvs` or `backupPaths`. Generated
 directories inside them (`node_modules`, `dist`, `.next`, caches) are skipped unless the entry sets
@@ -67,7 +70,11 @@ seen are created, data lands where *this* machine's config says, and `autostart`
   `{dataRoot}` and `{home}` follow the restoring panel; a literal absolute path stays that path.
 - **A restore never writes where no config declares**, and never across workspaces.
 - **Older archives are lifted** through the same migrations `home-hosted migrate` runs; an archive
-  from a *newer* release is refused.
+  from a *newer* release is refused — a `jobs.config.json` included, so a schedule this release cannot
+  run is never written back as if it could.
+- **A rewritten `jobs.config.json` keeps a `.bak`**: the schedule this restore replaced stays beside
+  it, exactly as `home-hosted migrate` leaves one. (The servers and settings leaves still write in
+  place.)
 - **One secret merges by field** — restoring the Telegram token leaves DDNS credentials alone, and
   excluding one secret keeps the local copy of it.
 - **The password and token hashes are secrets too.** Restoring them reinstates the old machine's
@@ -84,6 +91,7 @@ seen are created, data lands where *this* machine's config says, and `autostart`
 | | Restored | Still yours to do |
 | --- | --- | --- |
 | Panel settings, workspaces, servers, defaults | ✅ | restart the panel if the listener or TLS changed (the plan says so) |
+| Jobs (`jobs.config.json`) — schedules, commands, `secretEnv` names | ✅ | a job's stored secret **values** come back with the workspace's secrets; the schedule fires from the next matching time |
 | Declared data directories | ✅ | see the database note below |
 | Notification and DDNS config | ✅ | DDNS credentials need the same `HHOSTED_DDNS_SECRET` |
 | Password and API token | per secret | leave unticked, or rotate |

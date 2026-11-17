@@ -24,6 +24,7 @@ const TREE = [
   entry('workspace:default', [
     ['workspace:default:settings', true],
     ['workspace:default:servers', true],
+    ['workspace:default:jobs', true],
   ]),
 ]
 
@@ -43,6 +44,12 @@ describe('the selection a scope and a flag share', () => {
 
     const leaf = selectionOf({ include: ['workspace:default:servers'] })
     expect(leaf('workspace:default'), 'a named leaf must not select its whole entry').toBe(false)
+    // A job is a sibling leaf of the servers file, not a child of it: naming one must not select
+    // the other, or "restore only the jobs" would also overwrite this host's servers.config.json.
+    const jobs = selectionOf({ include: ['workspace:default:jobs'] })
+    expect(jobs('workspace:default:jobs')).toBe(true)
+    expect(jobs('workspace:default:servers')).toBe(false)
+    expect(jobs('workspace:default:secrets')).toBe(false)
   })
 
   it('applies an exclusion after the inclusion, and to the leaves underneath', () => {

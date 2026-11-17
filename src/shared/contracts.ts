@@ -2145,8 +2145,8 @@ export const backupEntrySchema = lazy(() => type({
     'label': 'string',
     'labelKey?': 'string',
     'labelParams?': 'Record<string, string>',
-    /** `settings`/`servers`/`secrets` for a workspace, `data` for a declared path. */
-    'kind': '"settings" | "servers" | "secrets" | "data"',
+    /** `settings`/`servers`/`secrets`/`jobs` for a workspace, `data` for a declared path. */
+    'kind': '"settings" | "servers" | "secrets" | "jobs" | "data"',
     /** Which secret a `secrets` leaf carries (`password`, `apiToken`, `telegram`, `ddns`, …). */
     'secret?': 'string',
     'path?': 'string',
@@ -2234,7 +2234,7 @@ export const restoreItemSchema = lazy(() => type({
   'label': 'string',
   'labelKey?': 'string',
   'labelParams?': 'Record<string, string>',
-  'kind': '"settings" | "secrets" | "servers" | "tls" | "data"',
+  'kind': '"settings" | "secrets" | "servers" | "jobs" | "tls" | "data"',
   'workspaceId?': 'string',
   /** false when the current instance does not declare it, or it is not in the archive. */
   'restorable': 'boolean',

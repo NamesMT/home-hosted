@@ -182,6 +182,17 @@ export class JobsService {
     return this.store
   }
 
+  /**
+   * The file this workspace's jobs live in.
+   *
+   * A backup captures **this** path rather than one re-derived from the workspace id: a caller may
+   * have built the service with its own `file` (a test, a project with its own home), and an archive
+   * that read a different file would quietly leave the jobs out.
+   */
+  get path(): string {
+    return this.store.path
+  }
+
   /** One job, or `null`. */
   get(id: string): JobConfig | null {
     return this.store.listOrEmpty().find(job => job.id === id) ?? null

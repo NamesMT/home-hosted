@@ -509,6 +509,9 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
         label: workspace.label,
         settingsPath: workspace.store.settingsPath,
         serversPath: workspace.store.path,
+        // The real jobs service's own file, which this fixture passes explicitly — deriving the
+        // name here would capture a path this home does not use.
+        jobsPath: workspace.runtime.jobs.path,
         secretsPath: workspace.secrets.path,
         servers: workspace.store.servers,
       })),

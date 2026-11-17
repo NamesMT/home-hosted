@@ -109,10 +109,11 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
     const dir = path.join(hhDir, workspace.id)
     const settingsPath = path.join(dir, 'settings.json')
     const serversPath = path.join(dir, 'servers.config.json')
+    const jobsPath = path.join(dir, 'jobs.config.json')
     const secretsPath = path.join(dir, '.secrets.json')
     const store = new WorkspaceStore(workspace.id, settingsPath, serversPath)
     store.load({ write: false })
-    return { id: workspace.id, label: workspace.label, settingsPath, serversPath, secretsPath, servers: store.servers }
+    return { id: workspace.id, label: workspace.label, settingsPath, serversPath, jobsPath, secretsPath, servers: store.servers }
   })
 
   const service = new Service({

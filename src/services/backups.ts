@@ -9,6 +9,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
+import { jobProblems } from '#src/config/jobs'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts, withoutInitialPassword } from '#src/config/secret-parts'
@@ -27,7 +28,7 @@ import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
 import { isProcessAlive } from '#src/providers/port'
 import { serverTemplateVars } from '#src/providers/server-vars'
 import { GLOBAL_RESTORE_ITEMS, scopeSelection, selectedBy, selectionOf } from '#src/shared/backup-scope'
-import { serverSchema, workspaceIdSchema } from '#src/shared/contracts'
+import { jobsFileSchema, serverSchema, workspaceIdSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
 import { isGeneratedPath } from '#src/shared/generated'
 import { isRecord } from '#src/shared/shape'
@@ -396,6 +397,15 @@ export interface BackupWorkspaceSource {
   label: string
   settingsPath: string
   serversPath: string
+  /**
+   * The workspace's `jobs.config.json`.
+   *
+   * Its own leaf because a job is its own domain: without it an archive carried the workspace's
+   * `servers.config.json`, its secrets — including every job's `jobEnv` — and **no jobs at all**. A
+   * restored host then held the credential for a scheduled job it no longer had, looked complete on
+   * the Servers page, and ran none of its work.
+   */
+  jobsPath: string
   secretsPath: string
   servers: ServerConfig[]
 }
@@ -438,6 +448,7 @@ export interface BackupWorkspaceInput {
   label: string
   settingsPath: string
   serversPath: string
+  jobsPath: string
   secretsPath: string
   servers: ServerConfig[]
 }
@@ -478,6 +489,7 @@ export function buildBackupSources(input: {
       label: workspace.label,
       settingsPath: workspace.settingsPath,
       serversPath: workspace.serversPath,
+      jobsPath: workspace.jobsPath,
       secretsPath: workspace.secretsPath,
       servers: workspace.servers,
     })),
@@ -656,17 +668,18 @@ function readArchivedRegistry(file: string): ArchivedWorkspace[] {
 }
 
 /**
- * Where a workspace created by a restore keeps its three leaves.
+ * Where a workspace created by a restore keeps its leaves.
  *
  * Derived from the service's own `dataRoot` (the `.hh` directory the panel passes) rather
  * than the module-level path helpers, so a restore writes under the state root of the panel
  * running it — not under whatever `HHOSTED_HOME` resolves to at import time.
  */
-function workspacePathsFor(dataRoot: string, id: string): Pick<BackupWorkspaceSource, 'settingsPath' | 'serversPath' | 'secretsPath'> {
+function workspacePathsFor(dataRoot: string, id: string): Pick<BackupWorkspaceSource, 'settingsPath' | 'serversPath' | 'jobsPath' | 'secretsPath'> {
   const dir = path.join(dataRoot, id)
   return {
     settingsPath: path.join(dir, 'settings.json'),
     serversPath: path.join(dir, 'servers.config.json'),
+    jobsPath: path.join(dir, 'jobs.config.json'),
     secretsPath: path.join(dir, '.secrets.json'),
   }
 }
@@ -1110,6 +1123,10 @@ export class BackupService {
           await copy(`${root}/settings.json`, workspace.settingsPath)
         if (capturesWorkspace(workspace.id, 'servers'))
           await copy(`${root}/servers.config.json`, workspace.serversPath)
+        // The same rule as the servers file: skipped when the workspace has none, so a workspace
+        // with no jobs does not gain an empty `jobs.config.json` on restore.
+        if (capturesWorkspace(workspace.id, 'jobs'))
+          await copy(`${root}/jobs.config.json`, workspace.jobsPath)
         if (touchesSecrets(`workspace:${workspace.id}:secrets`, workspace.id))
           await copySecrets(`${root}/secrets.json`, workspace.secretsPath, `workspace:${workspace.id}:secrets`, 'workspace', workspace.id)
 
@@ -1525,6 +1542,7 @@ export class BackupService {
         const dir = path.join(archiveWorkspaces, id)
         const settings = readText(path.join(dir, 'settings.json'))
         const servers = readText(path.join(dir, 'servers.config.json'))
+        const jobs = readText(path.join(dir, 'jobs.config.json'))
         const secrets = readText(path.join(dir, 'secrets.json'))
         // A label the archive's registry carried, else the id: the registry is the
         // only place a label lives, so an archive without it still restores under a
@@ -1576,6 +1594,20 @@ export class BackupService {
           else {
             plan.skipped.push(`${workspace.label}: Servers (the archive's servers are not valid)`)
             plan.skippedItems.push({ label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, reasonKey: 'settings.restore.reasonInvalidServers' })
+          }
+        }
+
+        if (jobs !== null) {
+          const liftedJobs = readableJobsFile(jobs)
+          if (liftedJobs !== null) {
+            const jobsText = `${JSON.stringify(liftedJobs, null, 2)}\n`
+            addItem({ id: `workspace:${id}:jobs`, label: `${workspace.label}: Jobs`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'jobs' }, kind: 'jobs', workspaceId: id, restorable: true, note: null }, () => {
+              writeRestoredJobs(workspace.jobsPath, jobsText)
+            })
+          }
+          else {
+            plan.skipped.push(`${workspace.label}: Jobs (the archive's jobs are not valid)`)
+            plan.skippedItems.push({ label: `${workspace.label}: Jobs`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'jobs' }, reasonKey: 'settings.restore.reasonInvalidJobs' })
           }
         }
 
@@ -2008,6 +2040,9 @@ export class BackupService {
     const items: BackupEntry['items'] = [
       { id: `workspace:${id}:settings`, label: 'Settings', labelKey: 'settings.backup.leafSettings', kind: 'settings', included: true, ...note(workspace.settingsPath) },
       { id: `workspace:${id}:servers`, label: 'Servers', labelKey: 'settings.backup.leafServers', kind: 'servers', included: true, ...note(workspace.serversPath) },
+      // A job is not a server, so its file is not one of the servers leaves: a person who wants the
+      // archive to keep running its scheduled work has to be able to see and tick it.
+      { id: `workspace:${id}:jobs`, label: 'Jobs', labelKey: 'settings.backup.leafJobs', kind: 'jobs', included: true, ...note(workspace.jobsPath) },
       // The whole file keeps its own leaf — that id is what older clients send — and the
       // per-secret leaves beside it are what let one secret come back on its own.
       { id: `workspace:${id}:secrets`, label: 'Secrets', labelKey: 'settings.backup.leafSecrets', kind: 'secrets', included: true, ...note(workspace.secretsPath) },
@@ -2373,4 +2408,50 @@ function readableWorkspaceSettings(text: string): Record<string, unknown> | null
   catch {
     return null
   }
+}
+
+/**
+ * `jobs.config.json` is adopted under the same gate as the servers file: lifted through the
+ * `migrate` chain when older, and refused outright when this release cannot read it.
+ *
+ * `liftArchived` already refuses a **newer** stamp (and a chain with a gap), which is the direction
+ * that matters: writing a file from a later release back as if it were this one's would restore a
+ * workspace whose scheduled work this panel then refuses to load. A job that is not runnable is
+ * refused for the same reason the servers leaf refuses one bad entry — a half-applied list of jobs
+ * is a workspace that fires some of its schedule and says nothing about the rest.
+ */
+function readableJobsFile(text: string): Record<string, unknown> | null {
+  try {
+    const lifted = liftArchived(JSON.parse(text))
+    if (lifted === null)
+      return null
+    const parsed = jobsFileSchema(lifted)
+    if (parsed instanceof type.errors)
+      return null
+    for (const job of parsed.jobs) {
+      if (jobProblems(job).length > 0)
+        return null
+    }
+    return lifted
+  }
+  catch {
+    return null
+  }
+}
+
+/**
+ * Writes a restored `jobs.config.json`, keeping the file it replaces beside it as `<file>.bak`.
+ *
+ * The schedule a restore overwrites is a list somebody wrote and nobody remembers in full; the
+ * servers and settings leaves predate this and still write in place, so this is deliberately **not**
+ * extended to them here — widening an existing write path is its own change. The name is
+ * `home-hosted migrate`'s, so the two commands that replace a config file leave the same trace.
+ *
+ * A `.bak` only when there was something to keep: a restore onto a blank host has no previous file,
+ * and an empty `.bak` would claim a copy was made of nothing.
+ */
+function writeRestoredJobs(file: string, text: string): void {
+  if (fs.existsSync(file))
+    fs.copyFileSync(file, `${file}.bak`)
+  writeFileAtomic(file, text)
 }
