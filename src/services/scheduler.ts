@@ -80,6 +80,16 @@ interface JobClock {
   reportedProblem: string | null
   /** The due occurrence this job was last considered for — what `start` records against. */
   due: number | null
+  /**
+   * Whether this job was already in the config on the **first** tick this scheduler ran.
+   *
+   * The boot catch-up rule ("a panel that was down across 03:00 owes one run") is about a panel that
+   * was down, and only a job that existed before the panel started can have been missed by it. A job
+   * declared *while the panel is up* has no missed occurrence at all, and treating its first
+   * appearance as a boot made creating a nightly backup run it immediately — measured: declaring
+   * `0 3 * * *` at 09:44 fired it at 09:44:37, with `nextRunAt` already tomorrow.
+   */
+  seenAtBoot: boolean
 }
 
 export class JobScheduler {
@@ -94,6 +104,13 @@ export class JobScheduler {
   /** Which minute `dueBySchedule` describes. */
   private dueMinute = -1
   private disposed = false
+  /**
+   * Whether the first tick has run — before it, every job present is "already there at boot".
+   *
+   * A job whose clock is created on the first tick is one the panel started with. Any later creation
+   * is a job someone declared while the panel was up, which has no missed occurrence to make up.
+   */
+  private booted = false
 
   constructor(private readonly options: JobSchedulerOptions) {}
 
@@ -127,6 +144,8 @@ export class JobScheduler {
         continue
       this.consider(job.id, job.schedule, now)
     }
+    // Everything from here on is a job somebody added while the panel was already up.
+    this.booted = true
   }
 
   private consider(id: string, schedule: string | undefined, now: number): void {
@@ -140,7 +159,6 @@ export class JobScheduler {
       this.reportOnce(clock, id, parsed.problem)
       return
     }
-    clock.reportedProblem = null
 
     /**
      * The occurrence that is due now: the scheduled minute at or before `now`. Deriving it from the
@@ -195,6 +213,14 @@ export class JobScheduler {
       return
     }
 
+    // A usable expression clears any standing complaint, so a schedule that is fixed and later broken
+    // again is reported again. This is the **only** reset: it runs after both "nothing due" branches,
+    // because resetting before them wiped `reportedProblem` on every tick and turned the un-runnable
+    // case into one identical WARN per second, forever — 86 400 lines a day per mistyped job, against
+    // `reportOnce`'s own promise that "a standing problem is logged when it appears and when it
+    // changes, not on every tick".
+    clock.reportedProblem = null
+
     // Already started for this occurrence: every later tick of the same minute does nothing.
     if (clock.lastStartedFor !== null && due <= clock.lastStartedFor)
       return
@@ -207,11 +233,17 @@ export class JobScheduler {
      *
      * Either way the occurrence is marked started, so the following ticks are silent and a restart
      * loop cannot replay it.
+     *
+     * **A job declared while the panel is up is neither case.** It did not exist when the occurrence
+     * went by, so nothing is owed — and marking it started here is what stops a fresh nightly backup
+     * from running the moment it is saved. `seenAtBoot` is the discriminator: the clock is created on
+     * the job's first tick, and only a clock created during the panel's own first tick belongs to a
+     * job that was already there.
      */
     if (clock.lastStartedFor === null) {
       const lastRun = clock.lastRunAt ?? this.options.lastRunAt(id)
       clock.lastRunAt = lastRun
-      if (lastRun !== null && lastRun >= due) {
+      if (!clock.seenAtBoot || (lastRun !== null && lastRun >= due)) {
         clock.lastStartedFor = due
         return
       }
@@ -276,7 +308,9 @@ export class JobScheduler {
     const existing = this.clocks.get(id)
     if (existing !== undefined)
       return existing
-    const clock: JobClock = { lastStartedFor: null, lastRunAt: null, lastExitCode: null, lastOverlapAt: null, reportedProblem: null, due: null }
+    // `booted` is set at the end of the first tick, so every clock created *during* that tick belongs
+    // to a job the panel started with.
+    const clock: JobClock = { lastStartedFor: null, lastRunAt: null, lastExitCode: null, lastOverlapAt: null, reportedProblem: null, due: null, seenAtBoot: !this.booted }
     this.clocks.set(id, clock)
     return clock
   }

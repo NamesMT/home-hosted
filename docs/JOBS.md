@@ -140,6 +140,12 @@ all work. Sunday is both `0` and `7`. When **both** day fields are restricted, a
   it comes back — **one** run, for the most recent occurrence, not one per missed day. A panel
   restarted in a loop does not replay an occurrence it already ran, because the durable `job-run`
   record is what decides whether one is owed.
+- **Declaring a job does not run it.** A job added while the panel is up waits for its next
+  occurrence, because it did not exist when the earlier one went by. Creating a nightly backup means
+  it waits until 03:00, not that it runs the moment you press save. Use **Run now** (or
+  `home-hosted job run`) when you want one immediately.
+- **A schedule that can never come due is reported once.** A mistyped expression (`0 0 31 4 *` for
+  31 April) is logged when it appears and again only if it changes — never every second.
 
 ## Where a run's result goes
 

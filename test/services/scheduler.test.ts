@@ -1,5 +1,6 @@
 import type { ScheduledEntry } from '#src/services/scheduler'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { logger } from '#src/helpers/logger'
 import { JobScheduler } from '#src/services/scheduler'
 
 /**
@@ -84,6 +85,20 @@ function makeScheduler(entries: ScheduledEntry[]): Harness {
 
 function job(overrides: Partial<ScheduledEntry> = {}): ScheduledEntry {
   return { id: 'nightly', schedule: '0 3 * * *', enabled: true, ...overrides }
+}
+
+/**
+ * Every `logger.warn` line, collected through the logger the scheduler actually calls.
+ *
+ * A standing problem is reported through `reportOnce`, whose whole contract is "once, not every tick";
+ * observing the real call is the only way to count them.
+ */
+function warnSpy(): string[] {
+  const lines: string[] = []
+  vi.spyOn(logger, 'warn').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map(String).join(' '))
+  })
+  return lines
 }
 
 afterEach(() => {
@@ -216,6 +231,85 @@ describe('a missed occurrence runs once, at boot', () => {
     harness.scheduler.tick(local(2026, 3, 10, 11, 0))
     expect(harness.runs).toHaveLength(1)
     expect(harness.runs[0]!.occurrence).toBe(local(2026, 3, 10, 3, 0, 0))
+  })
+
+  /**
+   * A job declared **while the panel is up** owes nothing, and must not fire on the spot.
+   *
+   * The catch-up rule above is about a panel that was down across an occurrence. A job that did not
+   * exist yet has no such occurrence, but it took the same path: `lastRun === null` fell through the
+   * guard and started a run for a stale occurrence. Measured on a live panel: declaring
+   * `0 3 * * *` at 09:44:37 ran it at 09:44:37 with `nextRunAt` already tomorrow, and the same for
+   * `0 0 1 1 *` (ran for 1 January, ten months earlier) and `05 * * * *` (an hour and a half late).
+   * Declaring a nightly backup must mean "waits until 03:00", not "runs now, then again at 03:00".
+   */
+  it('does not run a job that was declared after the panel started', async () => {
+    const entries: ScheduledEntry[] = []
+    const harness = makeScheduler(entries)
+    // The panel's first tick, with no jobs at all: this is the boot.
+    harness.scheduler.tick(local(2026, 3, 10, 9, 44))
+    expect(harness.runs).toHaveLength(0)
+
+    // A person adds `0 3 * * *` while the panel is running, long after 03:00 went by.
+    entries.push(job({ id: 'brand-new' }))
+    harness.scheduler.tick(local(2026, 3, 10, 9, 44, 1))
+    expect(harness.runs, 'a job born mid-morning must not make up a 03:00 it never saw').toHaveLength(0)
+
+    // And the following ticks stay quiet, rather than firing one tick later.
+    harness.scheduler.tick(local(2026, 3, 10, 9, 45))
+    harness.scheduler.tick(local(2026, 3, 10, 11, 0))
+    expect(harness.runs).toHaveLength(0)
+
+    // The occurrence it was declared for is still owed tomorrow, so 03:00 does run it.
+    harness.scheduler.tick(local(2026, 3, 11, 3, 0))
+    expect(harness.runs).toHaveLength(1)
+    expect(harness.runs[0]!.occurrence).toBe(local(2026, 3, 11, 3, 0, 0))
+  })
+
+  /**
+   * A job present at the panel's **first** tick still catches up — the rule above must not have
+   * turned the feature off.
+   */
+  it('still catches up a job that was already there when the panel started', async () => {
+    const harness = makeScheduler([job()])
+    harness.scheduler.tick(local(2026, 3, 10, 11, 0))
+    expect(harness.runs).toHaveLength(1)
+    expect(harness.runs[0]!.occurrence).toBe(local(2026, 3, 10, 3, 0, 0))
+  })
+
+  /**
+   * An un-runnable schedule is reported **once**, not once per tick.
+   *
+   * `clock.reportedProblem` was cleared straight after parsing succeeded — before the "no occurrence"
+   * branch that reports — so the suppression in `reportOnce` never engaged for the one case it exists
+   * for. Measured on a live panel: 250 identical WARN lines, then 270 twenty seconds later, i.e. one
+   * per second per job — 86 400 lines a day, which rotates every real event out of `home-hosted logs`.
+   */
+  it('reports an un-runnable schedule once, not on every tick', async () => {
+    const warns = warnSpy()
+    const harness = makeScheduler([job({ schedule: '0 0 31 4 *' })])
+    for (let second = 0; second < 60; second++)
+      harness.scheduler.tick(local(2026, 3, 10, 11, 0, second))
+
+    expect(harness.runs).toHaveLength(0)
+    expect(warns.filter(line => line.includes('31 April')), 'one line for a standing problem').toHaveLength(1)
+  })
+
+  it('reports a schedule that is fixed and then broken again', async () => {
+    const warns = warnSpy()
+    const entries: ScheduledEntry[] = [job({ schedule: '0 0 31 4 *' })]
+    const harness = makeScheduler(entries)
+    harness.scheduler.tick(local(2026, 3, 10, 11, 0))
+    expect(warns.filter(line => line.includes('31 April'))).toHaveLength(1)
+
+    // Fixed: a real expression, so the standing complaint clears.
+    entries[0] = job({ schedule: '0 3 * * *' })
+    harness.scheduler.tick(local(2026, 3, 10, 11, 0, 1))
+
+    // Broken again: it is news again, so it must be reported again.
+    entries[0] = job({ schedule: '0 0 31 4 *' })
+    harness.scheduler.tick(local(2026, 3, 10, 11, 0, 2))
+    expect(warns.filter(line => line.includes('31 April')), 'a new problem is worth saying').toHaveLength(2)
   })
 
   it('does not run an occurrence the durable history already covers', async () => {
