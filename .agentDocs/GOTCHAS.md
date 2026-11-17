@@ -394,6 +394,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   leaves land, and restore paths come from `BackupSources.dataRoot`, not the import-time path helpers.
 - **An archive's configs must be lifted, not just parsed** — `liftArchived` runs the `migrate` chain
   and the lifted file is written; build restore fixtures at an older schema too.
+- **A new workspace config file is a new backup leaf, and a new backup leaf is a new scope id.** A
+  domain that gets its own file (`jobs.config.json` out of `servers.config.json`) silently leaves
+  every archive unless the capture, the restore plan, the selection tree and the scope ids all learn
+  it together — and the failure is invisible: the archive restores "4 items", the workspace looks
+  complete, and the scheduled work never runs. `grep -c -i job src/services/backups.ts` answering `0`
+  was the whole symptom. (`workspace:<id>:jobs`; `test/services/backups.test.ts`, "jobs travel")
+- **A leaf's capture and its restore are two separate edits**, and either alone is silent: a file
+  captured but not planned shows up in the archive and never on the target. Watch each fail by
+  reverting one at a time.
 - **`reloadAll()` resets the watcher's baseline**, so it must start the autostart entries itself.
 - **A force restart resets health to `unknown`** — `pendingRestart` is what announces the outcome.
 - **The backup copy filter matches generated directories by exact path segment**; `.git` is kept.
