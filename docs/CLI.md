@@ -132,7 +132,7 @@ and the history record; with the panel down it runs the same steps and says noth
 servers. See [JOBS.md](./JOBS.md) for what a job is and how its schedule behaves.
 
 ```bash
-home-hosted job ls                                  # id, expression, and whether it is scheduled, running or disabled
+home-hosted job ls                                  # id, expression, when it is next due, and whether it is scheduled, running or disabled
 home-hosted job ls --json                           # { jobs: [{ id, schedule, nextRunAt, lastRunAt, lastExitCode, running }] }
 home-hosted job run nightly-backup                  # waits; exits 0 when the exit code is 0
 home-hosted job run nightly-backup --json           # { job, ok, exitCode, signal, durationMs, cancelled }
@@ -150,7 +150,10 @@ and no history to record a run against, so it refuses rather than answering with
 unsupervised implementation.
 
 `ls` lists **services** and only services, always in four columns. The `NEXT RUN` column it used to
-grow is gone with the job entries that filled it — `home-hosted job ls` answers that question now.
+grow is gone with the job entries that filled it — `home-hosted job ls` answers that question now,
+with a `NEXT` column that reads `in 3 minutes`, `in 18 hours` or `never` (an expression that cannot
+come due). A disabled job shows `—`: its expression says nothing about when it will run, because it
+will not.
 
 ## What `status` tells you
 

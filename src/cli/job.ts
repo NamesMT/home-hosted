@@ -49,7 +49,7 @@ export const jobListCommand = defineCommand({
       fail(body.message ?? `the panel answered ${answer.status}`)
     }
 
-    const { jobs } = (answer.body ?? { jobs: [] }) as { jobs: Array<{ id: string, schedule: string, running: boolean, enabled: boolean }> }
+    const { jobs } = (answer.body ?? { jobs: [] }) as { jobs: Array<{ id: string, schedule: string, running: boolean, enabled: boolean, nextRunAt?: number | null }> }
     if (args.json === true) {
       process.stdout.write(`${JSON.stringify({ jobs })}\n`)
       return
@@ -58,12 +58,40 @@ export const jobListCommand = defineCommand({
       process.stdout.write(`${dim(`no jobs declared — declare one in jobs.config.json, or from the Jobs page`)}\n`)
       return
     }
+    // A header, because three of the four columns are now values a person compares across rows.
+    process.stdout.write(`${dim(`${'ID'.padEnd(20)} ${'SCHEDULE'.padEnd(16)} ${'NEXT'.padEnd(18)} STATE`)}
+`)
     for (const job of jobs) {
       const state = job.running ? 'running' : job.enabled ? 'scheduled' : 'disabled'
-      process.stdout.write(`${job.id.padEnd(20)} ${job.schedule.padEnd(16)} ${state}\n`)
+      // `NEXT` earns its column: `docs/CLI.md` sends a person here to ask when something is due
+      // ("the `NEXT RUN` column it used to grow is gone — `job ls` answers that question now"), and
+      // the table answered everything except that. `null` nextRunAt is a real answer — an expression
+      // that cannot come due — so it prints as `never` rather than a dash that reads as "loading".
+      const next = job.enabled ? relativeToNow(job.nextRunAt) : '—'
+      process.stdout.write(`${job.id.padEnd(20)} ${job.schedule.padEnd(16)} ${next.padEnd(18)} ${state}\n`)
     }
   },
 })
+
+/**
+ * `in 3 minutes` / `in 18 hours` / `in 45 days` / `never`, from the epoch ms the view carries.
+ *
+ * Relative rather than absolute because the question a person asks at a terminal is "when next",
+ * and a wall-clock stamp makes them subtract today's date. `Intl.RelativeTimeFormat` does the wording,
+ * so a locale does not get hand-built English.
+ */
+function relativeToNow(at: number | null | undefined): string {
+  if (at === null || at === undefined)
+    return 'never'
+  const minutes = Math.round((at - Date.now()) / 60_000)
+  const format = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+  if (Math.abs(minutes) < 60)
+    return format.format(minutes, 'minute')
+  const hours = Math.round(minutes / 60)
+  if (Math.abs(hours) < 48)
+    return format.format(hours, 'hour')
+  return format.format(Math.round(hours / 24), 'day')
+}
 
 /** `home-hosted job run <id>` — run one now, and report its exit code. */
 export const jobRunCommand = defineCommand({

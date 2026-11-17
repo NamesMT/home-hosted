@@ -140,6 +140,37 @@ describe('ls lists the workspace\'s jobs', () => {
     expect(result.stdout).toContain('disabled')
   })
 
+  /**
+   * `NEXT` is part of the answer, and `docs/CLI.md` says so.
+   *
+   * The table carried id, expression and state — everything except when the thing is due, which is
+   * the question a person at a terminal is asking. `docs/CLI.md` justified dropping the servers'
+   * `NEXT RUN` column by pointing here: "`home-hosted job ls` answers that question now". It did not.
+   */
+  it('says when each job is next due, and labels the columns', async () => {
+    const created = await panel(200, JSON.stringify({
+      jobs: [
+        { id: 'soon', schedule: '0 3 * * *', enabled: true, running: false, nextRunAt: Date.now() + 90 * 60_000, command: '/bin/echo', args: [] },
+        { id: 'never', schedule: '0 0 31 4 *', enabled: true, running: false, nextRunAt: null, command: '/bin/echo', args: [] },
+        { id: 'off', schedule: '0 3 * * *', enabled: false, running: false, nextRunAt: Date.now() + 90 * 60_000, command: '/bin/echo', args: [] },
+      ],
+    }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['job', 'ls'])
+    expect(result.status, result.stderr).toBe(0)
+    const [header, soon, never, off] = result.stdout.trim().split('\n')
+    expect(header).toMatch(/ID\s+SCHEDULE\s+NEXT\s+STATE/)
+
+    // A real occurrence reads as a relative time, not a wall clock the reader has to subtract.
+    expect(soon).toContain('in 2 hours')
+    // An expression that cannot come due says so; a dash would read as "still loading".
+    expect(never).toContain('never')
+    // A disabled job is not due at all, whatever the expression says.
+    expect(off).toContain('—')
+    expect(off).toContain('disabled')
+  })
+
   it('carries the workspace through', async () => {
     const created = await panel(200, JSON.stringify({ jobs: [] }))
     writeRuntime(created.url)
