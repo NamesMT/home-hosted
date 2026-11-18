@@ -31,12 +31,30 @@ const SCOPE_HINTS: Record<string, string> = {
   read: 'every GET — state, logs, metrics',
   lifecycle: 'start, stop, restart, free a port, clear logs',
   config: 'server, workspace and settings writes, and backups',
+  proxy: 'add routes, run the engine and manage certificates',
   admin: 'everything, including managing accounts',
+}
+
+/**
+ * The scopes a workspace limit cannot narrow, from the panel's own answer.
+ *
+ * `proxy` and `admin` act on the whole panel, so granting either grants everything — a person who
+ * typed a workspace limit and ticked `admin` has been told something untrue until now. The panel
+ * publishes which scopes those are (`scopes` on the accounts answer) so both UIs mark them the same
+ * way rather than each keeping its own list.
+ */
+const panelWide = ref<Set<string>>(new Set())
+
+/** `admin*` — the mark the note under the list explains. */
+function scopeMark(scope: string): string {
+  return panelWide.value.has(scope) ? `${scope}*` : scope
 }
 
 async function refresh(): Promise<void> {
   try {
-    accounts.value = (await api.listAccounts()).accounts
+    const answer = await api.listAccounts()
+    accounts.value = answer.accounts
+    panelWide.value = new Set((answer.scopes ?? []).filter(entry => !entry.workspaceLimited).map(entry => entry.scope))
     error.value = null
   }
   catch (caught) {
@@ -176,7 +194,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
             <span v-if="!account.enabled" class="chip">disabled</span>
           </td>
           <td class="mono">
-            {{ account.scopes.join(', ') }}
+            {{ account.scopes.map(scopeMark).join(', ') }}
           </td>
           <td>{{ account.workspaces === undefined ? 'every workspace' : account.workspaces.join(', ') }}</td>
           <td class="faint">
@@ -231,10 +249,13 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
         <label v-for="scope in scopeKeys" :key="scope" class="field field--check">
           <input type="checkbox" :checked="scopes.includes(scope)" @change="toggleScope(scope)">
           <span class="field__label">
-            <span class="mono">{{ scope }}</span>
+            <span class="mono">{{ scopeMark(scope) }}</span>
             <em class="dim label">— {{ SCOPE_HINTS[scope] }}</em>
           </span>
         </label>
+        <p v-if="panelWide.size > 0" class="faint" style="font-size: 11px">
+          *: this scope is always panel-wide — a workspace limit cannot narrow it
+        </p>
       </div>
       <label class="field">
         <span class="field__label">limit to workspaces</span>

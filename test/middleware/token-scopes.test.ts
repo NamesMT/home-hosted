@@ -1,3 +1,4 @@
+import type { ApiTokenScope } from '#src/config/secrets'
 import type { Fixture } from '../api/fixture'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFixture, makeView } from '../api/fixture'
@@ -16,8 +17,8 @@ import { makeFixture, makeView } from '../api/fixture'
 
 const fixtures: Fixture[] = []
 
-async function fixture(): Promise<Fixture> {
-  const created = await makeFixture({ servers: [{ id: 'web', command: 'node' }], views: [] })
+async function fixture(options: { password?: string } = {}): Promise<Fixture> {
+  const created = await makeFixture({ servers: [{ id: 'web', command: 'node' }], views: [], ...options })
   fixtures.push(created)
   return created
 }
@@ -33,7 +34,7 @@ afterEach(async () => {
  * The credential is `<id>:<secret>` — the id is not secret, and carrying it is what lets the panel
  * refuse a wrong id and a wrong secret by the same path.
  */
-function mint(created: Fixture, scopes: Array<'read' | 'lifecycle' | 'config' | 'admin'>, workspaces?: string[]): { token: string, headers: Record<string, string> } {
+function mint(created: Fixture, scopes: ApiTokenScope[], workspaces?: string[]): { token: string, headers: Record<string, string> } {
   const id = `t-${scopes.join('-')}-${Math.random().toString(36).slice(2, 7)}`
   const { secret } = created.globalSecrets.createAccount({ id, label: id, scopes, ...(workspaces === undefined ? {} : { workspaces }) })
   return { token: secret, headers: { authorization: `Bearer ${id}:${secret}` } }
@@ -205,6 +206,85 @@ describe('an account with admin', () => {
       headers: { ...headers, 'content-type': 'application/json' },
       body: JSON.stringify({ label: 'ok' }),
     })).status).toBe(200)
+  })
+})
+
+/**
+ * `proxy` is its own grant, and `config` does not carry it.
+ *
+ * Before it existed the only way to let somebody manage the reverse proxy was `admin`, which also
+ * mints accounts and installs a UI — the over-grant the scopes exist to remove. The other half is the
+ * interesting one: a `config` account (a deploy hook) must **not** be able to point a public hostname
+ * at an entry, which is what editing the proxy does.
+ */
+describe('an account with proxy', () => {
+  it('manages the proxy, and a config account may not', async () => {
+    const created = await fixture()
+    const proxy = mint(created, ['read', 'proxy'])
+    const config = mint(created, ['read', 'config'])
+
+    for (const [method, path] of [
+      ['PATCH', '/api/proxy'],
+      ['POST', '/api/proxy/engine'],
+      ['POST', '/api/proxy/apply'],
+    ] as const) {
+      const answer = await created.app.request(path, {
+        method,
+        headers: { ...proxy.headers, 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(answer.status, `proxy account ${method} ${path}`).not.toBe(403)
+
+      const refused = await created.app.request(path, {
+        method,
+        headers: { ...config.headers, 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(refused.status, `a config account must not ${method} ${path}`).toBe(403)
+      expect(await refused.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
+    }
+  })
+
+  it('is still granted by admin', async () => {
+    const created = await fixture()
+    const { headers } = mint(created, ['admin'])
+    const answer = await created.app.request('/api/proxy', {
+      method: 'PATCH',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(answer.status).not.toBe(403)
+  })
+})
+
+/**
+ * The catalogue a UI needs to mark a panel-wide scope, published rather than re-decided per UI.
+ *
+ * `admin` and `proxy` act on the whole panel, so a workspace limit cannot narrow them: a person who
+ * typed a limit and ticked `admin` was being told something untrue. The API says which they are so
+ * both UIs mark them identically, and a scope added later is marked correctly with no UI change.
+ */
+describe('the scope catalogue', () => {
+  it('says which scopes a workspace limit cannot narrow', async () => {
+    // The accounts route needs a **session**, not merely `admin`: a credential cannot list accounts
+    // (`SESSION_REQUIRED`), which is why a bearer token cannot reach this answer. Sign in as the
+    // panel's own account to read it.
+    const created = await fixture({ password: 'a-long-enough-password' })
+    const login = await created.app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'default', secret: 'a-long-enough-password' }),
+    })
+    expect(login.status, 'the fixture account must sign in').toBe(200)
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]!
+    const answer = await created.app.request('/api/auth/accounts', { headers: { cookie } })
+    expect(answer.status).toBe(200)
+    const body = await answer.json() as { scopes?: Array<{ scope: string, workspaceLimited: boolean }> }
+
+    expect(body.scopes, 'the catalogue must ride with the accounts').toBeDefined()
+    const byscope = Object.fromEntries((body.scopes ?? []).map(entry => [entry.scope, entry.workspaceLimited]))
+    // The two that are panel-wide, and the three a limit really does narrow.
+    expect(byscope).toMatchObject({ proxy: false, admin: false, read: true, lifecycle: true, config: true })
   })
 })
 

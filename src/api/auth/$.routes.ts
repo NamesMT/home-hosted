@@ -6,6 +6,7 @@ import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { bodyLimit } from 'hono/body-limit'
+import { scopeCatalogue } from '#src/config/secrets'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -154,7 +155,9 @@ export function createAuthRoute(deps: AppDeps) {
       }),
       (c) => {
         requireAdminSession(c, deps, 'listing accounts')
-        return c.json({ accounts: deps.auth.listAccounts() })
+        // The catalogue rides with the list: it is the only place a UI needs it, and shipping it here
+        // keeps the asterisk on a panel-wide scope from being a rule each UI re-decides.
+        return c.json({ accounts: deps.auth.listAccounts(), scopes: scopeCatalogue() })
       },
     )
 

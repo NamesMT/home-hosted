@@ -3,6 +3,7 @@ import type { CommandShape } from './cli/args'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
+import { API_TOKEN_SCOPES as SCOPES } from '#src/shared/api-scopes'
 import { errorMessage } from '#src/shared/error-message'
 import { applyDirFlags, extractDirFlags, flagTarget, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading, treatClosedReaderAsDone } from './cli/io'
@@ -37,12 +38,12 @@ const CLI_ENTRY = fileURLToPath(import.meta.url)
 /**
  * The four scopes, spelled here rather than imported.
  *
- * `src/config/secrets.ts` is a **state module**: importing it statically would evaluate
- * `#src/helpers/paths.ts` — whose `dataRoot` is resolved once at import — before `applyDirFlags()`
- * has run, so `--home` would be silently ignored by every command that prints a path. This module
- * may import only path-free code.
+ * This module may import only **path-free** code, because it is evaluated before `applyDirFlags()`:
+ * a module that reaches `#src/helpers/paths.ts` resolves `dataRoot` once at import, so `--home` would
+ * be silently ignored by every command that prints a path. The scope names come from
+ * `#src/shared/api-scopes.ts`, which is names only — a copy here is what let `--scope` keep
+ * advertising four scopes after `proxy` was added.
  */
-const SCOPES = ['read', 'lifecycle', 'config', 'admin'] as const
 
 const HEADER = 'home-hosted — a control panel for the processes on your home server'
 

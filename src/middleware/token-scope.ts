@@ -181,15 +181,15 @@ const RULES: Record<string, TokenScopeRule> = {
   'DELETE /api/auth/accounts/:id': { scope: 'admin', workspaceScoped: false },
   // Changing **your own** secret is not admin: every account may rotate its own credential.
   'POST /api/auth/accounts/me/secret': { scope: 'read', workspaceScoped: false },
-  'POST /api/proxy/engine': { scope: 'admin', workspaceScoped: false },
-  'POST /api/proxy/start': { scope: 'admin', workspaceScoped: false },
-  'POST /api/proxy/stop': { scope: 'admin', workspaceScoped: false },
-  'POST /api/proxy/apply': { scope: 'admin', workspaceScoped: false },
-  'POST /api/proxy/revert': { scope: 'admin', workspaceScoped: false },
-  'POST /api/proxy/routes/:id/retry-certificate': { scope: 'admin', workspaceScoped: false },
-  'PUT /api/proxy/certificates/:id': { scope: 'admin', workspaceScoped: false },
-  'DELETE /api/proxy/certificates/:id': { scope: 'admin', workspaceScoped: false },
-  'PATCH /api/proxy': { scope: 'admin', workspaceScoped: false },
+  'POST /api/proxy/engine': { scope: 'proxy', workspaceScoped: false },
+  'POST /api/proxy/start': { scope: 'proxy', workspaceScoped: false },
+  'POST /api/proxy/stop': { scope: 'proxy', workspaceScoped: false },
+  'POST /api/proxy/apply': { scope: 'proxy', workspaceScoped: false },
+  'POST /api/proxy/revert': { scope: 'proxy', workspaceScoped: false },
+  'POST /api/proxy/routes/:id/retry-certificate': { scope: 'proxy', workspaceScoped: false },
+  'PUT /api/proxy/certificates/:id': { scope: 'proxy', workspaceScoped: false },
+  'DELETE /api/proxy/certificates/:id': { scope: 'proxy', workspaceScoped: false },
+  'PATCH /api/proxy': { scope: 'proxy', workspaceScoped: false },
 }
 
 /**

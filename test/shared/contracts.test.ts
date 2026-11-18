@@ -3,8 +3,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
+import { API_TOKEN_SCOPES, PANEL_WIDE_SCOPES, scopeCatalogue } from '#src/config/secrets'
 import {
   accountSecretSchema,
+  apiTokenScopeSchema,
   appStateSchema,
   authSchema,
   backupCreatedResponseSchema,
@@ -1000,5 +1002,39 @@ describe('panel-supplied display text', () => {
     }
     expect(restorePlanSchema(old) instanceof type.errors).toBe(false)
     expect(restorePlanSchema({ ...old, appliedIds: ['global:settings'], skippedItems: [{ label: 'x', reasonKey: 'r' }] }) instanceof type.errors).toBe(false)
+  })
+})
+
+/**
+ * The scope names are declared once, and every surface that enumerates them must agree.
+ *
+ * They now live in `#src/shared/api-scopes.ts` because `src/cli.ts` needs them and must not import a
+ * state module. Three places consume them — the store (`API_TOKEN_SCOPES`), the **request schema**
+ * (`apiTokenScopeSchema`, which must enumerate what it accepts), and the CLI's help text — and a copy
+ * drifting from the original is not hypothetical: `--scope` advertised four scopes for a release after
+ * `proxy` existed, because `src/cli.ts` kept its own list.
+ */
+describe('the API scope catalogue', () => {
+  it('accepts exactly the scopes the store knows, in the request schema', () => {
+    const accepted = ['read', 'lifecycle', 'config', 'proxy', 'admin']
+    for (const scope of accepted) {
+      const parsed = apiTokenScopeSchema(scope)
+      expect(parsed instanceof type.errors, `${scope} must be accepted`).toBe(false)
+    }
+    // A scope the store does not know is one the guard can never enforce, so the two lists must be
+    // the same set — compared in both directions rather than one.
+    expect([...API_TOKEN_SCOPES].sort()).toEqual([...accepted].sort())
+    for (const scope of API_TOKEN_SCOPES) {
+      const parsed = apiTokenScopeSchema(scope)
+      expect(parsed instanceof type.errors, `${scope} is in the store so the schema must take it`).toBe(false)
+    }
+    expect(apiTokenScopeSchema('nonsense') instanceof type.errors, 'an unknown scope is refused').toBe(true)
+  })
+
+  it('marks exactly the panel-wide scopes as one a workspace limit cannot narrow', () => {
+    const byscope = Object.fromEntries(scopeCatalogue().map(entry => [entry.scope, entry.workspaceLimited]))
+    expect(byscope).toEqual({ read: true, lifecycle: true, config: true, proxy: false, admin: false })
+    for (const scope of PANEL_WIDE_SCOPES)
+      expect(byscope[scope], `${scope} is panel-wide`).toBe(false)
   })
 })

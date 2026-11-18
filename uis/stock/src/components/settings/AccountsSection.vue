@@ -37,16 +37,36 @@ const workspaces = ref('')
 /** The minted secret, held only while the dialog is open. */
 const minted = ref<{ id: string, secret: string } | null>(null)
 
+/**
+ * The scopes a person may grant, with the copy for each.
+ *
+ * Which of them a **workspace limit cannot narrow** comes from the panel (`scopes` on the accounts
+ * answer), not from a list here: `proxy` and `admin` are panel-wide, and two UIs deciding that for
+ * themselves is how the asterisk would come to mean two different things. Until that answer arrives
+ * the mark is simply absent, which is honest — it is not a claim that every scope is narrowable.
+ */
 const SCOPE_OPTIONS = [
   { value: 'read', label: t('settings.accounts.scopeRead'), hint: t('settings.accounts.scopeReadHint') },
   { value: 'lifecycle', label: t('settings.accounts.scopeLifecycle'), hint: t('settings.accounts.scopeLifecycleHint') },
   { value: 'config', label: t('settings.accounts.scopeConfig'), hint: t('settings.accounts.scopeConfigHint') },
+  { value: 'proxy', label: t('settings.accounts.scopeProxy'), hint: t('settings.accounts.scopeProxyHint') },
   { value: 'admin', label: t('settings.accounts.scopeAdmin'), hint: t('settings.accounts.scopeAdminHint') },
 ]
 
+/** The scopes the panel says a workspace limit cannot narrow, so the UI can mark them `*`. */
+const panelWide = ref<Set<string>>(new Set())
+
+/** `admin*` — the asterisk the note below the list explains. */
+function scopeMark(scope: string): string {
+  return panelWide.value.has(scope) ? `${scope}*` : scope
+}
+
 async function refresh(): Promise<void> {
   try {
-    accounts.value = (await api.listAccounts()).accounts
+    const answer = await api.listAccounts()
+    accounts.value = answer.accounts
+    // A panel that predates the catalogue answers without it; the asterisk is then simply absent.
+    panelWide.value = new Set((answer.scopes ?? []).filter(entry => !entry.workspaceLimited).map(entry => entry.scope))
     error.value = null
   }
   catch (caught) {
@@ -215,7 +235,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
                 </span>
               </td>
               <td class="py-1.5 pr-2 font-mono text-2xs">
-                {{ account.scopes.join(', ') }}
+                {{ account.scopes.map(scopeMark).join(', ') }}
               </td>
               <td class="py-1.5 pr-2 text-2xs">
                 {{ account.workspaces === undefined ? t('settings.accounts.allWorkspaces') : account.workspaces.join(', ') }}
@@ -279,11 +299,15 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
                 @change="toggleScope(option.value)"
               >
               <span>
-                <span class="font-mono text-ink">{{ option.value }}</span>
+                <span class="font-mono text-ink">{{ scopeMark(option.value) }}</span>
                 <span class="text-faint"> — {{ option.hint }}</span>
               </span>
             </label>
           </div>
+          <!-- One note for the whole list: repeating it beside each marked scope would be noise. -->
+          <p v-if="panelWide.size > 0" class="mt-1.5 text-2xs leading-4 text-faint">
+            {{ t('settings.accounts.panelWideNote') }}
+          </p>
         </div>
         <TextField
           v-model="workspaces"

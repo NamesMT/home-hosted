@@ -1811,8 +1811,12 @@ export const apiTokenCreatedSchema = lazy(() => type({ token: 'string', hint: 's
 /**
  * The scopes a token may hold. Declared here as well as in the store, because a **request** schema
  * has to enumerate what it accepts — the store's constant is the one the guard reads.
+ *
+ * Keep this list in step with `API_TOKEN_SCOPES` (`#src/config/secrets`): a scope missing here is
+ * refused by every request that names it, and one missing there is enforced as a permission nobody
+ * can hold. `test/shared/contracts.test.ts` pins the two against each other.
  */
-const apiTokenScopeSchema = lazy(() => type.enumerated('read', 'lifecycle', 'config', 'admin'))
+export const apiTokenScopeSchema = lazy(() => type.enumerated('read', 'lifecycle', 'config', 'proxy', 'admin'))
 
 /** A token as a listing shows it: the name, its scopes, and whether it has been used. */
 export const apiTokenViewSchema = lazy(() => type({
@@ -1886,7 +1890,29 @@ export const accountViewSchema = lazy(() => type({
 }).onDeepUndeclaredKey('ignore'))
 export type AccountView = typeof accountViewSchema.infer
 
-export const accountListSchema = lazy(() => type({ accounts: accountViewSchema.array() }))
+/**
+ * One scope, as the panel understands it.
+ *
+ * `workspaceLimited` is `false` for a scope a workspace limit cannot narrow (`proxy`, `admin`), so
+ * granting it grants the whole panel. The list is **data** rather than something each UI hardcodes:
+ * two UIs deriving it separately is how they drift, and the asterisk a person sees has to mean the
+ * same thing in both.
+ */
+export const scopeInfoSchema = lazy(() => type({
+  scope: apiTokenScopeSchema,
+  workspaceLimited: 'boolean',
+}))
+
+export const accountListSchema = lazy(() => type({
+  'accounts': accountViewSchema.array(),
+  /**
+   * The scopes an account may be given, and which of them a workspace limit cannot narrow.
+   *
+   * Optional so an older panel's answer still parses; a UI that does not find it simply omits the
+   * asterisk rather than failing to render the page.
+   */
+  'scopes?': scopeInfoSchema.array(),
+}))
 
 /** One account, for the routes that answer with it alone. */
 export const accountIdBodySchema = lazy(() => type({ account: accountViewSchema }))

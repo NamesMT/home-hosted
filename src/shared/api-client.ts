@@ -263,7 +263,13 @@ export interface AccountRow {
   lastUsedAt?: number
 }
 
-export function listAccounts(): Promise<{ accounts: AccountRow[] }> {
+/** One scope as the panel publishes it: the id, and whether a workspace limit can narrow it. */
+export interface ScopeRow {
+  scope: string
+  workspaceLimited: boolean
+}
+
+export function listAccounts(): Promise<{ accounts: AccountRow[], scopes?: ScopeRow[] }> {
   return request('/api/auth/accounts')
 }
 

@@ -1,3 +1,4 @@
+import type { ApiTokenScope } from '#src/shared/api-scopes'
 import { Buffer } from 'node:buffer'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -5,6 +6,7 @@ import process from 'node:process'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { logger } from '#src/helpers/logger'
+import { API_TOKEN_SCOPES, PANEL_WIDE_SCOPES } from '#src/shared/api-scopes'
 import { errorMessage } from '#src/shared/error-message'
 import { EXPOSED_PASSWORD_MIN_LENGTH, passwordLength } from '#src/shared/password-policy'
 import { isRecord } from '#src/shared/shape'
@@ -50,18 +52,40 @@ export interface ApiTokenRecord {
 }
 
 /**
- * What a token may do. Declared once, because the spec, the enforcement and the docs must agree.
+ * The scope names, and which of them a workspace limit cannot narrow.
  *
- * - `read` — every `GET`;
- * - `lifecycle` — start, stop, restart, free-port, clear-logs;
- * - `config` — server, workspace and settings writes, and backups;
- * - `admin` — everything, including tokens, the password, UI install and restoring secrets.
- *
- * They are cumulative (`admin` implies the rest), and `workspaces` narrows a token to some
- * workspaces. A panel-wide write needs no workspace limit, because there is no workspace to narrow.
+ * Defined in `#src/shared/api-scopes.ts` and re-exported here: `src/cli.ts` needs the names for its
+ * help text and must not import a **state** module (see the note in that file), while the guard and
+ * the store need them beside the credential code. One declaration, two entry points — a copy is what
+ * let `--scope` keep advertising four scopes after `proxy` existed.
  */
-export const API_TOKEN_SCOPES = ['read', 'lifecycle', 'config', 'admin'] as const
-export type ApiTokenScope = typeof API_TOKEN_SCOPES[number]
+export { API_TOKEN_SCOPES, type ApiTokenScope, PANEL_WIDE_SCOPES } from '#src/shared/api-scopes'
+
+/** One entry of the scope catalogue: the id, whether a workspace limit applies, and what it grants. */
+export interface ScopeInfo {
+  scope: ApiTokenScope
+  /**
+   * `false` when a `workspaces` limit cannot narrow this scope, so granting it grants the whole panel.
+   *
+   * A UI marks these with an asterisk and says what it means, rather than letting a person believe a
+   * workspace limit made `admin` safe.
+   */
+  workspaceLimited: boolean
+}
+
+/**
+ * The scope list, as the API publishes it.
+ *
+ * The description text lives in each UI's own catalogue (stock has nine languages; the panel does not
+ * translate), so this carries only what a UI must not re-decide for itself: which scopes a workspace
+ * limit can actually narrow. Two UIs deriving that from a hardcoded list is how they drift.
+ */
+export function scopeCatalogue(): ScopeInfo[] {
+  return API_TOKEN_SCOPES.map(scope => ({
+    scope,
+    workspaceLimited: !(PANEL_WIDE_SCOPES as readonly string[]).includes(scope),
+  }))
+}
 
 /**
  * One named token. `id` is a stable, human-typable handle the API and the UI use to revoke it; the
