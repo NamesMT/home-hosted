@@ -390,9 +390,64 @@ export async function currentSpec(entry: string, scope: ServiceScope): Promise<S
     pathEnv: servicePath(process.env.PATH ?? '', process.execPath),
     logFile: daemonLogPath,
     scope,
-    // Under sudo the unit still runs as the person, so their home stays theirs.
-    user: process.env.SUDO_USER?.trim() || os.userInfo().username,
+    user: serviceUser(),
     name,
+  }
+}
+
+/**
+ * The account a unit should run as — the person, not whoever elevated the command.
+ *
+ * `sudo` and `pkexec` rewrite `USER`, `LOGNAME` and `HOME` to the target, so a panel started from a
+ * root shell reads `USER=root` and `os.userInfo()` reports the **euid** — both would write
+ * `User=root` for somebody who only meant to install a service. `SUDO_USER` is the instruction that
+ * survives, and it is right in every ordinary case.
+ *
+ * It is an environment variable, though, so it can also be stale or simply wrong: a shell that
+ * inherited `SUDO_USER=root` from an ancestor would collapse the unit to root. Its sibling
+ * `SUDO_UID` is the fact, so the name is only trusted while the two agree — and the same for
+ * `PKEXEC_USER`/`PKEXEC_UID`. A name stated alone is accepted (an elevating tool that rewrote
+ * `$HOME` and set only the name is still an explicit statement about an account, and `--print` lets
+ * a person see what would be written before anything runs).
+ */
+export function serviceUser(env: NodeJS.ProcessEnv = process.env): string {
+  const own = os.userInfo().username
+  const pairs: Array<[string | undefined, string | undefined]> = [
+    [env.SUDO_USER, env.SUDO_UID],
+    [env.PKEXEC_USER, env.PKEXEC_UID],
+  ]
+  for (const [name, uid] of pairs) {
+    const wanted = name?.trim()
+    if (wanted === undefined || wanted.length === 0)
+      continue
+    const asNumber = uid === undefined ? Number.NaN : Number.parseInt(uid, 10)
+    // No uid beside it: nothing to check the name against, so take the statement.
+    if (!Number.isInteger(asNumber) || asNumber <= 0)
+      return wanted
+    // Both present: they must agree with each other *and* be an account we can see, or the
+    // environment is inconsistent and the process's own login is the safer answer.
+    const entry = passwdEntryFor(asNumber)
+    if (entry !== null && entry === wanted)
+      return wanted
+  }
+  return own
+}
+
+/** The login name owning `uid`, or `null` when the platform cannot tell us. */
+function passwdEntryFor(uid: number): string | null {
+  try {
+    // `/etc/passwd` is the portable answer on Linux and macOS; Windows has no such file, and there
+    // the caller has no elevating tool of this shape to worry about.
+    const text = fs.readFileSync('/etc/passwd', 'utf8')
+    for (const line of text.split('\n')) {
+      const fields = line.split(':')
+      if (fields.length > 2 && Number.parseInt(fields[2] ?? '', 10) === uid)
+        return fields[0] ?? null
+    }
+    return null
+  }
+  catch {
+    return null
   }
 }
 

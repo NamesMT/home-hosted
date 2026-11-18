@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, systemdUnit } from '#src/cli/service'
+import { launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, systemdUnit } from '#src/cli/service'
 import { runCli } from '../support/run-cli'
 
 const dirs: string[] = []
@@ -241,5 +241,31 @@ describe('installing', () => {
 
     // A tab in a path is unusual but legitimate, and refusing it would be wrong.
     expect(() => renderService('linux', { ...spec, home: '/h\twith tab' })).not.toThrow()
+  })
+
+  /**
+   * The account a unit runs as is the **person**, and a stale environment cannot move it.
+   *
+   * `sudo` rewrites `USER`/`LOGNAME`/`HOME` to the target and `os.userInfo()` reports the euid, so
+   * both would write `User=root` for somebody who only meant to install a service. `SUDO_USER` is the
+   * instruction that survives — but it is an environment variable, so a shell that inherited
+   * `SUDO_USER=root` from an ancestor would collapse the unit to root. `SUDO_UID` is the fact, so the
+   * name is trusted only while the two agree.
+   */
+  it('takes the elevating tool\'s login while it agrees with its uid', () => {
+    const own = os.userInfo().username
+    // This machine's own row, so the uid/name pair is a real one rather than a guess.
+    const line = fs.readFileSync('/etc/passwd', 'utf8').split('\n').find(entry => entry.startsWith(`${own}:`))
+    expect(line, `a passwd row for ${own}`).toBeDefined()
+    const ownUid = line!.split(':')[2]!
+
+    expect(serviceUser({ SUDO_USER: own, SUDO_UID: ownUid })).toBe(own)
+    expect(serviceUser({ PKEXEC_USER: own, PKEXEC_UID: ownUid })).toBe(own)
+    // A name with no uid beside it is still an explicit statement about an account.
+    expect(serviceUser({ SUDO_USER: own })).toBe(own)
+    // A name that contradicts its uid is an inconsistent environment: fall back to this process.
+    expect(serviceUser({ SUDO_USER: own === 'root' ? 'nobody' : 'root', SUDO_UID: ownUid })).toBe(own)
+    // Nothing stated: this process's own login.
+    expect(serviceUser({})).toBe(own)
   })
 })
