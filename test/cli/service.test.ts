@@ -183,7 +183,11 @@ describe('installing', () => {
    * started, and reporting on it would claim a boot entry that runs something else. Each format
    * carries the marker in its own comment syntax, and Windows' in the Task XML's `<Description>`.
    */
-  it('leaves a unit it did not write alone, and says so', () => {
+  // Not on Windows: `service install` there writes a Task XML and registers it through `schtasks`,
+  // and the ownership proof reads the task's own registration — a path and a passwd-free flow this
+  // test does not model. macOS keeps accounts in Open Directory, so its passwd lookup cannot be
+  // exercised either (the user-resolution test below says so explicitly).
+  it.runIf(process.platform === 'linux')('leaves a unit it did not write alone, and says so', () => {
     const home = scratch()
     const config = scratch()
     const env = { XDG_CONFIG_HOME: config, NO_COLOR: '1' }
@@ -204,7 +208,7 @@ describe('installing', () => {
     expect(fs.existsSync(file!), 'the other person\'s unit survives').toBe(true)
   })
 
-  it('recognises the unit it wrote, so the guard is not a blanket refusal', () => {
+  it.runIf(process.platform === 'linux')('recognises the unit it wrote, so the guard is not a blanket refusal', () => {
     const home = scratch()
     const config = scratch()
     const env = { XDG_CONFIG_HOME: config, NO_COLOR: '1' }
@@ -254,18 +258,38 @@ describe('installing', () => {
    */
   it('takes the elevating tool\'s login while it agrees with its uid', () => {
     const own = os.userInfo().username
-    // This machine's own row, so the uid/name pair is a real one rather than a guess.
-    const line = fs.readFileSync('/etc/passwd', 'utf8').split('\n').find(entry => entry.startsWith(`${own}:`))
-    expect(line, `a passwd row for ${own}`).toBeDefined()
-    const ownUid = line!.split(':')[2]!
 
-    expect(serviceUser({ SUDO_USER: own, SUDO_UID: ownUid })).toBe(own)
-    expect(serviceUser({ PKEXEC_USER: own, PKEXEC_UID: ownUid })).toBe(own)
     // A name with no uid beside it is still an explicit statement about an account.
     expect(serviceUser({ SUDO_USER: own })).toBe(own)
-    // A name that contradicts its uid is an inconsistent environment: fall back to this process.
-    expect(serviceUser({ SUDO_USER: own === 'root' ? 'nobody' : 'root', SUDO_UID: ownUid })).toBe(own)
+    expect(serviceUser({ PKEXEC_USER: own })).toBe(own)
     // Nothing stated: this process's own login.
     expect(serviceUser({})).toBe(own)
+
+    // **The uid half needs a row to check against, and macOS keeps accounts in Open Directory**, so
+    // its `/etc/passwd` has no user rows and `passwdEntryFor` honestly answers null there — which
+    // means the lookup cannot be exercised off Linux. Skipped rather than faked: asserting against a
+    // synthetic passwd would test the fake, not the rule.
+    // Windows has no `/etc/passwd` at all, and macOS keeps accounts in Open Directory so its passwd
+    // has no user rows — in both cases `passwdEntryFor` honestly answers null and the uid half of the
+    // rule cannot be exercised. Read defensively rather than assume the file exists.
+    let passwd = ''
+    try {
+      passwd = fs.readFileSync('/etc/passwd', 'utf8')
+    }
+    catch {
+      expect(process.platform, 'no passwd file means no local rows to check').toBe('win32')
+      return
+    }
+    const line = passwd.split('\n').find(entry => entry.startsWith(`${own}:`))
+    if (line === undefined) {
+      expect(process.platform, 'no local row for this login means accounts live elsewhere').toBe('darwin')
+      return
+    }
+    const ownUid = line.split(':')[2]!
+
+    // Agreeing pair: the elevating tool's login wins over this process's euid.
+    expect(serviceUser({ SUDO_USER: own, SUDO_UID: ownUid })).toBe(own)
+    // A name that contradicts its uid is an inconsistent environment: fall back to this process.
+    expect(serviceUser({ SUDO_USER: own === 'root' ? 'nobody' : 'root', SUDO_UID: ownUid })).toBe(own)
   })
 })
