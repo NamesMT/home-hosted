@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
@@ -80,8 +81,11 @@ describe('the workspace store keeps the values out of the config', () => {
 
     const raw = fs.readFileSync(path.join(dir, '.secrets.json'), 'utf8')
     expect(raw, 'the value is in the secrets file').toContain('postgres://user:pw@db/app')
-    // 0600: the same rule every secret file follows.
-    expect(fs.statSync(path.join(dir, '.secrets.json')).mode & 0o777).toBe(0o600)
+    // 0600: the same rule every secret file follows. **Not on Windows**, which has no POSIX mode —
+    // there `stat().mode` reports a synthetic 0666 and the permission bits come from the ACL instead.
+    // Asserting it unconditionally passed on Linux and macOS and failed the first Windows CI run.
+    if (process.platform !== 'win32')
+      expect(fs.statSync(path.join(dir, '.secrets.json')).mode & 0o777).toBe(0o600)
   })
 
   it('reads them back, and reports which names have a value without the values', async () => {

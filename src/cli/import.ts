@@ -2,6 +2,7 @@ import type { ImportPlan } from '#src/cli/import-plan'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, green, invocation } from '#src/cli/io'
 
@@ -63,7 +64,11 @@ async function readEcosystem(file: string, options: { allowJs: boolean, env?: st
     // exact shape here. A `try`/`catch` says what happens and keeps the types honest.
     let loaded: unknown
     try {
-      loaded = await import(`${resolved}`)
+      // `pathToFileURL`, not a bare path: Node's dynamic `import()` accepts a **URL**, and a Windows
+      // path (`C:\Users\…`) is read as a protocol and rejected — "Only URLs with a scheme in: file,
+      // data, and node are supported". Linux and macOS paths happen to work as bare specifiers, so
+      // this passed on both and broke `import pm2 --allow-js` on Windows only.
+      loaded = await import(pathToFileURL(resolved).href)
     }
     catch (error) {
       fail(`could not evaluate ${file}: ${error instanceof Error ? error.message : String(error)}`)

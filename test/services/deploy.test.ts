@@ -19,7 +19,11 @@ import { runDeploy } from '#src/services/deploy'
 const dirs: string[] = []
 
 afterEach(async () => {
-  await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
+  // `maxRetries` is what makes this work on Windows: a step killed a moment ago still holds its
+  // working directory open, and `rm` answers `EBUSY: resource busy or locked` until the OS drops the
+  // handle. Linux and macOS unlink a directory with an open handle happily, so this passed on both
+  // and failed the first Windows CI run — in the cleanup, not in the test.
+  await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })))
 })
 
 async function scratch(): Promise<string> {

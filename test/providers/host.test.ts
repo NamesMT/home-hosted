@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it, vi } from 'vitest'
-import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, parseTemperature, pickCpuTemperature, readSwapUsedPercent, readTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, temperatureFromCommand, usedPercent } from '#src/providers/host'
+import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, parseTemperature, pickCpuTemperature, readTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, temperatureFromCommand, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -13,12 +13,29 @@ function config(overrides: Record<string, unknown> = {}) {
 }
 
 describe('host sampling', () => {
-  it('reports memory and swap as percentages', () => {
+  /**
+   * A live reading is a percentage **or absent** — and `null` is a real answer, not a bug.
+   *
+   * `memoryInfo()` reads `/proc/meminfo` and falls back to `os.*` off Linux; swap on macOS and Windows
+   * is a separate async read (`sysctl -n vm.swapusage`, CIM), which is why this synchronous call
+   * answers `swapUsedPercent: null` there. This test asserted `>= 0` unconditionally, so it passed on
+   * Linux for years and failed on both other platforms the first time cross-platform CI ran:
+   * `expected number or bigint, received "object"` (null). A reading with no sample is **absent**,
+   * never `0` — the same rule the metrics scrape follows (AGENTS.md, "Readings").
+   */
+  it('reports memory and swap as percentages, or as absent where the platform has no synchronous answer', () => {
     const { memoryUsedPercent, swapUsedPercent } = memoryInfo()
-    expect(memoryUsedPercent).toBeGreaterThanOrEqual(0)
-    expect(memoryUsedPercent).toBeLessThanOrEqual(100)
-    expect(swapUsedPercent).toBeGreaterThanOrEqual(0)
-    expect(swapUsedPercent).toBeLessThanOrEqual(100)
+    expect(memoryUsedPercent).not.toBeNull()
+    expect(memoryUsedPercent!).toBeGreaterThanOrEqual(0)
+    expect(memoryUsedPercent!).toBeLessThanOrEqual(100)
+    if (swapUsedPercent !== null) {
+      expect(swapUsedPercent).toBeGreaterThanOrEqual(0)
+      expect(swapUsedPercent).toBeLessThanOrEqual(100)
+    }
+    else {
+      // Only Linux answers swap synchronously; anywhere else null is the documented answer.
+      expect(process.platform, 'a null swap reading means this call has no synchronous source').not.toBe('linux')
+    }
   })
 
   /**
@@ -46,7 +63,13 @@ describe('host sampling', () => {
 
   it('reports bounds a live sampling cannot violate', () => {
     const { memoryUsedPercent, swapUsedPercent } = memoryInfo()
-    for (const [name, value] of [['memory', memoryUsedPercent], ['swap', swapUsedPercent]] as const) {
+    const readings = [['memory', memoryUsedPercent], ['swap', swapUsedPercent]] as const
+    for (const [name, value] of readings) {
+      // Absent is allowed (nothing to bound); a **present** reading must be finite and in range.
+      if (value === null) {
+        expect(name, 'only swap can be absent from this call').toBe('swap')
+        continue
+      }
       expect(Number.isFinite(value), `${name} must be finite`).toBe(true)
       expect(value, `${name} must not be negative`).toBeGreaterThanOrEqual(0)
       expect(value, `${name} must not exceed 100`).toBeLessThanOrEqual(100)
@@ -572,16 +595,14 @@ describe('a reading the platform cannot take', () => {
     }
   })
 
-  it('answers no swap reading when the macOS read fails, never 0%', async () => {
-    // `sysctl -n vm.swapusage` fails off macOS (unknown key, or no sysctl at all).
-    const restore = asPlatform('darwin')
-    try {
-      expect(await readSwapUsedPercent()).toBeNull()
-    }
-    finally {
-      restore()
-    }
-  })
+  /**
+   * The failing-read case lives in `host-vmstat.test.ts`, which mocks `node:child_process`.
+   *
+   * It cannot live here: flipping `process.platform` to `darwin` does not make `sysctl` fail, so on a
+   * real macOS runner the read *succeeds* and the old assertion (`toBeNull()`) failed — while on Linux
+   * it passed for the wrong reason, because `sysctl -n vm.swapusage` exits non-zero there and that
+   * merely looks like the case under test. Forcing the failure needs the mock.
+   */
 
   it('leaves the fallback memory reading absent when vm_stat failed', () => {
     expect(availableMemoryBytes('darwin', 1, '')).toBeNull()
