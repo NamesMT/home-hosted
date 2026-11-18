@@ -266,6 +266,12 @@ the default home and `home-hosted-<8 hex>` for any other, so two homes get two u
 - **A Linux user service** stops at logout and waits for a login after a reboot; `loginctl
   enable-linger <you>` keeps it running without one.
 - An install over an existing unit is refused — `uninstall` first, or edit the file it names.
+- **`status` and `uninstall` act only on a file this command wrote.** Each generated file carries a
+  marker (a `# …` comment in a systemd unit, an XML comment in a launchd plist, the task's
+  `<Description>` on Windows), because `home-hosted.service` is exactly the name a distro package or a
+  hand-written README unit uses — and a path being right says nothing about who wrote it. A file
+  without the marker is reported as "not written by this command" and **left alone**; delete it
+  yourself if it is yours.
 - On Windows the task XML is kept in `.hh/.service/` as the record of what was registered; a task
   cannot carry environment variables, so the home and project travel as flags and `PATH` is the
   account's own.

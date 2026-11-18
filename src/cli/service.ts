@@ -27,6 +27,43 @@ import { dim, fail, green, invocation, paint } from '#src/cli/io'
  */
 
 export type ServicePlatform = 'linux' | 'darwin' | 'win32'
+
+/**
+ * The line that marks a file as **this** command's, in each format's own comment syntax.
+ *
+ * `uninstall` deletes the file at a fixed path (`~/.config/systemd/user/home-hosted.service` and its
+ * equivalents), and `status` reports on it — but a path being right says nothing about who wrote it.
+ * `home-hosted.service` is exactly the name a distro package or a hand-written README unit uses, so
+ * `service uninstall` could remove somebody else's unit, and `service status` could report on it as if
+ * it were ours. The marker is the proof of ownership, and every manager here can carry one:
+ * `# …` in a systemd unit and a `.desktop` file, `<!-- … -->` in a launchd plist, `<Description>` in a
+ * Task Scheduler XML declaration.
+ */
+export const SERVICE_MARKER = 'Managed by home-hosted — `home-hosted service uninstall` removes it'
+
+/** The marker as it appears in a rendered file, or `null` for a format that cannot carry one. */
+export function markerLine(platform: ServicePlatform): string | null {
+  if (platform === 'linux')
+    return `# ${SERVICE_MARKER}`
+  if (platform === 'darwin')
+    return `<!-- ${SERVICE_MARKER} -->`
+  return null
+}
+
+/**
+ * Whether a rendered-or-read file was written by this command.
+ *
+ * A file with no marker is **not** ours. That is the safe direction: a unit a person wrote by hand at
+ * the path we would use is theirs to keep, and `service install` already refuses to overwrite an
+ * existing file rather than merging with one.
+ */
+export function isServiceOurs(contents: string, platform: ServicePlatform): boolean {
+  if (platform === 'win32')
+    return contents.includes(SERVICE_MARKER)
+  const marker = markerLine(platform)
+  return marker !== null && contents.includes(marker)
+}
+
 export type ServiceScope = 'user' | 'system'
 
 /** What a unit runs, and as whom. */
@@ -64,8 +101,47 @@ function systemdEnv(key: string, value: string): string {
   return `Environment=${systemdWord(`${key}=${value}`)}`
 }
 
+/**
+ * Refuse a fact that cannot be represented in the file, before anything is rendered.
+ *
+ * Every value here comes from `process.argv`/`process.env` — `--home`, `--project`, `PATH` — so it is
+ * input, not a constant. A **newline** is the one that matters: each generator writes one setting per
+ * line, so `--home $'/tmp/x\nExecStartPre=/bin/evil'` injects a whole directive into a unit that starts
+ * at boot (measured: the rendered unit gained an `ExecStartPre=/bin/evil` line). A carriage return does
+ * the same in a `.cmd`/XML context, and NUL cannot be written at all.
+ *
+ * Escaping is not the answer here — a path with a newline in it is not a path anybody meant to type,
+ * and every manager's line syntax would have to be re-derived per format. Refusing says what is wrong.
+ */
+export function validateServiceSpec(spec: Pick<ServiceSpec, 'node' | 'entry' | 'home' | 'project' | 'pathEnv' | 'logFile' | 'user' | 'name'>): void {
+  const values: Array<[string, string]> = [
+    ['node', spec.node],
+    ['home', spec.home],
+    ['project', spec.project],
+    ['PATH', spec.pathEnv],
+    ['log file', spec.logFile],
+    ['user', spec.user],
+    ['name', spec.name],
+    ...spec.entry.map((value, index) => [`entry[${index}]`, value] as [string, string]),
+  ]
+  for (const [what, value] of values) {
+    // A code-point scan rather than a literal control-character range, which linters flag (and which
+    // is unreadable in a diff anyway). C0 except a plain space, plus DEL.
+    for (const character of value) {
+      const code = character.codePointAt(0)!
+      const control = (code < 0x20 && code !== 0x09) || code === 0x7F
+      if (control) {
+        const codePoint = code.toString(16).toUpperCase().padStart(4, '0')
+        throw new Error(`the ${what} contains a control character (U+${codePoint}), which a service file cannot carry: ${JSON.stringify(value)}`)
+      }
+    }
+  }
+}
+
 export function systemdUnit(spec: ServiceSpec): string {
   const lines = [
+    // Ownership first: `uninstall` and `status` refuse a file without it (see `SERVICE_MARKER`).
+    markerLine('linux')!,
     '[Unit]',
     `Description=home-hosted control panel (${spec.home})`,
     'After=network-online.target',
@@ -108,6 +184,9 @@ export function launchdPlist(spec: ServiceSpec): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    // Ownership, in the one place an XML prolog allows a comment: `uninstall`/`status` refuse a file
+    // without it (see `SERVICE_MARKER`).
+    markerLine('darwin')!,
     '<plist version="1.0">',
     '<dict>',
     '  <key>Label</key>',
@@ -173,7 +252,10 @@ export function scheduledTaskXml(spec: ServiceSpec): string {
     '<?xml version="1.0" encoding="UTF-16"?>',
     '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
     '  <RegistrationInfo>',
-    `    <Description>home-hosted control panel (${xml(spec.home)})</Description>`,
+    // Ownership, in the one free-text element a Task XML allows: `uninstall`/`status` refuse a task
+    // without it (see `SERVICE_MARKER`). A scheduled task is addressed by **name** in a global folder,
+    // so a task somebody else registered as `home-hosted` is exactly the case this guards.
+    `    <Description>home-hosted control panel (${xml(spec.home)}) — ${xml(SERVICE_MARKER)}</Description>`,
     '  </RegistrationInfo>',
     '  <Triggers>',
     trigger,
@@ -205,6 +287,9 @@ export function scheduledTaskXml(spec: ServiceSpec): string {
 
 /** The file a platform's manager reads, as text, plus how it is written to disk. */
 export function renderService(platform: ServicePlatform, spec: ServiceSpec): { text: string, bytes: Buffer, fileName: string } {
+  // Every path — `--print`, install, status, uninstall — renders first, so validating here covers all
+  // of them. `--print` matters as much as install: a person copies that text into a unit by hand.
+  validateServiceSpec(spec)
   if (platform === 'linux') {
     const text = systemdUnit(spec)
     return { text, bytes: Buffer.from(text, 'utf8'), fileName: `${spec.name}.service` }
@@ -317,6 +402,30 @@ function asPlatform(platform: NodeJS.Platform): ServicePlatform {
   fail(`no service manager this command knows on ${platform} — run \`${invocation()} up --foreground\` under your own`)
 }
 
+/**
+ * Whether the file at `file` carries this command's marker.
+ *
+ * A read that fails counts as **not ours**: refusing to act is always the safe direction here, and
+ * `uninstall` deleting the wrong file is not recoverable. Windows is checked through `schtasks
+ * /Query /XML` rather than the file, because a scheduled task lives in the Task Scheduler's own store
+ * — but the same marker rides in its `<Description>`.
+ */
+function ownsFile(file: string, platform: ServicePlatform, run: ServiceRunner, name: string): boolean {
+  try {
+    if (platform === 'win32') {
+      // A task lives in the Task Scheduler's own store, not in the file `install` staged, so its XML
+      // is what proves ownership — and `/Query` exits non-zero for a name nobody registered, which
+      // is the same "not ours" as an unmarked file.
+      const result = run('schtasks', ['/Query', '/TN', name, '/XML'])
+      return result.status === 0 && isServiceOurs(result.stdout, platform)
+    }
+    return isServiceOurs(fs.readFileSync(file, 'utf8'), platform)
+  }
+  catch {
+    return false
+  }
+}
+
 export async function runService(options: ServiceOptions, entry: string): Promise<void> {
   const platform = asPlatform(options.platform ?? process.platform)
   const out = options.out ?? ((text: string) => process.stdout.write(text))
@@ -339,6 +448,15 @@ export async function runService(options: ServiceOptions, entry: string): Promis
       process.exitCode = 1
       return
     }
+    // A file at our path is not proof it is ours: `home-hosted.service` is the name a distro package
+    // or a hand-written README unit uses. Reporting on one would claim a panel starts at boot when
+    // that unit runs something else entirely.
+    if (!ownsFile(file, platform, run, spec.name)) {
+      out(`${paint('33', 'note')} ${file} exists but was not written by this command — leaving it alone\n`)
+      out(`${dim('  \`service install\` refuses to replace it; remove it yourself if it is yours')}\n`)
+      process.exitCode = 1
+      return
+    }
     out(`${green('installed')} ${file}\n`)
     for (const [command, args] of commands) {
       const result = run(command, args)
@@ -350,6 +468,10 @@ export async function runService(options: ServiceOptions, entry: string): Promis
   if (options.action === 'uninstall') {
     if (!fs.existsSync(file))
       fail(`not installed — there is no ${file}`)
+    // Never delete a unit or task this command did not write. The name is one a distro package or a
+    // person's own unit can use, and removing it would stop a panel this command never started.
+    if (!ownsFile(file, platform, run, spec.name))
+      fail(`${file} was not written by \`${invocation()} service install\` — refusing to remove it; delete it yourself if it is yours`)
     for (const [command, args] of commands) {
       const result = run(command, args)
       if (result.status !== 0)

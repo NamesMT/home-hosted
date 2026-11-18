@@ -174,4 +174,72 @@ describe('installing', () => {
     expect(result.stderr).toContain('already installed')
     expect(fs.readFileSync(file!, 'utf8')).toBe('# edited by hand\n')
   })
+
+  /**
+   * `uninstall` and `status` act only on a file **this command wrote**.
+   *
+   * The path is fixed and the name is one a distro package or a hand-written README unit uses, so
+   * "there is a file here" is not "this is ours": removing it would stop a panel this command never
+   * started, and reporting on it would claim a boot entry that runs something else. Each format
+   * carries the marker in its own comment syntax, and Windows' in the Task XML's `<Description>`.
+   */
+  it('leaves a unit it did not write alone, and says so', () => {
+    const home = scratch()
+    const config = scratch()
+    const env = { XDG_CONFIG_HOME: config, NO_COLOR: '1' }
+    const named = runCli(['service', 'status'], { home, env })
+    const file = /not installed \(no (.+)\) —/.exec(named.stdout)?.[1]
+    expect(file, named.stdout).toBeDefined()
+    fs.mkdirSync(path.dirname(file!), { recursive: true })
+    fs.writeFileSync(file!, '[Unit]\nDescription=somebody elses panel\n[Service]\nExecStart=/bin/true\n')
+
+    const status = runCli(['service', 'status'], { home, env })
+    expect(status.status).toBe(1)
+    expect(status.stdout).toContain('was not written by this command')
+    expect(status.stdout, 'it must not claim to be installed').not.toContain(`installed ${file}`)
+
+    const removed = runCli(['service', 'uninstall'], { home, env })
+    expect(removed.status).toBe(1)
+    expect(removed.stderr).toContain('refusing to remove it')
+    expect(fs.existsSync(file!), 'the other person\'s unit survives').toBe(true)
+  })
+
+  it('recognises the unit it wrote, so the guard is not a blanket refusal', () => {
+    const home = scratch()
+    const config = scratch()
+    const env = { XDG_CONFIG_HOME: config, NO_COLOR: '1' }
+    const named = runCli(['service', 'status'], { home, env })
+    const file = /not installed \(no (.+)\) —/.exec(named.stdout)?.[1]
+    expect(file, named.stdout).toBeDefined()
+    fs.mkdirSync(path.dirname(file!), { recursive: true })
+    // What `install` would write, marker and all.
+    fs.writeFileSync(file!, runCli(['service', 'install', '--print'], { home, env }).stdout)
+
+    const status = runCli(['service', 'status'], { home, env })
+    expect(status.stdout, status.stderr).toContain('installed')
+    expect(status.stdout).not.toContain('was not written by this command')
+  })
+
+  /**
+   * A value a service file cannot carry is **refused**, not escaped into something else.
+   *
+   * `--home`, `--project` and `PATH` are argv/env — input. Each generator writes one setting per line,
+   * so a newline in `--home` injects a whole directive: measured, `--home $'/tmp/x\nExecStartPre=/bin/evil'`
+   * rendered a unit with an `ExecStartPre=/bin/evil` line, and that unit starts at boot. A tab is
+   * allowed (a path may legitimately contain one); NUL and CR are not.
+   */
+  it('refuses a fact containing a control character, rather than rendering it', () => {
+    const injected = { ...spec, home: '/h\nExecStartPre=/bin/evil' }
+    expect(() => renderService('linux', injected)).toThrow(/control character/)
+    // The message names which fact and the code point, so the fix is obvious.
+    expect(() => renderService('linux', injected)).toThrow(/home.*U\+000A/i)
+
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      expect(() => renderService(platform, { ...spec, project: '/p\r' }), `${platform} must refuse CR`).toThrow(/control character/)
+      expect(() => renderService(platform, { ...spec, user: 'u\u0000' }), `${platform} must refuse NUL`).toThrow(/control character/)
+    }
+
+    // A tab in a path is unusual but legitimate, and refusing it would be wrong.
+    expect(() => renderService('linux', { ...spec, home: '/h\twith tab' })).not.toThrow()
+  })
 })
