@@ -88,8 +88,19 @@ Ranked by value per line, for a CLI that writes a file and exits (not a long-liv
   apply to it: `service install` writes a Task Scheduler XML and registers it with `schtasks`, with no
   registry Run key and therefore no `wscript` hidden-launch layer. That is the shape this audit
   recommends — one provider, a restart policy, and a log to name.
-- **Rank `windows-task` above `windows-run`** *(for this repository, not for `home-hosted`).* It removes the Run provider's silent-failure path from
-  the common case *and* retires the `wscript` layer's reason to exist for most users.
+- **~~Rank `windows-task` above `windows-run`.~~ Withdrawn — it was wrong, and the attempt is
+  recorded here because the mistake is the useful part.** I recommended demoting the Run key, then
+  tried removing it outright. Both are blocked by a fact the audit missed: `windows-run` is the
+  **only** Windows mechanism that needs no administrator rights. `windows-task` and `windows-boot`
+  both detect as `available: elevated` with the reason "registering a scheduled task needs an
+  elevated process", so deleting the Run provider leaves an ordinary unelevated Windows user with
+  **no autostart at all** — the ladder answers `recommended: 'unsupported'`. `docs/BOOT.md` already
+  said so in its own table (the `needs: nothing` row), and the provider's own comment did too
+  ("HKCU\…\Run needs no admin"). **Its 250 lines are not footprint; they buy the only
+  no-privilege path on that platform.** The `wscript` layer is likewise not Run-only — the logon task
+  is `hideWindow: true`, because a task starting `node.exe` at logon was measured `visible=True`.
+  Ranked *second* would still have been wrong: `auto` prefers `bootCapable`, so the task would win
+  and an unelevated user would fall through to Run only by accident of ordering.
 - **Move `detectContainer` out of `fallback.ts`** into `common.ts` — it is a fact about the host that
   `systemd`, `launchd` and `windows` all want (a task or unit inside a container is equally pointless),
   and today only the terminal provider consults it.

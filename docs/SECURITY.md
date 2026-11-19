@@ -59,8 +59,9 @@ person possible.
   session belongs to **its account**, so rotating one account's secret signs out *that account's*
   other sessions and leaves everyone else's alone. Revoking or disabling an account ends its sessions
   too — a valid cookie must not outlive the credential it was issued for.
-- **Scopes are per account** — `read`, `lifecycle`, `config`, `admin`, cumulative — with an optional
-  workspace limit. See [the scope table](#an-account-is-scoped-and-the-scopes-mean-something). A token
+- **Scopes are per account** — `read`, `lifecycle`, `config`, `proxy`, `admin`, cumulative — with an
+  optional workspace limit. `proxy` and `admin` act on the whole panel, so a workspace limit cannot
+  narrow them; both UIs mark those two `*` and say so. See [the scope table](#an-account-is-scoped-and-the-scopes-mean-something). A token
   used to be full admin, so a monitor that only read held the same credential as a deploy hook.
 - **Managing credentials needs a session, never a credential.** Creating, editing or revoking an
   account requires a signed-in session whose account holds `admin` (`403 SESSION_REQUIRED` /

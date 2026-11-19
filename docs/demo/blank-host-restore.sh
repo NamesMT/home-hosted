@@ -48,7 +48,7 @@ say "Host A: a blank machine with one stack"
 mkdir -p "$HOST_A"
 HHOSTED_HOME="$HOST_A" "${CLI[@]}" up --port "$PANEL_A" --no-autostart >/dev/null
 # An account is the credential now, and the bearer value carries its id: `<id>:<secret>`.
-TOKEN_A="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" account create demo --scope read,lifecycle,config,admin | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
+TOKEN_A="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" account create demo --scope read,lifecycle,config,proxy,admin | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
 note "panel on :$PANEL_A"
 
 # The entry owns the container, and the hooks reach it by name. That is the shape a real setup has,
@@ -141,7 +141,7 @@ note "$HOST_B has no .hh at all"
 HHOSTED_HOME="$HOST_B" "${CLI[@]}" up --port "$PANEL_B" --no-autostart >/dev/null
 # A token to authorise the upload. The archive carries host A's `secrets.json`, so this one is
 # replaced by the restore and a fresh one is minted afterwards.
-SETUP_TOKEN="$(HHOSTED_HOME="$HOST_B" "${CLI[@]}" account create demo --scope read,lifecycle,config,admin | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
+SETUP_TOKEN="$(HHOSTED_HOME="$HOST_B" "${CLI[@]}" account create demo --scope read,lifecycle,config,proxy,admin | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
 note "panel on :$PANEL_B"
 
 # The archive travels as a file, which is the whole point: one artifact to move.

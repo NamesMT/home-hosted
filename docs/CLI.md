@@ -44,10 +44,12 @@ An **account** is one credential: `create` prints an id and a secret, and that p
 the panel and authenticates the API as `Authorization: Bearer <id>:<secret>`. Only a hash is stored,
 so the secret is shown exactly once.
 
-`--scope` takes a comma-separated subset of `read`, `lifecycle`, `config`, `admin` (cumulative;
-default all four), and `-w/--workspace` limits the account to some workspaces. That is the whole
-point of accounts: a monitor gets `read`, a deploy hook gets `read,lifecycle`, and neither holds a
-credential that can change config.
+`--scope` takes a comma-separated subset of `read`, `lifecycle`, `config`, `proxy`, `admin`
+(cumulative; default all five), and `-w/--workspace` limits the account to some workspaces. That is
+the whole point of accounts: a monitor gets `read`, a deploy hook gets `read,lifecycle`, whoever runs
+the reverse proxy gets `read,proxy`, and none of them holds a credential that can change config.
+`proxy` and `admin` are **panel-wide** — a workspace limit cannot narrow them, and the UI marks both
+with an asterisk.
 
 **Two refusals keep the panel reachable**: `revoke` refuses the last account that can sign in, and
 the API refuses revoking the account you are signed in as. `reset` is what to run when you cannot
