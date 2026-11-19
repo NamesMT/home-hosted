@@ -20,6 +20,14 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   extensioned shims first and never falls back to the bare POSIX script. (`src/providers/process.ts`)
 - **A text read that slices on `'\n'` bleeds into the next block on a CRLF checkout** — normalize line
   endings and throw when a boundary is missing.
+- **A user-level autostart entry needs no administrator on Linux and macOS, but every Windows task
+  does** — `~/.config/systemd/user` + `systemctl --user` and `~/Library/LaunchAgents` + `launchctl` are
+  per-account by design, while `schtasks /Create` needs elevation **even for a logon-triggered task
+  running as the same person**. So Windows had no no-privilege form at all until `--startup`: a `.cmd`
+  in `%APPDATA%\…\Startup`. Corollary that cost a rewrite elsewhere: the consumer plugin's
+  `windows-run` (an `HKCU\…\Run` value) looks like pure footprint beside its scheduled task, and is
+  not — it is the only thing that works unelevated, so removing it left `recommended: 'unsupported'`.
+  Check what a mechanism buys before deleting it. (`src/cli/service.ts`)
 - **A Windows editor writes a BOM or UTF-16, and a `'utf8'` read has already destroyed the bytes that
   tell them apart** — every hand-editable file, JSON or not (an `envFile` read as UTF-16 silently lost
   every key to a NUL), goes through `readStateFile`. (`src/helpers/config-text.ts`)
