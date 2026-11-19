@@ -216,15 +216,27 @@ describe('installing', () => {
    * that only read our own path would report on a unit we never wrote, and `uninstall` would disable
    * and delete it. `FragmentPath` is the file systemd actually read.
    */
-  it('tells a file it wrote from a foreign one, which is what FragmentPath decides with', () => {
-    const ours = runCli(['service', 'install', '--print'], { home: scratch(), env: { XDG_CONFIG_HOME: scratch(), NO_COLOR: '1' } }).stdout
-    const foreign = '[Unit]\nDescription=somebody elses panel\n[Service]\nExecStart=/bin/true\n'
-    expect(isServiceOurs(ours, 'linux'), 'the marked file is ours').toBe(true)
-    expect(isServiceOurs(foreign, 'linux'), 'an unmarked file is not').toBe(false)
-    expect(isServiceOurs('', 'linux'), 'an unreadable file is not ours either').toBe(false)
-    // Each format's marker, so the probe is not Linux-shaped.
-    expect(isServiceOurs('[Unit]\n', 'darwin')).toBe(false)
-    expect(isServiceOurs('<Description>home-hosted</Description>', 'win32'), 'the marker rides in the task description').toBe(false)
+  it('tells a file it wrote from a foreign one, on every platform', () => {
+    // The marker is per **format**, so this is driven through the generators rather than `--print`:
+    // that answers for the platform the test happens to run on, and on macOS it prints a plist while
+    // the assertion below speaks about a systemd unit (the first CI run failed exactly there).
+    const unit = systemdUnit(spec)
+    expect(isServiceOurs(unit, 'linux'), 'a unit we wrote is ours').toBe(true)
+    expect(isServiceOurs('[Unit]\nDescription=somebody elses panel\n[Service]\nExecStart=/bin/true\n', 'linux'), 'an unmarked unit is not').toBe(false)
+
+    const plist = launchdPlist(spec)
+    expect(isServiceOurs(plist, 'darwin'), 'a plist we wrote is ours').toBe(true)
+    expect(isServiceOurs('<?xml version="1.0"?>\n<plist version="1.0"><dict/></plist>', 'darwin'), 'an unmarked plist is not').toBe(false)
+
+    // Windows carries the marker in the task's `<Description>`, which is the only free-text element a
+    // Task XML has.
+    const task = scheduledTaskXml(spec)
+    expect(isServiceOurs(task, 'win32'), 'a task we wrote is ours').toBe(true)
+    expect(isServiceOurs('<Task><RegistrationInfo><Description>home-hosted</Description></RegistrationInfo></Task>', 'win32'), 'a task without the marker is not').toBe(false)
+
+    // An unreadable file is never ours, on any platform.
+    for (const platform of ['linux', 'darwin', 'win32'] as const)
+      expect(isServiceOurs('', platform), `an empty file is not ours (${platform})`).toBe(false)
   })
 
   it.runIf(process.platform === 'linux')('recognises the unit it wrote, so the guard is not a blanket refusal', () => {
