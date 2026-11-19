@@ -178,7 +178,7 @@ cd dist && zip -r ../my-panel.zip . && cd ..
 ```
 
 For development, proxy `/api` from your dev server to a panel (`pnpm dev` in this repo runs one on
-`http://127.0.0.1:6600`, password `dev`). Two settings matter, and both are visible only in the dev
+`http://127.0.0.1:6600`, account `default` with secret `dev`). Two settings matter, and both are visible only in the dev
 server:
 
 - **`changeOrigin: false`.** The panel's host guard answers `421 HOST_NOT_ALLOWED` to a `Host` it does

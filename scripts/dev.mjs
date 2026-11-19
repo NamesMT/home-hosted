@@ -45,6 +45,7 @@ const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 /** `resolveDataRoot()`'s own default: the one directory dev must never touch on its own. */
 const REAL_STATE = path.join(os.homedir(), '.home-hosted')
 /** The dev panel's password. Weak on purpose — it is loopback-only, and nobody should hunt for it. */
+const DEV_ACCOUNT = 'default'
 const DEV_PASSWORD = 'dev'
 
 function parseArgs(argv) {
@@ -126,31 +127,41 @@ if (canonical(stateDir) === canonical(REAL_STATE)) {
 /**
  * Gives a fresh dev state the known password, so a wiped `.dev-state/` is not a locked door.
  *
- * Only when there is none: a password set deliberately — here or through the UI — is left alone,
+ * Only when there is none: a credential set deliberately — here or through the UI — is left alone,
  * which is what keeps this from quietly resetting somebody's change on every run. Delegated to
- * `set-password` rather than hashing here, so the record is written by the one implementation that
+ * `account create` rather than hashing here, so the record is written by the one implementation that
  * owns its shape; the panel re-reads the file per request, so no restart is needed for it to apply.
+ *
+ * This used to call `set-password`, which the accounts refactor **deleted** — so the spawn answered
+ * "unknown command", the seed silently failed, and a wiped `.dev-state/` came up on a random
+ * first-run secret while the banner still promised `dev`. The account model is what a login is now,
+ * so it is what seeds one.
  */
 function seedDevPassword() {
   const secretsPath = path.join(stateDir, '.hh', '.control-secrets.json')
   try {
     const existing = JSON.parse(fs.readFileSync(secretsPath, 'utf8'))
-    if (existing !== null && typeof existing === 'object' && existing.password != null)
+    // The account model is the credential: `password` is the pre-0.15 key and reads as absent on a
+    // current file, so checking it alone would re-seed a state that already has a working login.
+    if (existing !== null && typeof existing === 'object'
+      && (existing.password != null || (Array.isArray(existing.accounts) && existing.accounts.length > 0))) {
       return false
+    }
   }
   catch {
     // Absent or unreadable. An unreadable file is reported by the panel itself; only a missing
-    // password is this function's business, and `set-password` overwrites the password key alone.
+    // credential is this function's business, and `account create` writes one account record.
   }
 
-  const result = spawnSync(pnpm, ['exec', 'tsx', 'src/cli.ts', 'set-password'], {
+  const result = spawnSync(pnpm, ['exec', 'tsx', 'src/cli.ts', '--home', stateDir, 'account', 'create', DEV_ACCOUNT, '--scope', 'read,lifecycle,config,proxy,admin'], {
     cwd: root,
     stdio: 'ignore',
     shell: process.platform === 'win32',
-    env: { ...process.env, HHOSTED_HOME: stateDir, HHOSTED_PASSWORD: DEV_PASSWORD },
+    // `HHOSTED_SECRET` is the non-interactive way to give `account create` a known secret.
+    env: { ...process.env, HHOSTED_HOME: stateDir, HHOSTED_SECRET: DEV_PASSWORD },
   })
   if (result.status !== 0) {
-    process.stderr.write(`could not seed the dev password (set-password exited ${result.status})\n`)
+    process.stderr.write(`could not seed the dev account (account create exited ${result.status})\n`)
     return false
   }
   return true
@@ -327,9 +338,9 @@ process.stdout.write(`panel    http://127.0.0.1:${options.panelPort}\n`)
 process.stdout.write(`${options.ui.padEnd(8)} http://127.0.0.1:${options.uiPort}\n`)
 process.stdout.write(`state    ${stateDir}\n`)
 if (seeded)
-  process.stdout.write(`password ${DEV_PASSWORD} (seeded for this dev state) — sign in at the URL below\n`)
+  process.stdout.write(`account  ${DEV_ACCOUNT} / ${DEV_PASSWORD} (seeded for this dev state) — sign in at the URL below\n`)
 else
-  process.stdout.write(`password ${DEV_PASSWORD} unless changed in the UI\n`)
+  process.stdout.write(`account  ${DEV_ACCOUNT} / ${DEV_PASSWORD} unless changed in the UI\n`)
 if (options.home === undefined && process.env.HHOSTED_HOME !== undefined)
   process.stdout.write(`         (HHOSTED_HOME=${process.env.HHOSTED_HOME} is set and ignored — pass --home to use it)\n`)
 
