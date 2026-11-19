@@ -250,6 +250,7 @@ command reads either).
 
 ```bash
 home-hosted service install           # this account: systemd --user, a LaunchAgent, a logon task
+home-hosted service install --startup # Windows only: a Startup-folder .cmd — needs no administrator
 home-hosted service install --system  # the machine, at boot: /etc/systemd/system, a LaunchDaemon, a SYSTEM boot task
 home-hosted service install --print   # the unit on stdout, nothing written or run
 home-hosted service status            # whether it is installed, and what the manager says
@@ -267,6 +268,13 @@ the default home and `home-hosted-<8 hex>` for any other, so two homes get two u
   or `systemctl start`.
 - **A Linux user service** stops at logout and waits for a login after a reboot; `loginctl
   enable-linger <you>` keeps it running without one.
+- **On Windows, only the Startup form needs no administrator.** Registering *any* scheduled task —
+  even one triggered at logon and running as the same person — requires elevation, so a normal Windows
+  account has no autostart without `--startup`. That form is a `.cmd` in
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`, which Explorer runs at logon: it
+  starts at login and has **no restart policy**, so a crash waits for the next logon. It is a plain
+  file, so it carries the same marker and the same `status`/`uninstall` ownership rule as the rest.
+  A refused task install names `--startup` rather than leaving the person with a dead XML file.
 - An install over an existing unit is refused — `uninstall` first, or edit the file it names.
 - **`status` and `uninstall` act only on a file this command wrote.** Each generated file carries a
   marker (a `# …` comment in a systemd unit, an XML comment in a launchd plist, the task's

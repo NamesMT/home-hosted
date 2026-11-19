@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { detectContainer, isServiceOurs, launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, systemdUnit, windowsArg } from '#src/cli/service'
+import { detectContainer, isServiceOurs, launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, startupCmd, startupCommandLine, systemdUnit, windowsArg } from '#src/cli/service'
 import { runCli } from '../support/run-cli'
 
 const dirs: string[] = []
@@ -460,3 +460,58 @@ function createProcessArgv(commandLine: string): string[] {
   }
   return argv
 }
+
+/**
+ * The **no-administrator** Windows entry: a `.cmd` in the Startup folder.
+ *
+ * Registering a scheduled task needs elevation even when it is triggered at logon and runs as the
+ * same person, so before this a normal Windows user had no autostart at all — Linux and macOS users
+ * always did. The Startup folder is Windows' own answer for that case: a file in the person's own
+ * profile that Explorer runs at logon. It is a real file, so it is proved by the same marker rule
+ * every other format uses, not by asking a manager.
+ */
+describe('the Windows Startup-folder entry', () => {
+  const startupSpec: ServiceSpec = { ...spec, scope: 'startup' }
+
+  it('renders a .cmd that runs up, without --foreground', () => {
+    const cmd = startupCmd(startupSpec)
+    expect(cmd).toContain('rem Managed by home-hosted')
+    expect(isServiceOurs(cmd, 'win32'), 'the marker makes it recognisable').toBe(true)
+    // No `--foreground`: nothing supervises this entry, so `up` detaches itself and `cmd.exe`
+    // returns. With it the shell would hold the panel for the whole logon session.
+    expect(cmd).toContain(' up\r\n')
+    expect(cmd).not.toContain('--foreground')
+    // CRLF, because a batch file written with bare LF is read as one long line by some tools.
+    expect(cmd).toContain('\r\n')
+  })
+
+  it('escapes what cmd.exe reads as syntax, and what it would expand', () => {
+    const line = startupCommandLine({ ...spec, home: 'C:\\a&b', project: 'C:\\p%NAME%q' })
+    // `&` ends a command in a batch file; quoting keeps it inside the token.
+    expect(line).toContain('"C:\\a&b"')
+    // `%NAME%` would be expanded; doubling is how a literal percent survives.
+    expect(line).toContain('%%NAME%%')
+  })
+
+  it('puts the .cmd in the per-user Startup folder, with Windows separators', () => {
+    const dir = serviceDir('win32', 'startup', {
+      homedir: 'C:\\Users\\u',
+      env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' },
+      hhDir: 'x',
+    })
+    expect(dir).toBe('C:\\Users\\u\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup')
+    // No forward slashes: `path.join` on a Linux host would emit a mixed path no Windows API takes.
+    expect(dir).not.toContain('/')
+  })
+
+  it('asks no manager, because none registers or starts a Startup entry', () => {
+    expect(managerCommands('win32', 'startup', 'install', 'C:\\x.cmd', 'hh')).toEqual([])
+    expect(managerCommands('win32', 'startup', 'uninstall', 'C:\\x.cmd', 'hh')).toEqual([])
+    expect(managerCommands('win32', 'startup', 'status', 'C:\\x.cmd', 'hh')).toEqual([])
+  })
+
+  it('renders the .cmd for the startup scope, and the task XML for the others', () => {
+    expect(renderService('win32', startupSpec).fileName).toBe(`${spec.name}.cmd`)
+    expect(renderService('win32', { ...spec, scope: 'user' }).fileName).toBe(`${spec.name}.xml`)
+  })
+})

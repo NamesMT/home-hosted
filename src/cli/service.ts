@@ -64,7 +64,15 @@ export function isServiceOurs(contents: string, platform: ServicePlatform): bool
   return marker !== null && contents.includes(marker)
 }
 
-export type ServiceScope = 'user' | 'system'
+/**
+ * Which form the entry takes.
+ *
+ * `user` and `system` mean the same thing on every platform. `startup` is Windows-only and is the
+ * **no-privilege** form: a `.cmd` in the user's Startup folder instead of a scheduled task. It exists
+ * because registering *any* task — even a logon one, running as the same person — needs an
+ * administrator, which left a normal Windows user with no autostart at all.
+ */
+export type ServiceScope = 'user' | 'system' | 'startup'
 
 /** What a unit runs, and as whom. */
 export interface ServiceSpec {
@@ -168,6 +176,65 @@ export function systemdUnit(spec: ServiceSpec): string {
     '',
   ]
   return lines.join('\n')
+}
+
+/**
+ * One word of a **`cmd.exe`** command line — the `.cmd` the Startup folder runs.
+ *
+ * A different layer from `windowsArg`, which is the CRT's argv layer. A batch file is parsed by
+ * `cmd.exe` first, and `& | < > ( ) ^` are its metacharacters: an unescaped `&` in a path ends the
+ * command and starts another one. `%` is doubled so a `%NAME%` in a literal is not expanded.
+ */
+function batchWord(word: string): string {
+  // A word with a metacharacter is quoted so `cmd` treats it as one token; `%` is doubled either way,
+  // because inside double quotes `cmd` still expands `%NAME%` but not `&`.
+  const quoted = /[\s&|<>^()%"]/.test(word) ? `"${word.replace(/"/g, '""')}"` : word
+  return quoted.replace(/%/g, '%%')
+}
+
+/** A whole `cmd.exe` line for the Startup folder's `.cmd`. */
+export function startupCommandLine(spec: Pick<ServiceSpec, 'node' | 'entry' | 'home' | 'project'>): string {
+  // No `--foreground`: nothing supervises this entry, so `up` detaches itself and returns. With
+  // `--foreground` the child would be the panel, and `cmd.exe` would wait on it for the whole logon
+  // session — a console window that never closes.
+  return [spec.node, ...spec.entry, '--home', spec.home, '--project', spec.project, 'up'].map(batchWord).join(' ')
+}
+
+/**
+ * The Startup folder's `.cmd`: a user-scoped Windows entry that needs **no administrator**.
+ *
+ * A scheduled task — even one triggered at logon, running as the same person — cannot be registered
+ * without elevation, so before this a non-admin Windows user had no autostart at all. The Startup
+ * folder is the mechanism Windows has for exactly that case: a file in the user's own profile that
+ * Explorer runs at logon. It is a plain file, so the same marker-and-ownership rules every other
+ * format here follows apply unchanged.
+ *
+ * What it does **not** give: a restart policy, or supervision of any kind. Nothing notices if the
+ * panel is already running (it answers "already up" and exits, which is what `up` is for), and
+ * nothing revives a crash until the next logon. That is the trade for needing no privilege, and the
+ * install line says so rather than letting a person assume otherwise.
+ */
+export function startupCmd(spec: ServiceSpec): string {
+  return `${[
+    // `@echo off` first so a failure during startup does not paint a line into the console, then the
+    // marker: `status`/`uninstall` refuse a file without it (see `SERVICE_MARKER`).
+    '@echo off',
+    `rem ${SERVICE_MARKER}`,
+    startupCommandLine(spec),
+    '',
+  ].join('\r\n')}`
+}
+
+/** `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` — the per-user Startup folder. */
+export function startupFolderDir(env: NodeJS.ProcessEnv = process.env): string {
+  // `path.win32.join` rather than `path.join`: this is a Windows path whatever host is evaluating it
+  // — a test on Linux, or `--print` from a WSL shell. `path.join` would emit `…\\Roaming/Microsoft/…`
+  // there, which is a path no Windows API accepts.
+  const join = path.win32.join
+  const appData = env.APPDATA?.trim()
+  if (appData !== undefined && appData.length > 0)
+    return join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+  return join(os.homedir(), 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
 }
 
 function xml(text: string): string {
@@ -306,6 +373,10 @@ export function renderService(platform: ServicePlatform, spec: ServiceSpec): { t
     const text = launchdPlist(spec)
     return { text, bytes: Buffer.from(text, 'utf8'), fileName: `${launchdLabel(spec.name)}.plist` }
   }
+  if (spec.scope === 'startup') {
+    const text = startupCmd(spec)
+    return { text, bytes: Buffer.from(text, 'utf8'), fileName: `${spec.name}.cmd` }
+  }
   const text = scheduledTaskXml(spec)
   // schtasks reads the encoding the declaration names: UTF-16 with a BOM.
   return { text, bytes: Buffer.from(`\uFEFF${text}`, 'utf16le'), fileName: `${spec.name}.xml` }
@@ -324,6 +395,8 @@ export function serviceDir(platform: ServicePlatform, scope: ServiceScope, conte
   }
   if (platform === 'darwin')
     return scope === 'system' ? '/Library/LaunchDaemons' : path.join(context.homedir, 'Library', 'LaunchAgents')
+  if (scope === 'startup')
+    return startupFolderDir(context.env)
   return path.join(context.hhDir, '.service')
 }
 
@@ -353,6 +426,10 @@ export function managerCommands(platform: ServicePlatform, scope: ServiceScope, 
       return [['launchctl', ['unload', '-w', file]]]
     return [['launchctl', ['list', launchdLabel(name)]]]
   }
+  // The Startup folder is read by Explorer at logon; there is no manager to register with, and
+  // starting the file by hand would only spawn a second panel that answers "already up".
+  if (scope === 'startup')
+    return []
   if (action === 'install')
     return [['schtasks', ['/Create', '/TN', name, '/XML', file]], ['schtasks', ['/Run', '/TN', name]]]
   if (action === 'uninstall')
@@ -523,9 +600,12 @@ function asPlatform(platform: NodeJS.Platform): ServicePlatform {
  * /Query /XML` rather than the file, because a scheduled task lives in the Task Scheduler's own store
  * — but the same marker rides in its `<Description>`.
  */
-function ownsFile(file: string, platform: ServicePlatform, run: ServiceRunner, name: string): boolean {
+function ownsFile(file: string, platform: ServicePlatform, run: ServiceRunner, name: string, scope?: ServiceScope): boolean {
   try {
-    if (platform === 'win32') {
+    // A Startup-folder `.cmd` **is** the artifact — Explorer reads the file itself — so it is proved
+    // the way a systemd unit or a plist is, by reading it. Only a scheduled task needs the manager
+    // asked, because there the file `install` staged is not what the OS runs.
+    if (platform === 'win32' && scope !== 'startup') {
       // A task lives in the Task Scheduler's own store, not in the file `install` staged, so its XML
       // is what proves ownership — and `/Query` exits non-zero for a name nobody registered, which
       // is the same "not ours" as an unmarked file.
@@ -586,7 +666,7 @@ export async function runService(options: ServiceOptions, entry: string): Promis
     // A file at our path is not proof it is ours: `home-hosted.service` is the name a distro package
     // or a hand-written README unit uses. Reporting on one would claim a panel starts at boot when
     // that unit runs something else entirely.
-    if (!ownsFile(file, platform, run, spec.name)) {
+    if (!ownsFile(file, platform, run, spec.name, options.scope)) {
       out(`${paint('33', 'note')} ${file} exists but was not written by this command — leaving it alone\n`)
       out(`${dim('  \`service install\` refuses to replace it; remove it yourself if it is yours')}\n`)
       process.exitCode = 1
@@ -605,7 +685,7 @@ export async function runService(options: ServiceOptions, entry: string): Promis
       fail(`not installed — there is no ${file}`)
     // Never delete a unit or task this command did not write. The name is one a distro package or a
     // person's own unit can use, and removing it would stop a panel this command never started.
-    if (!ownsFile(file, platform, run, spec.name))
+    if (!ownsFile(file, platform, run, spec.name, options.scope))
       fail(`${file} was not written by \`${invocation()} service install\` — refusing to remove it; delete it yourself if it is yours`)
     for (const [command, args] of commands) {
       const result = run(command, args)
@@ -647,13 +727,25 @@ export async function runService(options: ServiceOptions, entry: string): Promis
   out(`${green('wrote')} ${file}\n`)
   for (const [command, args] of commands) {
     const result = run(command, args)
-    if (result.status !== 0)
-      fail(`\`${command} ${args.join(' ')}\` failed: ${result.stderr.trim() || `exit ${result.status}`} — the file is in place; fix that and run it yourself`)
+    if (result.status !== 0) {
+      // A Windows user without administrator rights reaches exactly this branch: registering any
+      // task needs elevation, even a logon one running as the same person. The Startup folder is the
+      // mechanism for that case, so name it instead of leaving them with a refusal and a dead file.
+      const hint = platform === 'win32' && /access is denied|elevat/i.test(result.stderr)
+        ? `\n  ${dim(`no administrator rights? \`${invocation()} service install --startup\` needs none — it puts a .cmd in your Startup folder (no restart policy, starts at logon)`)}`
+        : ''
+      fail(`\`${command} ${args.join(' ')}\` failed: ${result.stderr.trim() || `exit ${result.status}`} — the file is in place; fix that and run it yourself${hint}`)
+    }
   }
-  out(`${green('installed')} ${spec.name} — it starts at ${options.scope === 'system' ? 'boot' : 'login'} and is running now\n`)
+  out(`${green('installed')} ${spec.name} — it starts at ${options.scope === 'system' ? 'boot' : 'login'}${options.scope === 'startup' ? ' (no restart policy: a crash waits for the next logon)' : ' and is running now'}\n`)
   if (platform === 'linux' && options.scope === 'user')
     out(`${dim(`a user service stops at logout and waits for a login after a reboot — \`loginctl enable-linger ${spec.user}\` keeps it running without one`)}\n`)
-  out(`${dim(`stop it with \`${platform === 'linux' ? `systemctl ${options.scope === 'user' ? '--user ' : ''}stop ${spec.name}` : platform === 'darwin' ? `launchctl unload ${file}` : `schtasks /End /TN ${spec.name}`}\` — \`down\` also works, and it stays down until the next ${options.scope === 'system' ? 'boot' : 'login'}`)}\n`)
+  const stopHint = options.scope === 'startup'
+    // A Startup `.cmd` is read by Explorer at logon; there is no manager to ask, so the panel is
+    // stopped with `down` and the file is what decides whether it comes back next logon.
+    ? `\`${invocation()} down\` stops the panel; the next logon starts it again (\`service uninstall\` removes the file)`
+    : `\`${platform === 'linux' ? `systemctl ${options.scope === 'user' ? '--user ' : ''}stop ${spec.name}` : platform === 'darwin' ? `launchctl unload ${file}` : `schtasks /End /TN ${spec.name}`}\` — \`down\` also works, and it stays down until the next ${options.scope === 'system' ? 'boot' : 'login'}`
+  out(`${dim(`stop it with ${stopHint}`)}\n`)
 }
 
 export function serviceCommand(entry: string) {
@@ -663,17 +755,21 @@ export function serviceCommand(entry: string) {
       action: { type: 'positional', required: false, description: 'install | uninstall | status' },
       user: { type: 'boolean', description: 'a service for this account (the default)' },
       system: { type: 'boolean', description: 'a machine-wide service, started at boot (needs an administrator)' },
+      startup: { type: 'boolean', description: 'Windows only: a Startup-folder .cmd, which needs no administrator (starts at logon, no restart policy)' },
       print: { type: 'boolean', description: 'with install: print the unit and install nothing' },
     },
     run: async ({ args }) => {
       const action = typeof args.action === 'string' && args.action.length > 0 ? args.action : 'status'
       if (action !== 'install' && action !== 'uninstall' && action !== 'status')
         fail(`unknown service action "${action}" — install, uninstall or status`)
-      if (args.user === true && args.system === true)
-        fail('pick one of --user and --system')
+      const chosen = [args.user === true, args.system === true, args.startup === true].filter(Boolean).length
+      if (chosen > 1)
+        fail('pick one of --user, --system and --startup')
+      if (args.startup === true && process.platform !== 'win32')
+        fail('--startup is Windows only: Linux and macOS already install a per-account entry that needs no administrator')
       if (args.print === true && action !== 'install')
         fail(`--print does nothing for \`service ${action}\` — it prints the unit \`install\` would write`)
-      await runService({ action, scope: args.system === true ? 'system' : 'user', print: args.print === true }, entry)
+      await runService({ action, scope: args.system === true ? 'system' : args.startup === true ? 'startup' : 'user', print: args.print === true }, entry)
     },
   })
 }
