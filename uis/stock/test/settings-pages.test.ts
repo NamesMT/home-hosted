@@ -166,6 +166,12 @@ function workspaceState(): WorkspaceState {
   } as unknown as WorkspaceState
 }
 
+/**
+ * The live control view, as a mutable ref: a state frame is the panel's own value arriving again,
+ * and the TLS section's bug was that `syncFromLive()` wrote it over an edit in progress.
+ */
+const liveControl = ref<ControlView>(CONTROL)
+
 const STATE = {
   control: CONTROL,
   host: null,
@@ -204,7 +210,7 @@ vi.mock('@/composables/useControlPlane', () => ({
   useControlPlane: () => ({
     appState: ref(STATE),
     workspaces: computed(() => STATE.workspaces),
-    control: computed(() => CONTROL),
+    control: computed(() => liveControl.value),
     host: computed(() => null),
     backups: computed(() => BACKUPS),
     projectDir: computed(() => '/tmp/proj'),
@@ -253,7 +259,7 @@ const stubs = {
   DdnsSection: true,
 }
 
-async function mountPage(which: 'global' | 'workspace', options: { holdSettings?: boolean, at?: string } = {}) {
+async function mountPage(which: 'global' | 'workspace', options: { holdSettings?: boolean, at?: string, tls?: boolean } = {}) {
   const View = which === 'global'
     ? (await import('@/views/GlobalSettingsView.vue')).default
     : (await import('@/views/SettingsView.vue')).default
@@ -263,7 +269,9 @@ async function mountPage(which: 'global' | 'workspace', options: { holdSettings?
   })
   await router.push(options.at ?? '/')
   await router.isReady()
-  const wrapper = mount(View, { global: { plugins: [router], stubs }, attachTo: document.body })
+  // `tls` mounts the real TLS section; every other test stubs it.
+  const sections = options.tls === true ? { ...stubs, TlsSection: false } : stubs
+  const wrapper = mount(View, { global: { plugins: [router], stubs: sections }, attachTo: document.body })
   await flushPromises()
   // Every other test wants the settings payload present; the guard test drives the ordering itself.
   if (!options.holdSettings)
@@ -290,6 +298,7 @@ function saveButton(wrapper: Awaited<ReturnType<typeof mountPage>>) {
 beforeEach(() => {
   calls.length = 0
   document.body.innerHTML = ''
+  liveControl.value = CONTROL
   gate.reset()
 })
 
@@ -383,6 +392,44 @@ describe('the section deep link', () => {
  * change nobody made. The block under the cursor is the one that must not be overwritten; the one
  * beside it must still fill.
  */
+/**
+ * The reported bug, driven through the mounted page: "Serve the panel over HTTPS" flipped itself
+ * back within a second of being switched on.
+ *
+ * `ListenerForm` carries `tlsEnabled` because the `control` patch is one block, but the page guards
+ * its three groups separately. Editing TLS left the listener part untouched, so the listener fill
+ * ran every state frame and `Object.assign(form.control, listenerBaseline(view))` wrote the live
+ * `tls.enabled` straight over the switch. `TlsSection` is mounted for real here — the flip happened
+ * in the page's fill loop, and only the rendered toggle can show it.
+ */
+describe('the TLS toggle is not reverted by a state frame', () => {
+  it('keeps the switch on while the panel still serves http', async () => {
+    const wrapper = await mountPage('global', { tls: true })
+
+    const tlsSwitch = () => wrapper.findAll('[role="switch"]')
+      .find(node => node.attributes('aria-labelledby') !== undefined
+        && wrapper.find(`#${node.attributes('aria-labelledby')}`).text() === 'Serve the panel over HTTPS')
+
+    expect(tlsSwitch(), 'the TLS section rendered no HTTPS switch').toBeTruthy()
+    expect(tlsSwitch()!.attributes('data-state')).toBe('unchecked')
+
+    await tlsSwitch()!.trigger('click')
+    await flushPromises()
+    expect(tlsSwitch()!.attributes('data-state')).toBe('checked')
+
+    // The next state frame carries what the panel holds — still "off", because nothing was saved.
+    liveControl.value = { ...CONTROL, label: 'Renamed elsewhere' }
+    await flushPromises()
+
+    expect(
+      tlsSwitch()!.attributes('data-state'),
+      'a state frame reverted the HTTPS toggle',
+    ).toBe('checked')
+    // …and the listener group it belongs to did follow the rename, so the guard is per part.
+    expect((inputFor(wrapper, 'Panel name').element as HTMLInputElement).value).toBe('Renamed elsewhere')
+  })
+})
+
 describe('the copy-from-live guard stays per block', () => {
   it('fills the late host block even while another block is being edited', async () => {
     const wrapper = await mountPage('global', { holdSettings: true })
@@ -425,6 +472,33 @@ describe('the unsaved-changes list', () => {
     })
     expect(document.body.textContent).toContain('Unsaved changes')
     expect(document.body.textContent).toContain('Renamed')
+  })
+
+  /**
+   * A patched leaf whose path has no counterpart in the live shape reads as "unset → true", which
+   * looks like the panel has no value where it plainly does. The HTTPS toggle was the case: the
+   * patch carries `control.tls.enabled`, and the snapshot used to carry the form's flat
+   * `tlsEnabled` beside it.
+   */
+  it('names the live value of the HTTPS toggle, not "unset"', async () => {
+    const wrapper = await mountPage('global', { tls: true })
+
+    await wrapper.findAll('[role="switch"]')
+      .find(node => wrapper.find(`#${node.attributes('aria-labelledby')}`).text() === 'Serve the panel over HTTPS')!
+      .trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('button').find(button => button.text().includes('field changed'))!.trigger('click')
+    await flushPromises()
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('control.tls.enabled')
+    })
+    // The row reads `false → true`; `unset` would mean the page had no live value to compare against.
+    const row = Array.from(document.body.querySelectorAll('li'))
+      .find(node => node.textContent?.includes('control.tls.enabled'))
+    expect(row?.textContent).not.toContain('unset')
+    expect(row?.textContent).toContain('false')
   })
 })
 

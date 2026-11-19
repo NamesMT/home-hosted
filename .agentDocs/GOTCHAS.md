@@ -197,6 +197,19 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   `streamDecision(session)`, not the flags.
 - **A form copying live state guards per block and copies detached** — `/api/settings` lands after
   the first frame, and a shallow copy aliases nested groups.
+- **A guarded fill may write only the fields its own guard covers.** The settings page guards
+  Listener, Authentication and TLS separately because each has its own Reset, but all three share
+  one `control` form object — so a fill that assigns a whole baseline writes the fields of the
+  *other* groups too. `listenerBaseline()` carried `tlsEnabled` (the flag belongs to the `control`
+  patch, not to the listener group), so every state frame reverted the HTTPS switch while it was
+  being edited: the toggle flipped itself back about a second after being turned on. The fill and
+  its guard are now one function, `syncControlPart()`, and each part's baseline carries exactly
+  what that part's snapshot covers. The shape is the same as the webhook-list revert: a snapshot
+  that does not cover everything the block writes silently un-guards it, and the reverse — a fill
+  writing more than its snapshot covers — is the same bug from the other side.
+  (`uis/stock/test/settings-tls-revert.test.ts`, plus the mounted case in
+  `uis/stock/test/settings-pages.test.ts`; only the stock UI guards per part — the console guards
+  the whole `control` block, so it cannot hit this.)
 - **An absolutely positioned element in a static scroller resolves against the page** — the shell's
   `main` keeps `relative`.
 - **A dialog's footer is a flex sibling of the scrolling body**, or a tall form hides Save.

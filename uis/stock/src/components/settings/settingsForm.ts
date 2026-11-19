@@ -262,8 +262,16 @@ export function authBaseline(status: AuthStatus): AuthForm {
   }
 }
 
-export function listenerBaseline(view: ControlView): ListenerForm {
-  return { label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, allowedHosts: (view.allowedHosts ?? []).join('\n'), tlsEnabled: view.tls.enabled }
+/**
+ * The listener group's fields, **without** `tlsEnabled`.
+ *
+ * `ListenerForm` carries the TLS flag because the `control` patch is one block, but the page guards
+ * its three groups separately: the listener fill runs while TLS is mid-edit, so any field it assigns
+ * is reverted on the next state frame. Carrying the flag here made the HTTPS toggle flip itself
+ * back within a second. A part's baseline carries exactly what that part's guard covers.
+ */
+export function listenerBaseline(view: ControlView): Omit<ListenerForm, 'tlsEnabled'> {
+  return { label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, allowedHosts: (view.allowedHosts ?? []).join('\n') }
 }
 
 export function splitList(value: string): string[] {
@@ -391,22 +399,35 @@ function filledControl(view: ControlView, snapshot: unknown): Pick<GlobalSetting
 }
 
 /**
- * Listener, auth and TLS in one `control` block; only keys this form changed survive.
+ * The `control` block as **live state carries it**, in the shape a patch writes.
  *
- * `snapshot` is the block's per-part snapshot; see `patchSinceFilled` for why the diff is against it.
+ * One definition, because three things compare against it and the two that disagreed showed the
+ * wrong "from" in the changes list: `controlPatch` diffs against it, and the page's
+ * `currentSnapshot` looks each patched leaf up by path — `control.tls.enabled` has no counterpart in
+ * the form's flat `tlsEnabled`, and `auth.trustProxy` is a wire boolean where the form holds
+ * `'off' | 'loopback' | 'any'`.
  */
-export function controlPatch(view: ControlView, form: GlobalSettingsForm, snapshot?: unknown): Patch {
-  const current = {
+export function controlBaseline(view: ControlView): Patch {
+  return {
     label: view.label,
     port: view.port,
     host: view.host,
     openBrowser: view.openBrowser,
     allowedHosts: view.allowedHosts ?? [],
-    // `authBaseline` returns the *form* shape (strings), and `next` below is the *wire* shape, so the
+    // `authBaseline` returns the *form* shape (strings), and a patch is the *wire* shape, so the
     // comparison is made on the wire shape on both sides.
     auth: formToAuth(view.auth),
     tls: { enabled: view.tls.enabled },
   }
+}
+
+/**
+ * Listener, auth and TLS in one `control` block; only keys this form changed survive.
+ *
+ * `snapshot` is the block's per-part snapshot; see `patchSinceFilled` for why the diff is against it.
+ */
+export function controlPatch(view: ControlView, form: GlobalSettingsForm, snapshot?: unknown): Patch {
+  const current = controlBaseline(view)
   const filled = filledControl(view, snapshot)
   return patchSinceFilled(current, filled === undefined ? undefined : controlWire(filled), controlWire(form), ['auth', 'tls'])
 }
@@ -564,6 +585,31 @@ export function controlPartEdited(form: GlobalSettingsForm, snapshot: unknown, p
 export function rememberControlPart(form: GlobalSettingsForm, snapshots: FormSnapshots, part: ControlPart): void {
   const current = (snapshots.control ?? {}) as Partial<Record<ControlPart, unknown>>
   snapshots.control = { ...current, [part]: controlPartSnapshot(form, part) }
+}
+
+/**
+ * Fill one control group from live state, unless that group is being edited.
+ *
+ * The three groups share one `control` patch and one form object, so filling a group by assigning
+ * whatever its baseline happens to hold lets it write a field a **different** group's guard owns —
+ * the listener fill ran while TLS was mid-edit and reverted the HTTPS toggle on every state frame.
+ * The fill and the guard are therefore one function, and it lives beside the snapshots rather than
+ * in a view, where nothing can exercise it.
+ */
+export function syncControlPart(
+  form: GlobalSettingsForm,
+  snapshots: FormSnapshots,
+  view: ControlView,
+  part: ControlPart,
+): void {
+  if (controlPartEdited(form, snapshots.control, part))
+    return
+  if (part === 'auth')
+    Object.assign(form.auth, authBaseline(view.auth))
+  else if (part === 'tls')
+    form.control.tlsEnabled = view.tls.enabled
+  else Object.assign(form.control, listenerBaseline(view))
+  rememberControlPart(form, snapshots, part)
 }
 
 /**

@@ -17,7 +17,7 @@ import {
   authChanged,
   backupsBaseline,
   backupsPatch,
-  controlPartEdited,
+  controlBaseline,
   controlPatch,
   createGlobalForm,
   followRebinding,
@@ -28,6 +28,7 @@ import {
   listenerBaseline,
   listenerChanged,
   rememberControlPart,
+  syncControlPart,
   tlsChanged,
 } from '@/components/settings/settingsForm'
 import SettingsSection from '@/components/settings/SettingsSection.vue'
@@ -112,7 +113,10 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
   const host = hostConfig.value
   const backups = backupsPolicy.value
   return {
-    control: view === null ? {} : { ...listenerBaseline(view), auth: authBaseline(view.auth) },
+    // `controlBaseline` is the live shape the *patch* writes, which is what the changes list looks
+    // each leaf up by path: the form's flat `tlsEnabled` had no `control.tls.enabled` counterpart, so
+    // the HTTPS toggle read as "unset → true" instead of "false → true".
+    control: view === null ? {} : controlBaseline(view),
     host: host ?? {},
     backups: backups === null
       ? {}
@@ -139,21 +143,12 @@ function syncFromLive(): void {
 
   const view = controlView.value
   if (view !== null) {
-    // The three control groups are guarded separately. One shared snapshot meant a Reset in
-    // any of them re-baselined the others, so a pending edit elsewhere was discarded by the
-    // next frame.
-    if (!controlPartEdited(form, snapshots.control, 'listener')) {
-      Object.assign(form.control, listenerBaseline(view))
-      rememberControlPart(form, snapshots, 'listener')
-    }
-    if (!controlPartEdited(form, snapshots.control, 'auth')) {
-      Object.assign(form.auth, authBaseline(view.auth))
-      rememberControlPart(form, snapshots, 'auth')
-    }
-    if (!controlPartEdited(form, snapshots.control, 'tls')) {
-      form.control.tlsEnabled = view.tls.enabled
-      rememberControlPart(form, snapshots, 'tls')
-    }
+    // The three control groups are guarded separately, and `syncControlPart` is the fill *and* its
+    // guard: one shared snapshot meant a Reset in any of them re-baselined the others, so a pending
+    // edit elsewhere was discarded by the next frame — and filling a group with a baseline that
+    // carried another group's field reverted the HTTPS toggle while it was being edited.
+    for (const part of ['listener', 'auth', 'tls'] as const)
+      syncControlPart(form, snapshots, view, part)
   }
   const host = hostConfig.value
   if (host !== null)
