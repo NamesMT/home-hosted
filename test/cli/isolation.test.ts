@@ -50,7 +50,7 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   // The generators read only their arguments; the installer's state reads are dynamic imports.
   'add': new Set(['buildServerEntry', 'commandAfterDashes', 'declarationAfterDashes']),
   'ls': new Set(['lsLines', 'rowFromView']),
-  'service': new Set(['systemdUnit', 'launchdPlist', 'scheduledTaskXml', 'renderService', 'serviceDir', 'managerCommands', 'serviceArgv', 'launchdLabel', 'runService', 'ServiceRunner', 'ServiceSpec', 'servicePath', 'serviceUser', 'isServiceOurs', 'markerLine', 'validateServiceSpec', 'SERVICE_MARKER']),
+  'service': new Set(['systemdUnit', 'launchdPlist', 'scheduledTaskXml', 'renderService', 'serviceDir', 'managerCommands', 'serviceArgv', 'launchdLabel', 'runService', 'ServiceRunner', 'ServiceSpec', 'servicePath', 'serviceUser', 'isServiceOurs', 'markerLine', 'validateServiceSpec', 'SERVICE_MARKER', 'detectContainer', 'windowsArg', 'CONTAINER_RESTART_HINT']),
 }
 
 /** Modules that are pure by construction, so nothing in them is a host action. */

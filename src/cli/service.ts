@@ -229,7 +229,15 @@ export function launchdPlist(spec: ServiceSpec): string {
 }
 
 /** One Windows command-line argument, quoted the way `CommandLineToArgvW` reads it back. */
-function windowsArg(word: string): string {
+/**
+ * Quote one argv word the way `CreateProcess` parses a command line.
+ *
+ * The CRT rules, which is what a `Task Scheduler` `<Arguments>` line is handed to: a backslash is
+ * literal except immediately before a `"`, where backslashes pair up and an odd one escapes the
+ * quote — and a run at the very end doubles, so the closing quote is not swallowed. Exported so the
+ * round-trip test can drive it through an independent parser rather than assert a string.
+ */
+export function windowsArg(word: string): string {
   if (word.length > 0 && !/[\s"]/.test(word))
     return word
   return `"${word.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`
@@ -359,6 +367,8 @@ export interface ServiceOptions {
   platform?: NodeJS.Platform
   /** Overrides `serviceDir()` — the seam that keeps a test off the real manager's directories. */
   targetDir?: string
+  /** Overrides container detection, so a test can drive the refusal without being in one. */
+  container?: string | null
   run?: ServiceRunner
   /** The facts a unit is built from; read from this process when absent. */
   spec?: ServiceSpec
@@ -451,6 +461,54 @@ function passwdEntryFor(uid: number): string | null {
   }
 }
 
+/**
+ * The container this process runs in, or `null` — because a boot entry inside one is a lie.
+ *
+ * `service install` writes a file the **host's** manager reads at boot. Inside a container that file
+ * lands in the container's own filesystem, which is gone when the container is replaced, and the
+ * manager on the host never sees it — so the panel does not come back, and nothing said so. The
+ * honest answer there is the container's own restart policy (`--restart unless-stopped`, or
+ * `restart: unless-stopped` in compose), which is what `service status` now points at.
+ *
+ * Detection is deliberately cheap and ordered by confidence: the marker files a runtime drops are
+ * exact, `container=` is an explicit statement, and `/proc/1/cgroup` is a fallback for older engines.
+ * Every probe is a local read, and failure means "not a container" rather than an error.
+ */
+export function detectContainer(env: NodeJS.ProcessEnv = process.env): string | null {
+  const exists = (file: string): boolean => {
+    try {
+      fs.accessSync(file)
+      return true
+    }
+    catch {
+      return false
+    }
+  }
+  if (exists('/.dockerenv'))
+    return 'Docker (/.dockerenv)'
+  if (exists('/run/.containerenv'))
+    return 'Podman (/run/.containerenv)'
+  const stated = env.container?.trim()
+  if (stated !== undefined && stated.length > 0)
+    return `container environment (container=${stated})`
+  if (exists('/proc/1/cgroup')) {
+    try {
+      const cgroup = fs.readFileSync('/proc/1/cgroup', 'utf8')
+      for (const [needle, label] of [['kubepods', 'Kubernetes (cgroup kubepods)'], ['docker', 'Docker (cgroup docker)'], ['lxc', 'LXC (cgroup lxc)'], ['containerd', 'containerd (cgroup)']] as const) {
+        if (cgroup.includes(needle))
+          return label
+      }
+    }
+    catch {
+      // An unreadable cgroup is not evidence of a container.
+    }
+  }
+  return null
+}
+
+/** How to survive a container restart, quoted in the one place both the refusal and the docs use. */
+export const CONTAINER_RESTART_HINT = 'use the container restart policy instead: `docker run --restart unless-stopped`, or `restart: unless-stopped` in a compose file'
+
 function asPlatform(platform: NodeJS.Platform): ServicePlatform {
   if (platform === 'linux' || platform === 'darwin' || platform === 'win32')
     return platform
@@ -535,6 +593,19 @@ export async function runService(options: ServiceOptions, entry: string): Promis
     fs.rmSync(file, { force: true })
     out(`${green('removed')} ${file}\n`)
     return
+  }
+
+  // A boot entry written inside a container is a file the host's manager never reads, in a filesystem
+  // that goes away with the container — so the panel would not come back and nothing would say why.
+  // Refused for `install`; `status` reports it rather than failing, since looking is not acting.
+  const container = options.container === undefined ? detectContainer() : options.container
+  if (container !== null) {
+    if (options.action === 'install')
+      fail(`this panel runs inside ${container}, where ${rendered.fileName} would live in the container's own filesystem and never reach the host's service manager — ${CONTAINER_RESTART_HINT}`)
+    if (options.action === 'status') {
+      out(`${paint('33', 'note')} this panel runs inside ${container}\n`)
+      out(`${dim(`  ${CONTAINER_RESTART_HINT}`)}\n`)
+    }
   }
 
   // Install. Refused over an existing one: a second install would replace a unit someone may have

@@ -275,6 +275,12 @@ the default home and `home-hosted-<8 hex>` for any other, so two homes get two u
 - On Windows the task XML is kept in `.hh/.service/` as the record of what was registered; a task
   cannot carry environment variables, so the home and project travel as flags and `PATH` is the
   account's own.
+- **Inside a container, `install` refuses and says what to use instead.** A boot entry is a file the
+  **host's** manager reads at boot; in a container it lands in the container's own filesystem — gone
+  when the container is replaced, never seen by the host — so the panel would not come back and
+  nothing would say why. `service status` reports the container and points at
+  `--restart unless-stopped` / `restart: unless-stopped`; `--print` still prints, since it installs
+  nothing. Detection is `/.dockerenv`, `/run/.containerenv`, `container=` or `/proc/1/cgroup`.
 
 ## Upgrading
 

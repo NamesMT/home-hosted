@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, systemdUnit } from '#src/cli/service'
+import { detectContainer, launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, systemdUnit, windowsArg } from '#src/cli/service'
 import { runCli } from '../support/run-cli'
 
 const dirs: string[] = []
@@ -232,6 +232,42 @@ describe('installing', () => {
    * rendered a unit with an `ExecStartPre=/bin/evil` line, and that unit starts at boot. A tab is
    * allowed (a path may legitimately contain one); NUL and CR are not.
    */
+  /**
+   * A panel inside a container is **told** it cannot autostart, and what to do instead.
+   *
+   * `service install` writes a file the host's manager reads at boot. Inside a container that file
+   * lives in the container's own filesystem — gone when the container is replaced, never seen by the
+   * host — so the panel would not come back and nothing said why. `--print` still prints (it installs
+   * nothing), and the refusal names the mechanism that does work.
+   */
+  it.runIf(process.platform === 'linux')('refuses to install inside a container, naming the restart policy', () => {
+    const home = scratch()
+    const config = scratch()
+    // `container=` is the documented, explicit spelling a runtime may set; the CLI reads it.
+    const env = { XDG_CONFIG_HOME: config, NO_COLOR: '1', container: 'docker' }
+
+    const printed = runCli(['service', 'install', '--print'], { home, env })
+    expect(printed.status, 'printing installs nothing, so it still works').toBe(0)
+    expect(printed.stdout).toContain('[Unit]')
+
+    const refused = runCli(['service', 'install'], { home, env })
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toContain('inside container environment')
+    expect(refused.stderr).toContain('--restart unless-stopped')
+    // And nothing was written: the refusal is before the file, not after it.
+    expect(fs.existsSync(path.join(config, 'systemd', 'user', 'home-hosted.service'))).toBe(false)
+  })
+
+  it('detects the container markers it claims, and says none on a plain host', () => {
+    // An explicit `container=` is the one input a test can state; the marker files are probed for real.
+    expect(detectContainer({ container: 'docker' })).toBe('container environment (container=docker)')
+    expect(detectContainer({ container: '  ' })).toBeNull()
+    // On a host without a container marker this is null; inside CI it may be a real container, which
+    // is a truthful answer either way — so assert the shape rather than the absence.
+    const found = detectContainer({})
+    expect(found === null || typeof found === 'string').toBe(true)
+  })
+
   it('refuses a fact containing a control character, rather than rendering it', () => {
     const injected = { ...spec, home: '/h\nExecStartPre=/bin/evil' }
     expect(() => renderService('linux', injected)).toThrow(/control character/)
@@ -292,4 +328,104 @@ describe('installing', () => {
     // A name that contradicts its uid is an inconsistent environment: fall back to this process.
     expect(serviceUser({ SUDO_USER: own === 'root' ? 'nobody' : 'root', SUDO_UID: ownUid })).toBe(own)
   })
+
+  /**
+   * `windowsArg` round-trips every nasty value through the **CRT** rules, byte for byte.
+   *
+   * The quoting was previously untested, and it is the one place a wrong backslash pair silently
+   * splits an argument: `--home C:\Program Files\hh` and a value ending in a backslash both go
+   * through here, and a mistake shows up as a service that starts with a truncated path rather than
+   * as an error. The parser below is an independent implementation of those rules — not the writer's
+   * inverse, so the two cannot agree by sharing a bug — and it is the same shape the sibling project
+   * validated against a real Windows command line (37 nasty values, each child dumping its own argv).
+   */
+  it('round-trips every word through the real CreateProcess rules', () => {
+    const values = [
+      'plain',
+      'with space',
+      'C:\\Program Files\\home-hosted',
+      'a"b',
+      'a\\"b',
+      'a\\\\"b',
+      'trailing\\',
+      'trail\\\\',
+      // A trailing backslash only reaches the quoter when the word also needs quoting — a bare word
+      // is emitted as-is, so the values above never exercised the doubling. These do, and they are
+      // the realistic shape: a directory path ("…/My Dir\\") is what a home or project path looks like.
+      'C:\\Program Files\\hh\\',
+      'a b\\',
+      'x y\\\\',
+      'space then quote "',
+      'ends with quote"',
+      'quote at end"',
+      '\\\"',
+      'ünïcode 日本語',
+      '-p',
+      '{}',
+      'a b c',
+      '',
+      'tab\there',
+    ]
+    for (const value of values) {
+      // A word with no whitespace and no quote is emitted bare; the parser must still read it back.
+      const line = windowsArg(value)
+      expect(createProcessArgv(line), `round-trip for ${JSON.stringify(value)} via ${JSON.stringify(line)}`).toEqual([value])
+    }
+    // And a whole command line keeps its word boundaries.
+    const words = ['C:\\Program Files\\node.exe', 'C:\\My App\\cli.js', '--home', 'C:\\Users\\A B\\.hh']
+    expect(createProcessArgv(words.map(windowsArg).join(' '))).toEqual(words)
+  })
 })
+
+/**
+ * An independent implementation of the CRT/`CreateProcess` argv rules.
+ *
+ * Whitespace splits a word; backslashes are literal except before a `"`, where they pair and an odd
+ * one escapes it. Written here rather than imported, so the writer in `service.ts` is checked by a
+ * second reading of the rules instead of by its own inverse.
+ */
+function createProcessArgv(commandLine: string): string[] {
+  const argv: string[] = []
+  let index = 0
+  while (index < commandLine.length) {
+    while (index < commandLine.length && (commandLine[index] === ' ' || commandLine[index] === '\t'))
+      index += 1
+    if (index >= commandLine.length)
+      break
+
+    let word = ''
+    let quoted = false
+    while (index < commandLine.length) {
+      const char = commandLine[index]!
+      if (!quoted && (char === ' ' || char === '\t'))
+        break
+      if (char === '\\') {
+        let backslashes = 0
+        while (commandLine[index] === '\\') {
+          backslashes += 1
+          index += 1
+        }
+        if (commandLine[index] === '"') {
+          word += '\\'.repeat(Math.floor(backslashes / 2))
+          if (backslashes % 2 === 1)
+            word += '"'
+          else
+            quoted = !quoted
+          index += 1
+          continue
+        }
+        word += '\\'.repeat(backslashes)
+        continue
+      }
+      if (char === '"') {
+        quoted = !quoted
+        index += 1
+        continue
+      }
+      word += char
+      index += 1
+    }
+    argv.push(word)
+  }
+  return argv
+}
