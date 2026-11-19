@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { detectContainer, launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, systemdUnit, windowsArg } from '#src/cli/service'
+import { detectContainer, isServiceOurs, launchdPlist, managerCommands, renderService, runService, scheduledTaskXml, serviceDir, servicePath, serviceUser, systemdUnit, windowsArg } from '#src/cli/service'
 import { runCli } from '../support/run-cli'
 
 const dirs: string[] = []
@@ -206,6 +206,25 @@ describe('installing', () => {
     expect(removed.status).toBe(1)
     expect(removed.stderr).toContain('refusing to remove it')
     expect(fs.existsSync(file!), 'the other person\'s unit survives').toBe(true)
+  })
+
+  /**
+   * Ownership is checked against the file systemd **loaded**, not the one at our path.
+   *
+   * A unit copied by hand to `/etc/systemd/system/home-hosted.service` — the name a distro package
+   * uses — shadows a user unit of the same name, so `systemctl --user` then acts on that one. A check
+   * that only read our own path would report on a unit we never wrote, and `uninstall` would disable
+   * and delete it. `FragmentPath` is the file systemd actually read.
+   */
+  it('tells a file it wrote from a foreign one, which is what FragmentPath decides with', () => {
+    const ours = runCli(['service', 'install', '--print'], { home: scratch(), env: { XDG_CONFIG_HOME: scratch(), NO_COLOR: '1' } }).stdout
+    const foreign = '[Unit]\nDescription=somebody elses panel\n[Service]\nExecStart=/bin/true\n'
+    expect(isServiceOurs(ours, 'linux'), 'the marked file is ours').toBe(true)
+    expect(isServiceOurs(foreign, 'linux'), 'an unmarked file is not').toBe(false)
+    expect(isServiceOurs('', 'linux'), 'an unreadable file is not ours either').toBe(false)
+    // Each format's marker, so the probe is not Linux-shaped.
+    expect(isServiceOurs('[Unit]\n', 'darwin')).toBe(false)
+    expect(isServiceOurs('<Description>home-hosted</Description>', 'win32'), 'the marker rides in the task description').toBe(false)
   })
 
   it.runIf(process.platform === 'linux')('recognises the unit it wrote, so the guard is not a blanket refusal', () => {

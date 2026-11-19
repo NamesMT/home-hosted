@@ -532,10 +532,32 @@ function ownsFile(file: string, platform: ServicePlatform, run: ServiceRunner, n
       const result = run('schtasks', ['/Query', '/TN', name, '/XML'])
       return result.status === 0 && isServiceOurs(result.stdout, platform)
     }
-    return isServiceOurs(fs.readFileSync(file, 'utf8'), platform)
+    if (platform === 'linux') {
+      // A file at our path is not necessarily the one systemd **loaded**: a unit copied by hand into
+      // `/etc/systemd/system/home-hosted.service` (the distro-package name) shadows a user unit of the
+      // same name, and `systemctl` then acts on that one. `FragmentPath` names the file systemd
+      // actually read, so ownership is checked there too — a unit found elsewhere on the search path
+      // is the case a path-only check misses.
+      const unit = `${name}.service`
+      const probe = run('systemctl', ['--user', 'show', '-p', 'FragmentPath', unit])
+      const loaded = /FragmentPath=(.+)/.exec(probe.stdout)?.[1]?.trim()
+      if (loaded !== undefined && loaded.length > 0 && loaded !== file)
+        return isServiceOurs(readMaybe(loaded) ?? '', platform)
+    }
+    return isServiceOurs(readMaybe(file) ?? '', platform)
   }
   catch {
     return false
+  }
+}
+
+/** A file's contents, or `null` when it cannot be read — never a throw out of an ownership probe. */
+function readMaybe(file: string): string | null {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  }
+  catch {
+    return null
   }
 }
 
