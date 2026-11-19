@@ -174,6 +174,10 @@ foreach ($hw in $c.Hardware) {
 }
 $c.Close()
 if ($null -eq $out) { exit 2 }
+# A sensor that matched but reads 0 was never sampled: LibreHardwareMonitor needs administrator
+# rights for CPU temperature on most CPUs (its README says so), and a non-elevated caller gets 0
+# rather than an error. Exit 3 so the panel can name the cause instead of reporting "0" as a value.
+if ($out -le 0) { exit 3 }
 $out
 `
 }
@@ -205,22 +209,28 @@ export function writeWslTemperatureScript(scriptPath: string): void {
 }
 
 /**
- * Delete the helper script, best-effort: a file someone already removed is the outcome they wanted.
+ * Delete the helper script. Answers **whether it is gone**, which is not the same as whether we tried.
  *
  * The one home for it, because `--clear` promises it in the CLI help and in `docs/SERVERS.md` — and
  * the CLI cleared `host.tempCommand` without ever removing the file, so the helper outlived the
- * setting that pointed at it. A command nothing names any more is left for the next person to
- * wonder about, and the route that *did* delete it was the only caller.
+ * setting that pointed at it.
+ *
+ * The boolean matters because deleting can genuinely fail and the failure is invisible: a helper
+ * written by a previous run can be owned by another account, and `%ProgramData%` on a 9p mount maps
+ * that to an ACL this process cannot remove the file under — so `rm` answers `EPERM` while the caller
+ * reported success. Measured: `DELETE /api/host/temperature` answered `200` with `scriptWritten: true`
+ * in the same body, and the next setup attempt then failed on the write.
  */
-export function removeWslTemperatureScript(scriptPath: string | null): void {
+export function removeWslTemperatureScript(scriptPath: string | null): boolean {
   if (scriptPath === null)
-    return
+    return true
   try {
     fs.rmSync(scriptPath, { force: true })
   }
   catch {
-    // Left behind; the command is cleared, which is what stops it being used.
+    // Reported by the caller; the command is cleared regardless, which is what stops it being used.
   }
+  return !fs.existsSync(scriptPath)
 }
 
 /**
@@ -309,6 +319,17 @@ export async function installLibreHardwareMonitor(options: { onProgress?: (messa
   }
 }
 
+/**
+ * The sentence for a helper that ran but read nothing, phrased so the next step is obvious.
+ *
+ * LibreHardwareMonitor's README: "Some sensors require administrator privileges to access the data."
+ * A CPU's `Tctl`/`Package` sensor is one of them, so a panel started from a non-elevated shell gets
+ * `0` from a sensor that exists — not an error, and not a missing install. Reporting that as
+ * "the script printed 0, which is not a temperature" sent the reader to check an installation that
+ * was already correct.
+ */
+export const PRIVILEGE_HINT = 'the sensor read 0 °C — LibreHardwareMonitor needs administrator rights for CPU temperature on this machine. Start the panel from an elevated (Administrator) shell, then set this up again'
+
 /** Run the helper once, so a setup that cannot work is reported rather than saved. */
 export async function probeWslTemperature(tempCommand: string, timeoutMs: number): Promise<{ celsius: number | null, error: string | null }> {
   try {
@@ -323,12 +344,21 @@ export async function probeWslTemperature(tempCommand: string, timeoutMs: number
       }
     }
     const celsius = Number.parseFloat(match[0])
-    if (!Number.isFinite(celsius) || celsius <= 0 || celsius >= 150)
+    if (!Number.isFinite(celsius) || celsius <= 0 || celsius >= 150) {
+      // Reached only when the helper printed a bad number but exited 0 — an older script, or a
+      // command someone pointed at by hand. The privilege case exits 3 and lands in the catch below.
       return { celsius: null, error: `the script printed ${match[0]}, which is not a temperature` }
+    }
     return { celsius, error: null }
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // `execFile` rejects on a non-zero exit, and exit 3 is the privilege signal — so this branch, not
+    // the one above, is where a sensor that read 0 actually lands.
+    if ((error as { code?: unknown } | null)?.code === 3) {
+      logger.warn(`the WSL temperature probe read 0 °C: ${PRIVILEGE_HINT}`)
+      return { celsius: null, error: PRIVILEGE_HINT }
+    }
     logger.warn(`the WSL temperature probe failed: ${message}`)
     return { celsius: null, error: message }
   }

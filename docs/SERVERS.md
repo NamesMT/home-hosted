@@ -601,9 +601,21 @@ It installs into `%ProgramData%\home-hosted`, not `%LOCALAPPDATA%`: a boot-start
 in session 0, where the per-user path differs and the library would be invisible. Installing there may
 ask for elevation.
 
+**It needs administrator rights for CPU temperature.** LibreHardwareMonitor reads `Tctl`/`Package` from
+an MSR, its own README says "some sensors require administrator privileges to access the data", and a
+non-elevated caller gets `0` from a sensor that exists rather than an error. So the **panel** has to be
+started from an elevated (Administrator) shell; the setup cannot grant that from the WSL side. The
+helper exits `3` for exactly this case, and the panel reports it as "the sensor read 0 °C —
+LibreHardwareMonitor needs administrator rights", not as a broken installation.
+
 The PowerShell call costs a few hundred milliseconds per sample, so raise `host.intervalMs` to 15–30 s.
 The value is the host's CPU, which the guest shares — measured 63.9 °C idle and 75.2 °C under load on a
 NucBox EVO-X1, where every built-in path returned a constant 20 °C.
+
+A helper that an **earlier** setup wrote can be owned by another Windows account, and `%ProgramData%`
+on a 9p mount maps that to an ACL the panel cannot write or delete through. Both routes say so and name
+the fix (`Remove-Item -LiteralPath '…' -Force` from an elevated PowerShell) rather than a bare
+`permission denied`, and `--clear` no longer reports "deleted" over a file that survived.
 
 > [!NOTE]
 > Where the panel *can* read a sensor, leave `Temperature command` empty — it overrides the probe.

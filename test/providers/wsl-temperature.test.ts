@@ -239,3 +239,135 @@ describe('the Windows path is read once, not per request', () => {
     expect(lhmInstalled()).toBe(false)
   })
 })
+
+/**
+ * A sensor that reads 0 means **no privilege**, not a broken install — and the message must say so.
+ *
+ * LibreHardwareMonitor's README: "Some sensors require administrator privileges to access the data."
+ * A CPU's `Tctl`/`Package` sensor is one, so a panel started from an ordinary shell gets `0` from a
+ * sensor that exists. The probe used to report that as "the script printed 0, which is not a
+ * temperature", which reads as a broken installation and sent a person to re-check a setup that was
+ * already correct. The helper now exits 3 for that case, so the two are distinguishable.
+ */
+/** An `execFile` that fails with `code`, the way a non-zero exit reaches a promisified caller. */
+function execFileFailing(code: number) {
+  return (...args: unknown[]) => {
+    const callback = args[args.length - 1] as (error: unknown, out: unknown) => void
+    queueMicrotask(() => callback(Object.assign(new Error(`exit ${code}`), { code }), { stdout: '', stderr: '' }))
+    return undefined
+  }
+}
+
+/** An `execFile` that succeeds and prints `stdout`. */
+function execFilePrinting(stdout: string) {
+  return (...args: unknown[]) => {
+    const callback = args[args.length - 1] as (error: unknown, out: unknown) => void
+    queueMicrotask(() => callback(null, { stdout, stderr: '' }))
+    return undefined
+  }
+}
+
+describe('a helper that ran but read nothing', () => {
+  afterEach(() => {
+    vi.doUnmock('node:child_process')
+    vi.resetModules()
+  })
+
+  it('names the administrator requirement when the helper exits 3', async () => {
+    vi.doMock('node:child_process', async (importOriginal) => {
+      const actual = await importOriginal<typeof cp>()
+      return {
+        ...actual,
+        default: { ...actual, execFile: execFileFailing(3) },
+        execFile: execFileFailing(3),
+      }
+    })
+    vi.resetModules()
+    const { probeWslTemperature, PRIVILEGE_HINT } = await import('#src/providers/wsl-temperature')
+
+    const answer = await probeWslTemperature('powershell.exe -File x.ps1', 5000)
+    expect(answer.celsius).toBeNull()
+    expect(answer.error, 'the message must name the cause, not the symptom').toContain('administrator rights')
+    expect(answer.error).toBe(PRIVILEGE_HINT)
+  })
+
+  it('still reports a plain bad number as a bad number', async () => {
+    vi.doMock('node:child_process', async (importOriginal) => {
+      const actual = await importOriginal<typeof cp>()
+      const execFile = execFilePrinting('999\n')
+      return { ...actual, default: { ...actual, execFile }, execFile }
+    })
+    vi.resetModules()
+    const { probeWslTemperature } = await import('#src/providers/wsl-temperature')
+
+    const answer = await probeWslTemperature('powershell.exe -File x.ps1', 5000)
+    expect(answer.celsius).toBeNull()
+    expect(answer.error).toContain('999')
+    expect(answer.error, 'a nonsense number is not a privilege problem').not.toContain('administrator')
+  })
+
+  it('carries the privilege check in the generated helper', () => {
+    // The exit code is only useful if the script actually emits it, and the script is a string.
+    const source = readFileSync(new URL('../../src/providers/wsl-temperature.ts', import.meta.url), 'utf8')
+    expect(source, 'a matched-but-zero sensor must be distinguishable from no sensor').toContain('exit 3')
+    expect(source).toContain('exit 2')
+  })
+})
+
+/**
+ * Removing the helper answers **whether it is gone**, because it can genuinely fail.
+ *
+ * A helper written by a previous run can be owned by another Windows account, and `%ProgramData%` on
+ * a 9p mount maps that to an ACL this process cannot delete through. Measured: `DELETE
+ * /api/host/temperature` answered `200` with `scriptWritten: true` in the same body — and the next
+ * setup press then failed on the write, against a file nothing had reported as still there.
+ */
+describe('removing the helper', () => {
+  it('says true when the file is really gone, and for a path that never existed', async () => {
+    const { removeWslTemperatureScript } = await import('#src/providers/wsl-temperature')
+    expect(removeWslTemperatureScript(null), 'nothing to remove is the outcome asked for').toBe(true)
+    expect(removeWslTemperatureScript('/nonexistent/definitely-not-here.ps1'), 'an absent file is gone').toBe(true)
+  })
+
+  it('says false when the file survives, rather than reporting success', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-wsl-rm-'))
+    const file = path.join(dir, 'cpu-temp.ps1')
+    fs.writeFileSync(file, '# helper')
+
+    vi.resetModules()
+    vi.doMock('node:fs', async (importOriginal) => {
+      const actual = await importOriginal<typeof fs>()
+      // A failed unlink, the way an ACL refusal arrives.
+      const rmSync = (): never => {
+        throw Object.assign(new Error('EPERM'), { code: 'EPERM' })
+      }
+      return { ...actual, default: { ...actual, rmSync }, rmSync }
+    })
+    const { removeWslTemperatureScript } = await import('#src/providers/wsl-temperature')
+    expect(removeWslTemperatureScript(file), 'the file is still there, so this must not claim success').toBe(false)
+
+    vi.doUnmock('node:fs')
+    vi.resetModules()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+/**
+ * The write refusal names a **stale, owned-by-someone-else** helper instead of a bare `EACCES`.
+ *
+ * This is the failure that started it: an earlier `cpu-temp.ps1` owned by `BUILTIN\Administrators`
+ * with `Users: ReadAndExecute` could not be rewritten *or* deleted, and the route answered "permission
+ * denied" — which reads as a broken mount, not as a file to remove.
+ */
+describe('the write refusal', () => {
+  it('tells an owned-by-another-account helper apart from an unwritable directory', () => {
+    const source = readFileSync(new URL('../../src/api/wsl-temperature.ts', import.meta.url), 'utf8')
+    // The branch must key on `existsSync`, or an unwritable directory is misreported as a stale file.
+    expect(source).toContain('is owned by another account')
+    expect(source).toMatch(/EACCES[\s\S]{0,120}EPERM/)
+    expect(source).toContain('Remove-Item -LiteralPath')
+  })
+})

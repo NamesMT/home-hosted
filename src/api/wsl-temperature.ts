@@ -1,5 +1,6 @@
 import type { AppDeps } from '#src/app'
 import type { WslTemperatureStatus } from '#src/shared/contracts'
+import fs from 'node:fs'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
@@ -120,7 +121,15 @@ export function createWslTemperatureRoute(deps: AppDeps) {
           writeWslTemperatureScript(target)
         }
         catch (error) {
-          throw new DetailedError(`the helper could not be written to ${target}: ${error instanceof Error ? error.message : String(error)}`, {
+          // `EACCES`/`EPERM` on a file that already exists is a different problem from an unwritable
+          // directory: an earlier helper can be owned by another Windows account, and `%ProgramData%`
+          // on a 9p mount maps that to an ACL this process cannot write through. Bare "permission
+          // denied" sent a reader to check the mount; naming the stale file is the actual fix.
+          const code = (error as NodeJS.ErrnoException).code
+          const stale = (code === 'EACCES' || code === 'EPERM') && fs.existsSync(target)
+          throw new DetailedError(stale
+            ? `an earlier helper at ${target} is owned by another account and cannot be overwritten. Remove it from an elevated PowerShell: Remove-Item -LiteralPath '${target}' -Force — then press this again`
+            : `the helper could not be written to ${target}: ${error instanceof Error ? error.message : String(error)}`, {
             statusCode: 400,
             code: 'SCRIPT_WRITE_FAILED',
           })
@@ -164,7 +173,12 @@ export function createWslTemperatureRoute(deps: AppDeps) {
       }),
       async (c) => {
         deps.panel.settings.updateHost({ tempCommand: '' })
-        removeWslTemperatureScript(scriptPath())
+        // The setting is cleared either way — that is what stops the helper being used. But if the
+        // file survives, saying "cleared" is a lie the next setup attempt pays for: it cannot write
+        // over a helper it does not own.
+        const removed = removeWslTemperatureScript(scriptPath())
+        if (!removed)
+          throw new DetailedError(`the setting is cleared, but the helper at ${scriptPath()} could not be deleted — it is owned by another account. Remove it from an elevated PowerShell: Remove-Item -LiteralPath '${scriptPath()}' -Force`, { statusCode: 400, code: 'SCRIPT_WRITE_FAILED' })
         return c.json(status(deps))
       },
     )

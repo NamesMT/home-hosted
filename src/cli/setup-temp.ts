@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail, green, invocation, prompt } from '#src/cli/io'
+import { bold, dim, fail, green, invocation, paint, prompt } from '#src/cli/io'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { globalSettingsPath } from '#src/helpers/paths'
 import { installLibreHardwareMonitor, lhmDirectoryWindows, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, windowsScriptPath, writeWslTemperatureScript, wslScriptPath } from '#src/providers/wsl-temperature'
@@ -86,8 +86,13 @@ export function clearTemperatureSource(store: GlobalSettingsStore, helper: strin
     lines.push(`${green('temperature command cleared')} — the tile uses the built-in probe again`)
   }
   if (ownsHelper) {
-    removeWslTemperatureScript(helper)
-    lines.push(`  ${dim(`helper ${helper} deleted`)}`)
+    // Say what happened, not what was attempted: the file can survive a removal (owned by another
+    // account), and "deleted" over a file that is still there is what made the next setup fail with
+    // a permission error nobody could place.
+    const removed = removeWslTemperatureScript(helper)
+    lines.push(removed
+      ? `  ${dim(`helper ${helper} deleted`)}`
+      : `  ${paint('33', 'note')} the helper at ${helper} could not be deleted — it is owned by another account; remove it from an elevated PowerShell: Remove-Item -LiteralPath '${helper}' -Force`)
   }
   else if (hasHelper) {
     lines.push(`  ${dim(`the shared helper at ${helper} was left in place — this home's command did not run it, and another home may`)}`)
