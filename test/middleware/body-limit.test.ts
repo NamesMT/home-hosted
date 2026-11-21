@@ -45,9 +45,17 @@ describe('the request body ceiling', () => {
     const cookie = await signIn(created)
 
     const huge = JSON.stringify({ id: 'x', command: 'A'.repeat(MAX_JSON_BODY_BYTES * 4) })
+    /**
+     * `content-length` is set by hand because `app.request()` does not.
+     *
+     * The guard reads the declared length — the only check that does not have to consume the stream, as
+     * `createBodyLimitGuard` explains at length. A real client always declares one; `app.request()`
+     * builds a `Request` in-process and declares nothing, which is also why the first version of this
+     * case passed for the wrong reason and then failed once the guard stopped reading the body.
+     */
     const response = await created.app.request('/api/servers?workspace=default', {
       method: 'POST',
-      headers: { cookie, 'content-type': 'application/json' },
+      headers: { cookie, 'content-type': 'application/json', 'content-length': String(huge.length) },
       body: huge,
     })
 
@@ -56,6 +64,32 @@ describe('the request body ceiling', () => {
     // The point of the guard: the config the frame is built from is untouched.
     const config = created.store.servers
     expect(config.map(entry => entry.id), 'an oversized body reached the config file').not.toContain('x')
+  })
+
+  /**
+   * A **bodiless** `POST` must not be refused, and must not throw.
+   *
+   * The first version of this guard used `hono/body-limit`, which re-wraps the request to re-read its
+   * stream: `c.req.raw = new Request(c.req.raw, init)`. Against srvx the raw request carries a *relative*
+   * URL, so that constructor throws `Failed to parse URL from [object Request]` (`[cause]: Invalid URL`)
+   * and **every bodiless `POST` answered 500** — `start`, `stop`, `backup create`. Measured against a
+   * built panel; the fixture did not see it because it builds a plain `Request` with an absolute URL,
+   * where the rewrap succeeds. So the guard reads `content-length` and never touches the stream.
+   *
+   * This case is therefore as much about *this* test suite's limits as about the route: it passes
+   * against the fixture either way, and what it pins is that no regressed guard turns a lifecycle call
+   * into a 500.
+   */
+  it('lets a bodiless POST through, which is every lifecycle action', async () => {
+    const created = await fixture()
+    const cookie = await signIn(created)
+
+    const response = await created.app.request('/api/servers/web/start?workspace=default', {
+      method: 'POST',
+      headers: { cookie },
+    })
+    expect(response.status, 'a bodiless POST was refused or threw').not.toBe(500)
+    expect(response.status).not.toBe(413)
   })
 
   it('accepts a body of a realistic size', async () => {

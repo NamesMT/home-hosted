@@ -152,6 +152,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   kept drawing the old policy. `PATCH /api/settings` hides this, because that path usually moves
   something else in the same turn; a hand edit has no companion. Sign the whole view, as `control`,
   `host` and each workspace already are.
+- **`hono/body-limit` cannot wrap an srvx request, and the unit suite cannot see it.** It re-wraps the
+  request to re-read the stream — `c.req.raw = new Request(c.req.raw, init)` — and srvx's raw request
+  carries a **relative** URL, so that constructor throws `Failed to parse URL from [object Request]`
+  (`[cause]: Invalid URL`). Every **bodiless `POST`** then answers **500**: `start`, `stop`,
+  `backup create`, the panel's core actions. The test fixture builds a plain `Request` with an absolute
+  URL, where the same rewrap succeeds, so `makeFixture` was green throughout — measured against a built
+  panel, not reasoned about. Teeing the body and draining one branch instead **hung** the request
+  outright. The guard therefore reads the declared `content-length` only, and the residual gap (a
+  hand-constructed chunked body) is written down rather than papered over.
 - **An unbounded JSON body is a self-inflicted DoS, because the frame is every second.** A `POST
   /api/servers` carrying a 19 MB `command` was accepted and written to `servers.config.json`; the state
   frame then became **20 MB**, rebuilt every second and pushed over SSE to every open tab, and read back
