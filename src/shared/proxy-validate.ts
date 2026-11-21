@@ -49,8 +49,16 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
 
     if (route.target === 'server' && (route.workspace.length === 0 || route.server.length === 0))
       errors.push(`route "${route.id}" needs a workspace and a server`)
-    if (route.target === 'external' && upstreamTarget(route.url) === null)
-      errors.push(`route "${route.id}" needs an upstream like http://10.0.0.5:8080`)
+    if (route.target === 'external' && upstreamTarget(route.url) === null) {
+      /**
+       * An **empty** upstream and a malformed one are different problems, and the message said only the
+       * first. `http://<304 characters>:8080` is present, parseable to a human, and refused — answering
+       * "needs an upstream" for it sends someone to type a URL they already typed.
+       */
+      errors.push(route.url.trim().length === 0
+        ? `route "${route.id}" needs an upstream like http://10.0.0.5:8080`
+        : `route "${route.id}" has an upstream this panel cannot use: "${route.url.slice(0, 60)}" — an http(s) host and port, at most 253 characters`)
+    }
 
     // A named account has to be able to do the one thing it is named for. Catching it
     // here beats a challenge that fails weeks later with nothing to read.

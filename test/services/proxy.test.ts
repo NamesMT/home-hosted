@@ -493,6 +493,20 @@ describe('validateProxyConfig', () => {
     expect(fine.filter(error => error.includes('253') || error.includes('label'))).toEqual([])
   })
 
+  /**
+   * An empty upstream and an unusable one are different problems, and both used to read the same.
+   *
+   * `http://<304 characters>:8080` is present, parseable to a human, and refused — answering "needs an
+   * upstream" for it sends someone to retype a URL they already typed.
+   */
+  it('separates a missing upstream from one it cannot use', () => {
+    const missing = validateProxyConfig(config({ routes: [{ id: 'a', host: 'a.example.com', target: 'external', url: '' }] }))
+    expect(missing.some(error => error.includes('needs an upstream'))).toBe(true)
+
+    const unusable = validateProxyConfig(config({ routes: [{ id: 'b', host: 'b.example.com', target: 'external', url: `http://${'a'.repeat(300)}.com:8080` }] }))
+    expect(unusable.some(error => error.includes('cannot use')), 'a too-long upstream still reads as missing').toBe(true)
+  })
+
   it('reads a path without its slash, or in another case, as the same route', () => {
     // Caddy's host and path matchers are case-insensitive and the renderer adds the leading slash,
     // so each pair rendered matchers that shadow each other while the clash check let them through.
@@ -510,7 +524,7 @@ describe('validateProxyConfig', () => {
   it('refuses an upstream with a path rather than dropping it', () => {
     const forUrl = (url: string) => validateProxyConfig(config({ routes: [{ id: 'a', host: 'app.lan', target: 'external', url }] }))
     for (const url of ['https://host.lan/sub/path', 'http://10.0.0.5:8080/x', 'http://10.0.0.5?q=1', 'http://user:pw@10.0.0.5', 'http://10.0.0.5:'])
-      expect(forUrl(url), url).toContain('route "a" needs an upstream like http://10.0.0.5:8080')
+      expect(forUrl(url).some(error => error.includes('has an upstream this panel cannot use')), url).toBe(true)
     // A bare trailing slash is no path at all.
     expect(forUrl('http://10.0.0.5:8080/')).toEqual([])
   })
@@ -538,7 +552,7 @@ describe('validateProxyConfig', () => {
     const forUrl = (url: string) => validateProxyConfig(config({ routes: [{ id: 'a', host: 'app.lan', target: 'external', url }] }))
 
     for (const url of ['ftp://x.com', 'file:///etc/passwd', 'gopher://h.com'])
-      expect(forUrl(url), url).toContain('route "a" needs an upstream like http://10.0.0.5:8080')
+      expect(forUrl(url).some(error => error.includes('has an upstream this panel cannot use')), url).toBe(true)
 
     // The forms a person actually types still work.
     for (const url of ['http://10.0.0.5:8080', 'https://example.com', '10.0.0.5:8080', 'example.com'])
@@ -548,7 +562,7 @@ describe('validateProxyConfig', () => {
   it('needs a workspace and a server for an entry route, and a url for an external one', () => {
     const errors = validateProxyConfig(config({ routes: [{ id: 'a', host: 'a.example.com' }, { id: 'b', host: 'b.example.com', target: 'external', url: 'not a url' }] }))
     expect(errors).toContain('route "a" needs a workspace and a server')
-    expect(errors).toContain('route "b" needs an upstream like http://10.0.0.5:8080')
+    expect(errors.some(error => error.startsWith('route "b" has an upstream this panel cannot use')), 'a url that is present but unusable is not a missing one').toBe(true)
   })
 
   it('asks for an ACME address only when a name could get a public certificate', () => {

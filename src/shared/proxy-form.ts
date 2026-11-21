@@ -518,6 +518,18 @@ export function upstreamTarget(value: string): UpstreamTarget | null {
   const port = url.port.length > 0 ? Number(url.port) : tls ? 443 : 80
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     return null
+  /**
+   * The same DNS bound the route's own hostname gets — a name cannot exceed 253 octets, a label 63.
+   *
+   * Without it a 304-character upstream was accepted (`200` from `PATCH /api/proxy`) and stored as the
+   * route's `url`, which `renderCaddyConfig` then hands to the engine as a dial address. Found by
+   * driving the same probe that turned up the route-hostname gap: eleven of twelve hostile upstreams
+   * were already refused — userinfo, a non-http scheme, a path, a query, a fragment, an out-of-range
+   * port, an empty port — and this was the one shape with no bound at all.
+   */
+  const name = url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname
+  if (name.length === 0 || name.length > 253 || name.split('.').some(label => label.length > 63))
+    return null
   return { host: url.hostname, port, dial: `${url.hostname}:${port}`, tls }
 }
 

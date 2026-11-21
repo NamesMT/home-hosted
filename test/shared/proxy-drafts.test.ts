@@ -118,6 +118,23 @@ describe('one route form for the UI and the panel', () => {
     expect(upstreamTarget('HTTPS://NAS.lan')).toEqual({ host: 'nas.lan', port: 443, dial: 'nas.lan:443', tls: true })
   })
 
+  /**
+   * An upstream host gets the same DNS bound as a route's own hostname.
+   *
+   * Eleven of twelve hostile upstreams were already refused — userinfo, a non-http scheme, a path, a
+   * query, a fragment, an out-of-range port, an empty port — and this was the one shape with no bound:
+   * a 304-character host was accepted, stored as the route's `url`, and handed to `renderCaddyConfig`
+   * as a dial address. Measured `200` from `PATCH /api/proxy` before the fix.
+   */
+  it('refuses an upstream host longer than DNS allows, and keeps IPv6 working', () => {
+    expect(upstreamTarget(`http://${'a'.repeat(300)}.com:8080`), 'a 304-character host was accepted').toBeNull()
+    expect(upstreamTarget(`http://${'b'.repeat(70)}.example.com:80`), 'a 70-character label was accepted').toBeNull()
+    // Anti-vacuity: the bound must not have swallowed the forms that are legal.
+    expect(upstreamTarget(`http://${'c'.repeat(63)}.example.com:80`)).not.toBeNull()
+    expect(upstreamTarget('http://[2001:db8::1]:80')?.dial).toBe('[2001:db8::1]:80')
+    expect(upstreamTarget('http://10.0.0.5:8080')?.dial).toBe('10.0.0.5:8080')
+  })
+
   it('links a path prefix in its canonical form', () => {
     expect(routeUrl({ host: 'a.lan', path: 'app/', tls: 'off' }, 80, 443)).toBe('http://a.lan/app')
   })
