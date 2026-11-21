@@ -532,6 +532,47 @@ describe('supervisor', () => {
   })
 
   /** A NUL byte is the other command `spawn` refuses outright. */
+  /**
+   * A stop that lands **mid-start** must win — the rule `AGENTS.md` states most emphatically.
+   *
+   * "An entry's async lifecycle (start, stop, probe, readiness) must re-check that the run it began is
+   * still current after every `await`; a stop that lands mid-start must win."
+   *
+   * The mechanism is `current()` in `supervisor.ts` — `entry.runToken === token && !disposed`, captured
+   * before `runStart` and re-checked after each await, with every stop path bumping the token through
+   * `endProcessReadings`. The code was right; nothing tested it. A bootstrap gives a **controllable
+   * pause inside start**: the entry sits in `starting` while the bootstrap command runs, which is
+   * exactly the window a stop can arrive in.
+   *
+   * Without the re-check the start would go on to spawn after the stop had already cleaned up, leaving a
+   * process nothing supervises — the "orphan" the panel then reports as a stray it did not start.
+   */
+  it('lets a stop that lands mid-start win, leaving no process behind', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, {
+      // Long enough to land a stop inside it, short enough not to slow the suite.
+      bootstrap: { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 4000)'], timeoutMs: 8000 },
+    })])
+
+    // Not awaited: it is meant to still be in flight when the stop arrives.
+    const starting = supervisor.start('web')
+    // Wait until the entry is genuinely inside the start, or the stop lands before there is a race.
+    await waitFor(() => view(supervisor, 'web').status === 'starting')
+
+    const stopped = await supervisor.stop('web')
+    expect(stopped.ok, 'a stop must be accepted while a start is in flight').toBe(true)
+
+    // The start must abandon its work rather than spawn behind the stop.
+    const started = await starting
+    expect(started.ok, 'a start overtaken by a stop must not report success').toBe(false)
+
+    await waitFor(() => view(supervisor, 'web').status === 'stopped')
+    const finalView = view(supervisor, 'web')
+    expect(finalView.pid, 'the abandoned start left a process running').toBeNull()
+    // And nothing is listening: the spawn that would have taken the port never happened.
+    expect(await portAccepts(port), 'the abandoned start still bound the port').toBe(false)
+  })
+
   it('survives a bootstrap command that is unusable, not only an empty one', async () => {
     const port = await freePort()
     const { supervisor } = await makeSupervisor([httpServerConfig(port, {
