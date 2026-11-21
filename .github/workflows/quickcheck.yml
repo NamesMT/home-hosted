@@ -33,5 +33,13 @@ jobs:
       - name: Run quickcheck (lint + types)
         run: pnpm run quickcheck
 
-      - name: Build control UI
+      # Not redundant with `quickcheck`, and not only "the control UI".
+      #
+      # `pnpm run build` compiles the server, the stock UI, the published client bundle and — through
+      # `scripts/build-types.mjs` — 223 declaration files. **Nothing else in CI exercises that script**:
+      # `test/api/client.test.ts` imports `#src/client` and tests the *source*, so a broken declaration
+      # emit or a `#src` rewrite that stops resolving would first be seen by a consumer of the
+      # published package. `smoke.yml` builds too, but it is the browser pass; if it is red for a UI
+      # reason, this is the job that still tells you the build itself is fine.
+      - name: Build the server, both UIs, the client bundle and its declarations
         run: pnpm run build
