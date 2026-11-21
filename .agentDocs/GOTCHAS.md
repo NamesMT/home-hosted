@@ -394,6 +394,14 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   hardcoded colour is invisible in one of the two themes. (`uis/stock/src/styles.css`,
   `.scroll-hint-x`; `uis/stock/test/mobile-layout.test.ts`, "gives a horizontally scrolling box a
   visible edge hint", which also fails for any new `overflow-x-auto` box that omits the class.)
+  **The two `local` layers are covers, and a cover must be the colour of the ground, not of a
+  panel.** They exist to hide the shadow once the content is scrolled to its end; painted in
+  `--panel` (white) over a table sitting straight on the page's grey they become a white band down
+  the edge instead. On the Jobs table that band covered `disable` and `remove` — a table that fit
+  its box exactly (`scrollWidth 798 === clientWidth 798`, every button hit-testable) still *looked*
+  clipped, and it read as "more to the right" when there was nothing. Set `--scroll-cover`; it
+  defaults to `--panel`, and `scroll-hint-page` names the page ground. The general rule: a
+  decorative overlay is only invisible where its colour equals what it lies on.
 - **`flex-1` beside a default-flex sibling takes the row, and `truncate` does not save the
   other** — `flex-1` is `flex-basis: 0`, so it yields before a sibling whose `flex` is
   `0 1 auto` and whose content is wide. stock's Global settings → Paths paired a label+hint block
@@ -407,6 +415,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   The shape, not the component, is what the guard asserts.
   (`uis/stock/test/mobile-layout.test.ts`, "never squeezes a truncated value to a zero-width box
   beside its label")
+- **A badge and a sub-line must not say the same thing.** The backup capture list gave each item a
+  badge (`included` / `skipped`) and a line under its name whose *fallback* was that same word, so
+  every ordinary row read "accounts / included" and then "included" again on the right. The line is
+  for what the badge cannot say — where an item came from, why it is not captured, that generated
+  directories are skipped — and nothing else; a row with nothing to add has no second line.
+  `captureItemDetail()` in `uis/stock/src/lib/panel-text.ts`, tested by name so the duplication
+  cannot come back.
 
 
 ## Data
