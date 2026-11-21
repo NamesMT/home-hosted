@@ -27,6 +27,21 @@ function knownCommands(): Set<string> {
   const block = /const SYNOPSIS: Record<string, string> = \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? ''
   const names = [...block.matchAll(/^\s{2}'?([a-z][a-z-]*)'?:/gm)].map(match => match[1]!)
   expect(names.length, 'the SYNOPSIS table must be readable, or this scan proves nothing').toBeGreaterThan(10)
+
+  /**
+   * Plus the **pseudo-commands** the dispatcher answers before the table is consulted.
+   *
+   * `home-hosted help <cmd>` and `home-hosted version` are real invocations that appear in no
+   * `SYNOPSIS` entry — `args.ts` recognises them as tokens — so a scan built only from the table
+   * would report a correct hint as naming a command that does not exist. Read from `args.ts` rather
+   * than hardcoded, so the two stay in step.
+   */
+  const args = fs.readFileSync(path.join(root, 'src', 'cli', 'args.ts'), 'utf8')
+  for (const match of args.matchAll(/const (?:HELP|VERSION)_TOKENS = new Set\(\[([^\]]+)\]\)/g)) {
+    for (const token of [...(match[1] ?? '').matchAll(/'([a-z][a-z-]*)'/g)])
+      names.push(token[1]!)
+  }
+
   return new Set(names)
 }
 
@@ -114,6 +129,23 @@ describe('no user-facing message names a command this release does not have', ()
           if (command.length < 3)
             continue
           offenders.push(`${relative}:${index + 1} names \`home-hosted ${command}\`, which is not a command`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('only names live commands in the shipped docs', () => {
+    // The same class, one layer further out: a doc is what a person reads before typing anything.
+    const known = knownCommands()
+    const offenders: string[] = []
+    for (const file of ['README.md', ...fs.readdirSync(path.join(root, 'docs')).filter(name => name.endsWith('.md')).map(name => path.join('docs', name))]) {
+      const lines = fs.readFileSync(path.join(root, file), 'utf8').split('\n')
+      for (const [index, line] of lines.entries()) {
+        for (const match of line.matchAll(HINT)) {
+          const command = match[1]
+          if (command !== undefined && command.length >= 3 && !known.has(command))
+            offenders.push(`${file}:${index + 1} names \`home-hosted ${command}\`, which is not a command`)
         }
       }
     }
