@@ -38,6 +38,8 @@ export interface Harness {
   hub: import('#src/services/events').EventHub
   dir: string
   hhDir: string
+  /** The UI service the panel serves from, so a case can install or revert a build. */
+  ui: import('#src/services/ui').UiService
   /**
    * The reverse-proxy service, when `withProxy` asked for one.
    *
@@ -276,6 +278,7 @@ export async function makeHarness(options: {
     dir,
     hhDir,
     frames,
+    ui,
     proxy: proxyService,
     dispose: async () => {
       proxyService?.dispose()

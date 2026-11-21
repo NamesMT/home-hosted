@@ -107,6 +107,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Metrics
 
+- **`stateSignature` is `JSON.stringify(state)`, and it must stay that way.** A hand-written list of
+  "the fields that matter" was wrong four times — `apiTokenSet`/`passwordSet`/`allowedHosts`, the host
+  view's `enabled`, `backups`' policy, the proxy's `certificates`, and `ui.meta`'s `uploadedAt`/`files`/
+  `tag`/`asset`/`unix`. Each fix widened the list and left the next field to be discovered the same
+  way, by somebody noticing a stale page in a second tab. Signing the whole frame removes the list, so
+  a new field is covered the day it is added. Cost: `JSON.stringify` of an eight-workspace,
+  six-server frame is **0.009 ms** (8.6 kB), once per publish.
 - **A hand-picked field list in `stateSignature` is a bug that waits for the right trigger.** The
   proxy was signed as `config.enabled`, status, engine and routes — which left out
   `config.certificates`, `certificates`, `dnsAccounts` and `engines`. With the engine **on**, storing a

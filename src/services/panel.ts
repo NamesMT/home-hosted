@@ -819,59 +819,28 @@ export class PanelService {
   }
 }
 
-/** A cheap change key: everything the UI redraws from, nothing it does not. */
+/**
+ * A change key over the **whole frame**.
+ *
+ * Every field of `AppState` is something a UI draws from, so the signature is simply the frame
+ * serialised — no list to keep in step, and no way to forget the next field somebody adds.
+ *
+ * It was a hand-written list of the fields someone believed mattered, and that belief was wrong four
+ * times: `apiTokenSet`/`passwordSet`/`allowedHosts` (minting a token reached no other tab), the host
+ * view's `enabled` (dials kept drawing after sampling was switched off), `backups`'s policy
+ * (`enabled`, `keep`, `dir`, `schedule` — a hand edit reloaded the store and published nothing), and
+ * the proxy's `certificates` (a stored pair reached no other tab while the engine was off). Each fix
+ * widened the list; each one left the next field to be found the same way, by somebody noticing a
+ * stale page.
+ *
+ * The whole `ui` status was never right either: it signed `custom`, `meta.name` and `meta.version`,
+ * and `meta` has eight fields — `uploadedAt`, `files`, `repo`, `tag`, `asset`, `unix` were all
+ * invisible, so re-uploading the same name and version published nothing.
+ *
+ * Cost, measured: `JSON.stringify` of an eight-workspace, six-server frame is **0.009 ms** (8.6 kB),
+ * and this runs at most once per publish — the frame itself is already serialised to every SSE
+ * client, so signing it is not the expensive half.
+ */
 function stateSignature(state: AppState): string {
-  return [
-    // Whole, like the host view below: a hand-picked list missed `apiTokenSet`, `passwordSet` and
-    // `allowedHosts`, so another tab never saw a token minted or a password set.
-    JSON.stringify(state.control),
-    // A broken `settings.json` appearing or being fixed is news even when nothing else moved.
-    state.settingsError?.message ?? '',
-    /*
-     * The whole host view, not a list of its fields. Signing only `sampledAt` and `alerts` published
-     * nothing when sampling was switched off — that branch of `HostMonitor.tick` changes `enabled`
-     * alone — so every other tab kept drawing dials. A field this list omits is a change no client
-     * sees; the measurement is in `.agentDocs/GOTCHAS.md`.
-     */
-    JSON.stringify(state.host),
-    /**
-     * The whole backups view, for the reason `control`, `host` and each workspace above are signed
-     * whole.
-     *
-     * This signed only `lastAutomaticAt` and `scheduleError`, on the reasoning that "the archive list
-     * is a separate `GET /api/backups`" — which is true of the *archives*, and false of the *policy*.
-     * `enabled`, `keep`, `dir` and `schedule` are in this view and in it only, so editing one by hand
-     * reloaded the store (`keep: 9` reached `panel.settings.backups.keep`) and then published
-     * nothing: `stateSignature` was identical, so `publishState` returned early and every other tab
-     * kept drawing the old policy. Measured in a harness — the store updated, `frames.length` did
-     * not move.
-     *
-     * `PATCH /api/settings` hid it, because that path publishes by moving the listener or by another
-     * field changing in the same turn. A hand edit has no such companion.
-     */
-    JSON.stringify(state.backups),
-    // Which UI the panel serves. `ui.status()` reads the installed `ui.json`, so an upload
-    // or a revert is news the moment it happens — and without this it was only picked up when
-    // something else moved, which the host sample eventually does (up to one interval later).
-    `${state.ui.custom}:${state.ui.meta?.name ?? ''}:${state.ui.meta?.version ?? ''}`,
-    /**
-     * The whole proxy view, for the reason everything above is signed whole.
-     *
-     * This signed a hand-picked list — `config.enabled`, status, engine, routes — which left out
-     * `config.certificates`, `certificates`, `dnsAccounts` and `engines`. Measured: uploading a
-     * certificate through `PUT /api/proxy/certificates/:id` while the engine was **off** published no
-     * frame, so a second tab kept showing the old list. With the engine *on* the route calls
-     * `apply()`, the status moves, the frame is published and the certificate rides along — which is
-     * why the first upload in a session looks fine and the second does not.
-     *
-     * `undefined` is "this panel has no proxy", which is a different fact from an empty view, so it
-     * stays its own branch rather than collapsing into `null`.
-     */
-    state.proxy === undefined ? '' : JSON.stringify(state.proxy),
-    /*
-     * The whole workspace view, for the reason the host view above is signed whole: a hand-picked
-     * list left out `orphans`, so a stray process appearing or going published nothing.
-     */
-    ...state.workspaces.map(workspace => JSON.stringify(workspace)),
-  ].join('|')
+  return JSON.stringify(state)
 }

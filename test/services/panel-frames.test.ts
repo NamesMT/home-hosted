@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { cleanPanelHarness, makeHarness, resetPanelModules, runningServer, waitFor } from '../support/panel-harness'
 
+const repo = path.resolve(import.meta.dirname, '..', '..')
+
 beforeEach(resetPanelModules)
 afterEach(cleanPanelHarness)
 
@@ -633,6 +635,55 @@ describe('the state frame a UI actually reads', () => {
       await waitFor(() => frames.length > before, 8000)
       const certificates = frames.at(-1)?.proxy?.config.certificates ?? []
       expect(certificates.map(entry => entry.id), 'a stored certificate published no frame').toContain('probe')
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  /**
+   * Re-installing the same UI must publish a frame, because `ui.meta` carries more than its name.
+   *
+   * `stateSignature` signed `` `${custom}:${meta.name}:${meta.version}` `` and `uiMetaSchema` has eight
+   * fields: `uploadedAt`, `files`, `repo`, `tag`, `asset` and `unix` were all invisible. Installing the
+   * same name and version again — the ordinary case when a person re-drops a rebuilt zip — changed
+   * `uploadedAt` and `files`, published nothing, and left every other tab showing the old metadata.
+   *
+   * Signing the whole frame fixes it without a list to maintain.
+   */
+  it('publishes a frame when the same UI is installed twice', async () => {
+    const { panel, frames, ui, dispose } = await makeHarness()
+
+    try {
+      const zip = path.join(repo, 'uis', 'dist', 'home-hosted-ui-noc-console.zip')
+      // A build that never ran leaves no zip; skip rather than fail on a missing artifact.
+      if (!fs.existsSync(zip))
+        return
+
+      // Freeze the clock-driven parts, so the install is the only thing that can move the frame.
+      const patched = panel as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }
+      const host = patched.options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+
+      expect((await ui.install(zip, 'noc-console', 'v1')).ok).toBe(true)
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      // Drain: the first install publishes, and that must not be what the second install borrows.
+      await new Promise(resolve => setTimeout(resolve, 300))
+      const before = frames.length
+      const firstMeta = ui.status().meta
+
+      // The same archive again: same `name`, same `version`, different `uploadedAt`.
+      expect((await ui.install(zip, 'noc-console', 'v1')).ok).toBe(true)
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > before, 8000)
+
+      const secondMeta = ui.status().meta
+      expect(secondMeta?.name).toBe(firstMeta?.name)
+      expect(frames.at(-1)?.ui.meta, 're-installing the same UI published no frame').toMatchObject({ name: secondMeta?.name })
+      // The field the old signature could not see.
+      expect(frames.at(-1)?.ui.meta?.uploadedAt).toBe(secondMeta?.uploadedAt)
     }
     finally {
       await dispose()
