@@ -348,6 +348,29 @@ describe('the layout survives a phone', () => {
     expect(offenders, 'a flex title with no basis is sized by its siblings, which was tuned to English').toEqual([])
   })
 
+  /**
+   * A translated label in a fixed row must be capped, or the row is sized by whichever language is
+   * longest.
+   *
+   * The TopBar's search button printed `topbar.search` uncapped: 237 px in English, 266 px in German,
+   * **302–318 px in French**, because "Rechercher ou exécuter une commande" is 65 px longer than
+   * "Search or run a command". The action cluster grows with it, and the page title beside it — a
+   * `flex-1` heading — is the element that gives way: it was left 131 px of the 136 px it needs, so
+   * French was ellipsised at *every* width while English read in full.
+   *
+   * Scoped to a `span` inside the TopBar's search button: that is the one translatable string rendered
+   * inline in a fixed-height row. A data value truncated with `truncate` is by design and not this rule.
+   */
+  it('caps the search label so the header is not sized by the longest language', () => {
+    const topbar = fs.readFileSync(path.join(root, '..', '..', 'uis/stock/src/components/shell/TopBar.vue'), 'utf8')
+    const searchLabel = /<span[^>]*>\{\{ t\('topbar\.search'\) \}\}<\/span>/.exec(topbar)?.[0]
+    expect(searchLabel, 'the search label must still be there').toBeTruthy()
+    expect(
+      searchLabel,
+      'the search label has no width cap, so the button grows with its translation and squeezes the page title',
+    ).toContain('max-w-')
+  })
+
   it('keeps the archive row wrapping rather than squeezing its name', () => {
     const file = path.join(root, 'src/components/settings/BackupsSection.vue')
     // The archive list is the one that renders a download link per row; the captures list above it

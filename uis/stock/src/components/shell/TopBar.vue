@@ -87,7 +87,15 @@ const connectionLabel = computed(() => ({
         @click="emit('palette')"
       >
         <Search class="size-3.5" />
-        <span class="pr-6">{{ t('topbar.search') }}</span>
+        <!--
+          Capped, so the button does not grow with its translation.
+          `topbar.search` is "Search or run a command" in English and "Rechercher ou exécuter une
+          commande" in French, and with no cap the button measured **237 px** in English, 266 px in
+          German and **302–318 px** in French — which pushed the page title to 131 px of the 136 px it
+          needs, so French was ellipsised at every width while English read in full. The `⌘K` hint
+          beside it is a fixed marker, so the label is the part that gives way.
+        -->
+        <span class="max-w-32 truncate pr-6" :title="t('topbar.search')">{{ t('topbar.search') }}</span>
         <kbd class="rounded border border-line bg-page px-1 py-0.5 font-mono text-2xs text-faint">⌘K</kbd>
       </button>
 
