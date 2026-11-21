@@ -102,7 +102,8 @@
     "build:ui": "node scripts/build-uis.mjs stock",
     "build:uis": "node scripts/build-uis.mjs --zip",
     "brand": "node scripts/build-brand.mjs",
-    "media": "node scripts/capture-media.mjs"
+    "media": "node scripts/capture-media.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@namesmt/utils": "^0.5.21",

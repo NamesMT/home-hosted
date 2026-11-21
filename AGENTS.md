@@ -82,8 +82,16 @@ pnpm run check                 # THE GATE: quickcheck + everything + coverage fl
 pnpm run build                 # dist/cli.js + the stock UI
 pnpm run build:uis             # every UI, zipped into uis/dist/
 pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated catalogs
+pnpm run smoke                 # boot the BUILT panel and walk every route in Chromium
 ```
 
+- **`pnpm run smoke` is not part of the gate, and that is deliberate.** It needs a Chromium binary
+  `pnpm install` does not fetch (`pnpm exec playwright install chromium`) and it boots a real panel,
+  which costs more than the whole unit suite. Run it before a release and after any change under
+  `uis/`: every UI defect this project has shipped was invisible to `check` and obvious to a browser.
+  Read what it actually asserts in `scripts/smoke.mjs` — it hit-tests controls (catches an overlaying
+  *element*) and checks for sideways document scroll (catches a table cut off), but it **cannot see a
+  CSS background painted over a control**, which is how the `scroll-hint-x` band hid `remove`.
 - **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.
   CI on a push runs only the tests its changes reach since the last green run (`test.yml`); the
   whole suite with coverage runs on a manual dispatch of `test.yml` and in every release. `check:fast` follows imports, so a change only a spawned CLI or a source scan
