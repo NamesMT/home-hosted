@@ -15,7 +15,7 @@ import { ensureStateDir } from '#src/helpers/paths'
 import { parseOrThrow } from '#src/helpers/validate'
 import { validate } from '#src/helpers/validator'
 import { requestIdentity } from '#src/middleware/auth'
-import { createUploadLimit } from '#src/middleware/body-limit'
+import { createBodyCeiling } from '#src/middleware/body-limit'
 import { selectionWritesCredentials } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupSelectionSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
@@ -139,7 +139,7 @@ export function createBackupsRoute(deps: AppDeps) {
      * ceiling was a memory limit rather than a guard. This middleware counts chunks and aborts at the
      * cap, which is the half the header check cannot do.
      */
-    createUploadLimit(MAX_UPLOAD_BYTES), async (c) => {
+    createBodyCeiling(MAX_UPLOAD_BYTES), async (c) => {
       const confirm = c.req.valid('query').confirm === true
       const contentType = c.req.header('content-type') ?? ''
 

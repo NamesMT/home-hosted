@@ -159,6 +159,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **`hono/body-limit` is gone from this project, and the last copy was the one that mattered least.**
+  The login route still had it after the upload routes were converted — a tighter 4 KB cap on the only
+  unauthenticated endpoint. It *looked* safe because the panel-wide guard at `/api/*` refuses a chunked
+  body with `411` before it runs, so the broken path was unreachable. Unreachable is not gone: it was the
+  one remaining template for the next author to copy. All three now use `createBodyCeiling`, which counts
+  the stream and takes its message and error code per route — `PAYLOAD_TOO_LARGE` for a login,
+  `UPLOAD_TOO_LARGE` for an archive, because one code cannot describe both without reading wrong on one.
 - **`hono/body-limit` cannot wrap an srvx request, and the unit suite cannot see it.** It re-wraps the
   request to re-read the stream — `c.req.raw = new Request(c.req.raw, init)` — and srvx's raw request
   carries a **relative** URL, so that constructor throws `Failed to parse URL from [object Request]`

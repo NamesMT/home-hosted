@@ -16,7 +16,7 @@ import { ERROR_RESPONSES, jsonBody, multipartFileBody } from '#src/helpers/opena
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestIdentity } from '#src/middleware/auth'
-import { createUploadLimit } from '#src/middleware/body-limit'
+import { createBodyCeiling } from '#src/middleware/body-limit'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { buildControlView } from '#src/services/state'
 import { unknownBackupIds } from '#src/shared/backup-scope'
@@ -250,7 +250,7 @@ export function createSettingsRoute(deps: AppDeps) {
      * everything — so an upload with no declared length was read into memory in full and then refused.
      * See the same reasoning in `api/backups.ts`.
      */
-    createUploadLimit(MAX_UI_UPLOAD_BYTES), async (c) => {
+    createBodyCeiling(MAX_UI_UPLOAD_BYTES), async (c) => {
       // Pre-flight only; `file.size` below is the authoritative check for a *declared* length.
       // `parseInt` is safe because Node's HTTP parser rejects a non-decimal `Content-Length` with a
       // 400 before any handler runs — see the same note in `api/backups.ts`.

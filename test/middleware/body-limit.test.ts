@@ -2,7 +2,7 @@ import type { Fixture } from '../api/fixture'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 import { errorHandler } from '#src/helpers/error'
-import { createUploadLimit, MAX_JSON_BODY_BYTES } from '#src/middleware/body-limit'
+import { createBodyCeiling, MAX_JSON_BODY_BYTES } from '#src/middleware/body-limit'
 import { makeFixture, makeView } from '../api/fixture'
 
 /**
@@ -52,7 +52,7 @@ async function signIn(created: Fixture): Promise<string> {
 function uploadApp() {
   const app = new Hono()
   app.onError(errorHandler)
-  app.post('/up', createUploadLimit(1024), async c => c.json({ len: (await c.req.text()).length }))
+  app.post('/up', createBodyCeiling(1024), async c => c.json({ len: (await c.req.text()).length }))
   return app
 }
 
@@ -180,7 +180,7 @@ describe('the request body ceiling', () => {
    * rewrap; a **chunked** upload to `/api/backups/restore` answered `500` with the identical stack,
    * measured against a built panel.
    *
-   * `createUploadLimit` counts the stream instead of re-wrapping it.
+   * `createBodyCeiling` counts the stream instead of re-wrapping it.
    */
   describe('the upload ceiling', () => {
     it('refuses a declared length over the cap', async () => {

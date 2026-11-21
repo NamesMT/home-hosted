@@ -61,7 +61,7 @@ export function createBodyLimitGuard(): MiddlewareHandler {
      *    appeared* to work: a normal upload carries `content-length`, takes the header fast-path and
      *    never reaches the rewrap. A **chunked** upload to `/api/backups/restore` answered `500` with
      *    the identical stack — driven, not reasoned. Both upload routes now use
-     *    `createUploadLimit` below, which counts the stream without re-wrapping anything.
+     *    `createBodyCeiling` below, which counts the stream without re-wrapping anything.
      *
      *    Why the isolation probes below all answered 200 is settled: they built a *native* `Request`,
      *    without `_request`, so the unwrap found nothing to unwrap.
@@ -114,17 +114,20 @@ function carriesAnUpload(method: string, pathname: string): boolean {
  * the handler wants, and the count aborts the request the moment it crosses the ceiling. The handler is
  * handed a `Request` built around the measured side, which is exactly what `parseBody()` will read.
  */
-export function createUploadLimit(maxBytes: number): MiddlewareHandler {
+export function createBodyCeiling(
+  maxBytes: number,
+  message = `the upload is larger than ${Math.round(maxBytes / 1024 / 1024)}MB`,
+  // The route names its own code: an upload and a login are both bounded here, and one code cannot
+  // describe both without reading wrong on one of them.
+  code = 'UPLOAD_TOO_LARGE',
+): MiddlewareHandler {
   return async (c, next) => {
     const declared = c.req.header('content-length')
     // The cheap answer, and the one a browser upload always allows.
     if (declared !== undefined) {
       const length = Number.parseInt(declared, 10)
       if (Number.isFinite(length) && length > maxBytes) {
-        throw new DetailedError(`the upload is larger than ${Math.round(maxBytes / 1024 / 1024)}MB`, {
-          statusCode: 413,
-          code: 'UPLOAD_TOO_LARGE',
-        })
+        throw new DetailedError(message, { statusCode: 413, code })
       }
       return next()
     }
@@ -159,10 +162,7 @@ export function createUploadLimit(maxBytes: number): MiddlewareHandler {
     } as RequestInit)
 
     const refuse = (): never => {
-      throw new DetailedError(`the upload is larger than ${Math.round(maxBytes / 1024 / 1024)}MB`, {
-        statusCode: 413,
-        code: 'UPLOAD_TOO_LARGE',
-      })
+      throw new DetailedError(message, { statusCode: 413, code })
     }
 
     try {

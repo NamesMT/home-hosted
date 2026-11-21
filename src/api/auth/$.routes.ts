@@ -5,13 +5,13 @@ import type { LoginRequest } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
-import { bodyLimit } from 'hono/body-limit'
 import { scopeCatalogue } from '#src/config/secrets'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
+import { createBodyCeiling } from '#src/middleware/body-limit'
 import { requestIp } from '#src/middleware/loopback'
 import { tokenAllows } from '#src/middleware/token-scope'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
@@ -54,13 +54,17 @@ export function createAuthRoute(deps: AppDeps) {
           401: { description: 'Wrong account id or secret, or locked out (see `Retry-After`)' },
         },
       }),
-      // Unauthenticated by nature, so the body is bounded before it is parsed.
-      bodyLimit({
-        maxSize: 4096,
-        onError: () => {
-          throw new DetailedError('the login request is too large', { statusCode: 413, code: 'PAYLOAD_TOO_LARGE' })
-        },
-      }),
+      /**
+       * Unauthenticated by nature, so the body is bounded tighter than the panel-wide 1 MB.
+       *
+       * **Not `hono/body-limit`**: it re-wraps the request to re-read its stream, and srvx's
+       * `PatchedRequest` constructor unwraps `_request` before `super(...)`, whose URL is relative —
+       * `Failed to parse URL`, a `500`. That middleware is gone from this project for that reason; the
+       * panel-wide guard at `/api/*` refuses a chunked body with `411` before this runs, so the broken
+       * path was unreachable here, but leaving the only remaining copy in the codebase would invite it
+       * back. `createBodyCeiling` counts the stream and answers `413`.
+       */
+      createBodyCeiling(4096, 'the login request is too large', 'PAYLOAD_TOO_LARGE'),
       validate('json', loginSchema),
       (c) => {
         const body: LoginRequest = c.req.valid('json')
