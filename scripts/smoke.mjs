@@ -587,14 +587,44 @@ async function main() {
        * Opened only where the UI has one, and closed again so the next route starts clean. A UI without
        * the shortcut (noc-console) simply reports nothing here.
        */
-      const paletteOpened = await page.evaluate(() => {
+      /**
+       * Focus a real trigger **before** opening, so there is somewhere for focus to return to.
+       *
+       * The order matters and I got it wrong first: focusing a header button *after* the palette was
+       * already open captured `<body>` as the element to return to, so the focus check below could
+       * never fire. The real sequence is focus-then-open, and the check has to mirror it.
+       */
+      const trigger = await page.evaluate(() => {
+        /**
+         * A **visible** header button, not merely the first one.
+         *
+         * The first is the mobile menu trigger, `lg:hidden`, so at a desktop width it has no box and
+         * `focus()` on it does nothing — which made the focus check below report a defect that was my
+         * selector's, not the palette's. `getClientRects().length` is the test for "a person could have
+         * clicked this".
+         */
+        const candidate = [...document.querySelectorAll('header button')]
+          .find(button => !button.closest('[role="dialog"]') && button.getClientRects().length > 0)
+        if (!(candidate instanceof HTMLElement))
+          return null
+        candidate.focus()
+        return ((candidate.textContent ?? '').trim() || (candidate.getAttribute('aria-label') ?? '').trim()).slice(0, 30)
+      })
+      await page.evaluate(() => {
         // `Mod+K` is what the button itself advertises; dispatch the event rather than a real keypress,
         // so the check does not depend on focus having landed anywhere in particular.
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, metaKey: true, bubbles: true }))
-        return true
       })
+      await page.waitForTimeout(600)
+      /**
+       * Only run the modal checks if a dialog actually opened.
+       *
+       * This used to return a hard-coded `true`, so the block below ran whether or not the palette had
+       * appeared — and on a route where the shortcut did nothing, `Escape` did nothing, focus never
+       * moved, and the focus check could not fail. A condition that is always true is not a condition.
+       */
+      const paletteOpened = await page.evaluate(() => document.querySelector('[role="dialog"]') !== null)
       if (paletteOpened) {
-        await page.waitForTimeout(600)
         /**
          * Only the input check runs while a modal is open.
          *
@@ -604,8 +634,26 @@ async function main() {
          */
         for (const problem of await placeholderOverflow(page))
           fail(`${where} (palette)`, problem)
+
+        /**
+         * Escape must hand focus back to the control that opened the palette.
+         *
+         * It used to close and leave focus on `<body>`, so a keyboard user lost their place and had to
+         * Tab from the top of the page again — invisible to anyone closing it with a mouse, because the
+         * pointer goes back where they were looking. Only a real browser observes this: `happy-dom`
+         * keeps reka-ui's dialog mounted after close, so a component test cannot see it.
+         */
         await page.keyboard.press('Escape').catch(() => {})
-        await page.waitForTimeout(200)
+        await page.waitForTimeout(300)
+        if (trigger !== null) {
+          const focusAfterClose = await page.evaluate(() => ({
+            tag: document.activeElement?.tagName ?? 'none',
+            label: (document.activeElement?.textContent ?? document.activeElement?.getAttribute?.('aria-label') ?? '').trim().slice(0, 30),
+            isBody: document.activeElement === document.body,
+          }))
+          if (focusAfterClose.isBody)
+            fail(`${where} (palette)`, `closing the palette dropped focus on <body> instead of returning it to "${trigger}"`)
+        }
       }
 
       for (const entry of noise)
