@@ -80,15 +80,25 @@ const PORT = Number(process.env.HHOSTED_SMOKE_PORT ?? 6979)
  * is the wrong half to leave out: it is the one a person installs deliberately.
  */
 const UIS = {
+  /**
+   * Every path here must be one the router actually declares — `uis/stock/src/router.ts`.
+   *
+   * **Six of these eight used to be wrong**, and the suite reported "routes clean" while testing one
+   * page six times. `/default/overview`, `/default/servers`, `/default/jobs`, `/default/logs`,
+   * `/default/settings` and `/global/proxy` are not routes: the catch-all matches them, the guard
+   * rewrites to `/global/overview`, and every one of them rendered **Global Overview** — measured, all
+   * six landed on `/global/overview` with `h1="Global Overview"`. The workspace pages live under `/w/`,
+   * exactly as noc-console's entries below already said.
+   */
   'stock': [
     ['/global/overview', 'Global overview'],
     ['/global/settings', 'Global settings'],
-    ['/default/overview', 'Workspace overview'],
-    ['/default/servers', 'Servers'],
-    ['/default/jobs', 'Jobs'],
-    ['/default/logs', 'Logs'],
-    ['/default/settings', 'Workspace settings'],
-    ['/global/proxy', 'Reverse proxy'],
+    ['/w/default/overview', 'Workspace overview'],
+    ['/w/default/servers', 'Servers'],
+    ['/w/default/jobs', 'Jobs'],
+    ['/w/default/logs', 'Logs'],
+    ['/w/default/settings', 'Workspace settings'],
+    ['/proxy', 'Reverse proxy'],
   ],
   'noc-console': [
     ['/global/overview', 'Global overview'],
@@ -246,6 +256,47 @@ async function placeholderOverflow(page) {
         overflowing.push(`"${input.placeholder.slice(0, 40)}" needs ${Math.round(needed)}px in ${input.clientWidth}px`)
     }
     return overflowing.map(entry => `placeholder does not fit its input: ${entry}`)
+  })
+}
+
+/**
+ * Every control a person can reach must have an accessible name.
+ *
+ * `test/shared/ui-accessible-name.test.ts` checks this over the **source**, which catches a bare
+ * `<button><Icon /></button>` before it ships. It cannot see what a *rendered* control is called: a
+ * component that forwards no slot text, a label pointing at an id that is not on the page, an
+ * `aria-label` bound to an empty string. Only the browser resolves that.
+ *
+ * This asks the same question the browser's accessibility tree would, using the sources a name can
+ * come from — `aria-label`, `aria-labelledby`, its own text, `title`, a wrapping `<label>`, and a
+ * `label[for]` — and skips what is not on screen.
+ */
+async function namelessControls(page) {
+  return page.evaluate(() => {
+    const nameless = []
+    for (const element of document.querySelectorAll('button, a[href], input, select, textarea')) {
+      if (element.closest('[aria-hidden="true"]'))
+        continue
+      const style = getComputedStyle(element)
+      if (style.visibility === 'hidden' || style.display === 'none' || element.getClientRects().length === 0)
+        continue
+      // A disabled control is still announced, so it is still checked.
+      const byId = (element.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean).map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()
+      const name = [
+        (element.getAttribute('aria-label') ?? '').trim(),
+        byId,
+        (element.textContent ?? '').trim(),
+        (element.getAttribute('title') ?? '').trim(),
+        (element.closest('label')?.textContent ?? '').trim(),
+        element.id ? (document.querySelector(`label[for="${CSS.escape(element.id)}"]`)?.textContent ?? '').trim() : '',
+      ].find(candidate => candidate.length > 0)
+      if (name === undefined) {
+        const tag = element.tagName.toLowerCase()
+        const hint = element.className ? `.${String(element.className).split(' ')[0]}` : ''
+        nameless.push(`${tag}${hint} has no accessible name, so a screen reader announces only "${tag}"`)
+      }
+    }
+    return nameless
   })
 }
 
@@ -571,7 +622,7 @@ async function main() {
       // The state frame is a second apart; give the first one a moment to land.
       await page.waitForTimeout(1200)
 
-      for (const problem of [...await inspectPage(page), ...await placeholderOverflow(page)])
+      for (const problem of [...await inspectPage(page), ...await placeholderOverflow(page), ...await namelessControls(page)])
         fail(where, problem)
       // The half `inspectPage` cannot do: a control painted over by a CSS background is still in the
       // DOM, still hit-tests to itself if the paint has no box, and only a pixel comparison sees it.
