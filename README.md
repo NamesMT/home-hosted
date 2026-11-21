@@ -103,7 +103,8 @@ npx home-hosted secret set web DATABASE_URL             # a secret, prompted wit
                                                         #   servers.config.json)
 ```
 
-<sub>Needs Node 24+. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
+<sub>Needs Node 24+ — the CLI refuses to start on an older one and says which version it found, rather
+than failing somewhere inside the build. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
 `settings.json`, so the next plain `up` binds the same way.</sub>
 
 > [!IMPORTANT]
