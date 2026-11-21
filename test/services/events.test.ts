@@ -147,7 +147,8 @@ describe('event hub resume buffer', () => {
       hub.publish(logFrame('alpha', 'web', `line-${index}`))
 
     expect(hub.bufferedFrames).toBeLessThanOrEqual(200)
-    // The oldest is gone, the newest kept, and `bufferedFrom` names the first replayable one.
+    // The oldest is gone and the newest kept — asserted through the replay a client would get, which
+    // is the observable behaviour; the buffer's own first-sequence getter was removed as dead code.
     const replayed: string[] = []
     hub.subscribeFrom(null, -1, (message) => {
       if (message.type === 'log')
@@ -156,7 +157,36 @@ describe('event hub resume buffer', () => {
     expect(replayed).toHaveLength(hub.bufferedFrames)
     expect(replayed.at(-1)).toBe('line-299')
     expect(replayed[0]).toBe(`line-${299 - hub.bufferedFrames + 1}`)
-    expect(hub.bufferedFrom).toBe(300 - hub.bufferedFrames + 1)
+  })
+
+  /**
+   * A client that resumes past the buffer can *see* the gap, which is why no "you lost frames" flag
+   * is needed on the wire.
+   *
+   * `docs/API.md` promises a gap is possible and log-only: the last 200 frames (256 KB) are kept, so a
+   * client away long enough resumes with the retained tail. What it does not promise is a signal —
+   * and it does not need to, because the ids say it. The stream answers with the client's own resume
+   * point first, then the replay, and after eviction the first replay is far above it. That jump is
+   * the notice.
+   *
+   * This pins the property the documentation relies on. Without it, "the gap is visible from the ids"
+   * was an assumption I had checked once by hand.
+   */
+  it('makes an evicted gap visible from the sequence jump', () => {
+    const hub = new EventHub()
+    for (let index = 0; index < 300; index++)
+      hub.publish(logFrame('alpha', 'web', `line-${index}`))
+
+    const since = 1
+    const replayed: number[] = []
+    hub.subscribeFrom(null, since, (_message, seq) => replayed.push(seq))
+
+    expect(replayed.length, 'the retained tail is what a resume replays').toBe(hub.bufferedFrames)
+    // The stream numbers the snapshot at the resume point; the replay then starts well above it.
+    const first = replayed[0]!
+    expect(first, 'a resume past the buffer must not replay from the requested point').toBeGreaterThan(since + 1)
+    // The newest frame is always kept, so a client that reconnects gets the tail it can still use.
+    expect(replayed.at(-1)).toBe(300)
   })
 
   it('keeps the buffer bounded by bytes, not only by frame count', () => {

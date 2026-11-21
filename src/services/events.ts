@@ -65,11 +65,6 @@ export class EventHub {
     return this.buffer.length
   }
 
-  /** The oldest sequence still replayable, or `lastSeq` when the buffer is empty. */
-  get bufferedFrom(): number {
-    return this.buffer[0]?.seq ?? this.seq
-  }
-
   subscribe(key: string | null, listener: EventListener): () => void {
     const bucketKey = key ?? ALL
     const bucket = this.listeners.get(bucketKey) ?? new Set<EventListener>()
