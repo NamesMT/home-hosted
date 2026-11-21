@@ -159,6 +159,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **`migrate` prints "moving N job(s)" before it has asked, and writes nothing until you consent.**
+  The line is unconditional — it is the *plan* — while `applyJobMove` sits behind
+  `if (yes || HHOSTED_MIGRATE=allow)`. Run it non-interactively without either and you get
+  `moving 1 job(s) … → jobs.config.json` and **no** `jobs.config.json`: the servers file is untouched
+  and nothing is lost, but it reads exactly like a migration that ran and dropped the job. With
+  `HHOSTED_MIGRATE=allow` the same command writes the file and prints `moved 1 job(s)`.
+  I spent a while on this as a suspected data-loss bug before noticing `1 file(s) stamped` had not
+  appeared either — the summary counts both halves, so a real run always says two things.
+
 - **A DDNS failure is retried forever unless the provider sets `permanent`, and most do not.**
   `src/services/ddns.ts` reads `result.permanent` to end a record; a transient result is retried every
   interval. Of the 14 providers, only `cloudflare` and `duckdns` classified anything, and `noip`/`desec`
