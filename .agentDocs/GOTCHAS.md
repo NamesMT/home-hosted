@@ -107,6 +107,16 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Metrics
 
+- **A wall-clock budget cannot detect a per-frame file read.** The obvious guard for "the state frame
+  must not touch the disk" is to build N frames and assert they took less than some number of
+  milliseconds. It does not work, and the measurement is worth keeping: 50 frames at eight workspaces
+  x six servers took **0.77 ms each**, and after every frame was made to `readFileSync` a real config
+  file it took **0.86 ms** — the same test, still green. The reads are page-cached, so the cost lands in
+  syscalls and on a cold cache or a network mount, not in elapsed time. Scan the **function bodies**
+  for the call instead (`test/services/frame-budget.test.ts`,
+  `test/services/backup-frame-cost.test.ts`), which fails the moment the read appears. The same
+  reasoning applies to any "this path must stay cheap" rule: assert what it *does*, not how long it
+  seemed to take.
 - **Three CPU numbers are not interchangeable** — `loadAvg` is a task count, `cpuUsedPercent` a share
   of the machine, a server's `cpuPercent` a process-tree sum (400% is four cores).
 - **A reading's absence, band, scale and aggregate each have one home** — see [`READINGS.md`](READINGS.md).
