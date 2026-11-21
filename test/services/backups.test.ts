@@ -1196,10 +1196,21 @@ describe('backup service', () => {
     expect((await fixture.service.restore(outside, { confirm: true })).error).toContain('unexpected entries')
     expect(fs.existsSync(path.join(fixture.root, '..', 'evil.txt'))).toBe(false)
 
-    // A `..` segment is refused even earlier, by zip.js itself.
+    /**
+     * A `..` segment is refused even earlier, by zip.js itself — and **that library check is the only
+     * thing doing it**: `src/providers/archive.ts` applies no entry-name filter of its own, so this
+     * assertion is what notices if a dependency bump removes the guard.
+     *
+     * `toBeDefined()` was too weak to be that: any unrelated failure satisfied it. The message is named
+     * instead — verified against a built panel, which answers `the archive could not be read: Unsafe
+     * filename` with `RESTORE_FAILED` for a crafted archive whose entries climb out of the root.
+     */
     const traversal = path.join(fixture.root, 'traversal.zip')
     await makeZip(traversal, { 'global/../../evil.txt': 'evil\n' })
-    expect((await fixture.service.restore(traversal, { confirm: true })).error).toBeDefined()
+    expect(
+      (await fixture.service.restore(traversal, { confirm: true })).error,
+      'zip.js no longer refuses a `..` entry, and nothing else in the restore path does',
+    ).toContain('Unsafe filename')
     expect(fs.existsSync(path.join(fixture.root, '..', 'evil.txt'))).toBe(false)
   })
 
