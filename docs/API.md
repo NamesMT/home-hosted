@@ -113,7 +113,8 @@ arrives with.
 | `INVALID_INPUT` | 400 | the body, query or path did not validate; `detail` lists the fields |
 | `ID_MISMATCH` | 400 | a `PUT` body's `id` does not match the path id |
 | `NOT_FOUND` | 404 | no route matches this method and path |
-| `PAYLOAD_TOO_LARGE` | 413 | the sign-in body was larger than the panel accepts |
+| `PAYLOAD_TOO_LARGE` | 413 | the request body was larger than the panel accepts (1 MB, or the route's own ceiling for an upload) |
+| `LENGTH_REQUIRED` | 411 | the request body was chunked, so its size could not be checked before reading it — send a `Content-Length` |
 | `INTERNAL_ERROR` | 500 | a failure with no more specific code; the panel logged it |
 | `DETAILED_ERROR` | 500 | a `DetailedError` thrown without a code — a bug in the panel |
 | `AUTH_REQUIRED` | 401 | no valid session or token; show the login screen |

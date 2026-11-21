@@ -42,7 +42,8 @@ export const ERROR_CODES = {
   INVALID_INPUT: { status: 400, meaning: 'the body, query or path did not validate; `detail` lists the fields' },
   ID_MISMATCH: { status: 400, meaning: 'a `PUT` body\'s `id` does not match the path id' },
   NOT_FOUND: { status: 404, meaning: 'no route matches this method and path' },
-  PAYLOAD_TOO_LARGE: { status: 413, meaning: 'the sign-in body was larger than the panel accepts' },
+  PAYLOAD_TOO_LARGE: { status: 413, meaning: 'the request body was larger than the panel accepts (1 MB, or the route\'s own ceiling for an upload)' },
+  LENGTH_REQUIRED: { status: 411, meaning: 'the request body was chunked, so its size could not be checked before reading it — send a `Content-Length`' },
   INTERNAL_ERROR: { status: 500, meaning: 'a failure with no more specific code; the panel logged it' },
   DETAILED_ERROR: { status: 500, meaning: 'a `DetailedError` thrown without a code — a bug in the panel' },
 
