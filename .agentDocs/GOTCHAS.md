@@ -152,6 +152,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   kept drawing the old policy. `PATCH /api/settings` hides this, because that path usually moves
   something else in the same turn; a hand edit has no companion. Sign the whole view, as `control`,
   `host` and each workspace already are.
+- **The request path and the SSE fan-out are measurably cheap — don't "optimise" them on suspicion.**
+  Measured on the built panel with nine workspaces and 54 servers: `GET /api/state` **mean 5.0 ms**
+  (83 kB payload), `/api/servers` 2.4 ms, `/api/proxy` 2.2 ms, `/healthz` 3.2 ms; on an empty panel every
+  route is ~2 ms. Eight concurrent SSE streams on the busy panel cost **3.6 CPU-ticks/s against 3.9
+  idle** — nothing, because `serializeFrame` memoises per message in a `WeakMap` (`event-stream.ts`), so
+  N subscribers sharing one frame serialise it once. Two things carry that: the WeakMap, and
+  `narrowStateFor` running per connection rather than per frame. If a future change removes either, the
+  fan-out becomes quadratic in open tabs — and no timing test here would notice, which is why the
+  measurement is written down instead.
 - **A wall-clock budget cannot detect a per-frame file read.** The obvious guard for "the state frame
   must not touch the disk" is to build N frames and assert they took less than some number of
   milliseconds. It does not work, and the measurement is worth keeping: 50 frames at eight workspaces
