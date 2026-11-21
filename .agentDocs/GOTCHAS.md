@@ -159,6 +159,17 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **The process-tree walk follows `ppid` with no start time, so a recycled pid can join the tree.**
+  `proc.test.ts > processTreeOwners > includes a grandchild` failed once on Windows with
+  `owners.has(process.pid)` unexpectedly `true` — the test's **own** process appearing as a descendant of
+  a tree it spawned. A re-run was green, so it is a race rather than a regression: `collectTree` follows
+  parent links from a snapshot whose rows are `{ pid, ppid, rssKb, cpuPercent }` and carry **no start
+  time**, so between the grandchild dying and the snapshot being taken, Windows can hand its pid to
+  another process — and the walk then attributes that process to the tree. Nothing here is unsound for
+  *liveness* (that is `runtimeLiveness`/`processLiveness`, which do compare start times); it is the tree
+  walk that cannot tell "still my child" from "reused pid". Recorded rather than fixed: adding a start
+  time to the scan means changing what every platform's parser emits, which is a larger change than a
+  flake warrants in passing.
 - **A spawn that never started reports differently from one that threw, unless you unify it.**
   `runBackupHook` wrapped the `catch` around `spawn(...)` as `could not start: <message>`, but its `error`
   listener reported `error.message` raw — and a missing binary arrives on the **`error` event**, not by
