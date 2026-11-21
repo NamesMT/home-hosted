@@ -19,8 +19,16 @@ import { bold, dim, fail, green, invocation } from '#src/cli/io'
  */
 
 export const importArgs = {
-  'kind': { type: 'positional', required: true, description: 'pm2, or compose' },
-  'file': { type: 'positional', required: true, description: 'the ecosystem file, or the compose file' },
+  /**
+   * Both positionals are optional **to citty**, and required by `run` below.
+   *
+   * Declared `required: true`, citty refused before `run` was reached: `import` answered
+   * `Missing required positional argument: KIND` — its own internal wording, pointing at a `KIND` no
+   * help text mentions — and `import pm2` answered the same about `FILE`. The handler already says both
+   * things better (`import takes \`pm2\` or \`compose\``, `which file?`), it simply never got the chance.
+   */
+  'kind': { type: 'positional', required: false, description: 'pm2, or compose' },
+  'file': { type: 'positional', required: false, description: 'the ecosystem file, or the compose file' },
   'workspace': { type: 'string', alias: 'w', description: 'the workspace to write into (default: the default workspace)' },
   'confirm': { type: 'boolean', description: 'write the plan (without it, nothing is written)' },
   'dry-run': { type: 'boolean', description: 'print the plan and write nothing, even with --confirm' },

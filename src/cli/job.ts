@@ -221,5 +221,18 @@ export const jobLogCommand = defineCommand({
 /** The `job` group: `ls`, `run`, `log`. */
 export const jobCommand = defineCommand({
   meta: { name: 'job' },
+  /**
+   * The first bare word, taken as a string so this command can name its own usage.
+   *
+   * Without `args` and a `run`, citty answers `job` alone with its internal `No command specified.` —
+   * which says nothing about what the command takes, in a CLI where every other command answers with
+   * `use \`home-hosted <command> …\``. `token` declares exactly this shape and is the model here.
+   */
+  args: { command: { type: 'positional', required: false } },
   subCommands: { ls: jobListCommand, run: jobRunCommand, log: jobLogCommand },
+  run({ args }) {
+    const command = String(args.command ?? '')
+    if (command !== 'ls' && command !== 'run' && command !== 'log')
+      fail(`use \`${invocation()} job ls|run|log <id>\``)
+  },
 })

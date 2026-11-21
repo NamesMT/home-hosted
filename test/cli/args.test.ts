@@ -316,4 +316,47 @@ describe('flagTarget', () => {
     const lazyGroup = { subCommands: async () => ({ ls }) }
     expect((await flagTarget(['ls'], lazyGroup)).args).toEqual(ls.args)
   })
+
+  /**
+   * No command answers a person with citty's internal wording.
+   *
+   * Two did. `job` alone printed `No command specified.` — because its parent `defineCommand` declared
+   * `subCommands` but neither `args` nor `run`, so citty's own guard fired. `import` with a missing
+   * positional printed `Missing required positional argument: KIND`, naming a `KIND` that appears in no
+   * help text, because both positionals were `required: true` and citty refused before `run` — which
+   * already said both things better — was reached.
+   *
+   * Every other command answers `use \`home-hosted <command> …\``. This pins the whole set, by running
+   * each one bare and refusing citty's three phrasings. `Unknown command` is deliberately **allowed**: it
+   * is citty's answer to a word that names no subcommand, and it reads correctly.
+   */
+  it('never lets citty\'s own wording reach a person', async () => {
+    const { runCli } = await import('../support/run-cli')
+    const commands = ['job', 'import', 'token', 'account', 'secret', 'backup', 'service', 'logs', 'status', 'ui-switch']
+    const leaked: string[] = []
+    for (const command of commands) {
+      // Each of these needs a running panel or an interactive terminal to do anything; the refusal is
+      // the message under test, whatever it turns out to be.
+      const result = runCli([command], { home: path.join(process.cwd(), '.cli-wording-probe'), timeout: 20_000 })
+      const first = result.output.trim().split('\n')[0] ?? ''
+      for (const phrase of ['No command specified', 'Missing required positional argument']) {
+        if (first.includes(phrase))
+          leaked.push(`${command}: ${first}`)
+      }
+      /**
+       * A command that could not even load says nothing about its wording, so it must not pass as clean.
+       *
+       * This is how the check first fooled me: an injected syntax error in `job.ts` made the CLI die
+       * with `Transform failed … Expected ";"`, which matched neither phrase, so the case went green
+       * while the thing under test had never run.
+       *
+       * `backup` and `service` are allowed to *report state* rather than refuse — `backup` says "no
+       * backups yet", `service` says "not installed" — so the rule is narrower than "must start with
+       * `error`": a crash is a stack frame or a module-loader failure, and those are what to refuse.
+       */
+      if (first.includes('Transform failed') || /^\s+at /.test(first) || first.includes('ERR_MODULE_NOT_FOUND'))
+        leaked.push(`${command}: the CLI did not load — ${first}`)
+    }
+    expect(leaked, 'a command answered with citty\'s internal wording instead of its own usage').toEqual([])
+  })
 })
