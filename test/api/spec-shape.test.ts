@@ -1,6 +1,7 @@
 import type { Fixture } from './fixture'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { makeFixture, makeView } from './fixture'
 
@@ -76,17 +77,22 @@ describe('the spec covers the routes the app mounts', () => {
         if (!file.isFile() || !file.name.endsWith('.ts'))
           continue
         /**
-         * Posix separators, whatever the platform.
+         * `fileURLToPath`, not `new URL(...).pathname`.
          *
-         * `path.relative` returns backslashes on Windows, so the key never matched the `src/app.ts`
-         * import specifier (`api/servers/$.routes`) and every factory was skipped — **0 routes found**
-         * on the Windows runner while Linux found 57. The `mounted.length` guard below is what caught
-         * it, which is why that guard counts what the scan found instead of only checking its verdict.
+         * A `file:` URL's `.pathname` is **POSIX-shaped even on Windows** — `/C:/Users/runner/...`,
+         * with a leading slash and forward slashes — while `path.join` returns `C:\Users\runner\...`.
+         * `path.relative` between the two is nonsense: it produced a chain of `../../..` that matched
+         * no factory, so the scan found **0 routes** on Windows while Linux found 57 and the whole
+         * comparison passed vacuously.
+         *
+         * My first fix replaced backslashes with slashes, which treated the symptom and left the drive
+         * letter and the leading slash in place. The `mounted.length` guard below is what kept printing
+         * the real number until the cause was found.
          */
         const relative = path
-          .relative(new URL('src/api/', root).pathname, path.join(file.parentPath, file.name))
-          // `path.sep` is `'\\'` on Windows and `/` elsewhere; replacing both unconditionally means the
-          // conversion is exercised on every platform rather than only on the one where it matters.
+          .relative(fileURLToPath(new URL('src/api/', root)), path.join(file.parentPath, file.name))
+          // Normalised to `/` so the key compares against a module specifier written that way, on every
+          // platform — `fileURLToPath` already gives the right separator, this makes it the same one.
           .replaceAll('\\', '/')
         const key = relative.replace(/\.ts$/, '').replace(/\/\$(\.routes)?$/, '').replace(/\$$/, '')
         const bare = key.endsWith('/$') ? key.slice(0, -2) : key
