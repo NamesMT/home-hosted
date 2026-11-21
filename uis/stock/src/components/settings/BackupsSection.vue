@@ -26,7 +26,7 @@ import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatDateTime } from '@/lib/format'
-import { kindLabel, panelNote, panelText } from '@/lib/panel-text'
+import { captureItemDetail, kindLabel, panelNote, panelText } from '@/lib/panel-text'
 import { focusRing } from '@/lib/ui'
 
 const props = defineProps<{
@@ -232,11 +232,13 @@ async function removeBackup(name: string): Promise<void> {
                 <p class="truncate font-mono text-2xs text-ink">
                   {{ item.path ?? panelText(item) }}
                 </p>
-                <p class="mt-0.5 text-2xs leading-4 text-faint">
-                  {{ item.included ? (item.origin ? t('settings.backups.fromOrigin', { origin: item.origin }) : panelNote(item) ?? t('settings.backups.included')) : panelNote(item) ?? t('settings.backups.notCaptured') }}
-                  <template v-if="item.included && item.ignoreGenerated">
-                    · {{ t('settings.backups.generatedSkipped') }}
-                  </template>
+                <!--
+                  The badge on the right already says included/skipped, so this line carries only what
+                  the badge cannot: where an item came from, or why it is not captured. Printing the
+                  state again here made every ordinary row read "included … included".
+                -->
+                <p v-if="captureItemDetail(item)" class="mt-0.5 text-2xs leading-4 text-faint">
+                  {{ captureItemDetail(item) }}
                 </p>
               </div>
               <ToneBadge :tone="item.included ? 'ok' : 'neutral'" plain>

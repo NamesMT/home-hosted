@@ -355,17 +355,31 @@
    * position, with no script: the two `local` layers travel with the content, the two `scroll`
    * layers stay with the box, and the difference paints only where content continues. A scroller
    * that fits shows no shadow at all. Same technique as noc-console's `.tblwrap`.
+   *
+   * **A scroller declares its own surface.** The two `local` layers are *covers*: they hide the
+   * shadow once the content has been scrolled to its end, which only works if they are the colour
+   * of the ground behind the table. They were hardcoded to `--panel` (white), so a table sitting
+   * directly on the page's grey ground got a white 24 px band down its right edge instead — the
+   * Jobs table's `disable`/`remove` buttons appeared to sit on a stray white block, and reading it
+   * as "there is more to the right" is exactly backwards. Set `--scroll-cover` to the surface a
+   * scroller is drawn on; it defaults to `--panel` because most of them are inside a panel.
    */
   .scroll-hint-x {
+    --scroll-cover: var(--panel);
     background-image:
-      linear-gradient(to right, var(--panel) 40%, transparent),
-      linear-gradient(to left, var(--panel) 40%, transparent),
+      linear-gradient(to right, var(--scroll-cover) 40%, transparent),
+      linear-gradient(to left, var(--scroll-cover) 40%, transparent),
       linear-gradient(to right, var(--scroll-edge), transparent),
       linear-gradient(to left, var(--scroll-edge), transparent);
     background-position: left center, right center, left center, right center;
     background-repeat: no-repeat;
     background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
     background-attachment: local, local, scroll, scroll;
+  }
+
+  /* For a scroller drawn straight on the page, where the ground is `--page`, not a panel. */
+  .scroll-hint-page {
+    --scroll-cover: var(--page);
   }
 }
 

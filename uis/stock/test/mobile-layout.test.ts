@@ -206,6 +206,12 @@ describe('the layout survives a phone', () => {
     expect(light, 'light theme edge token').toContain('--scroll-edge:')
     expect(dark, 'dark theme edge token').toContain('--scroll-edge:')
 
+    // The cover layer must be the ground the scroller is drawn on, not a hardcoded panel: a table
+    // directly on the page got a white band down its right edge that hid its last action column.
+    expect(styles, 'the cover layer is a variable').toContain('var(--scroll-cover)')
+    expect(rule, 'the cover defaults to a panel').toContain('--scroll-cover: var(--panel)')
+    expect(styles, 'a page-ground cover exists').toContain('--scroll-cover: var(--page)')
+
     // Every horizontal scroller in a template opts into it.
     const silent: string[] = []
     for (const file of templateFiles()) {
@@ -217,6 +223,10 @@ describe('the layout survives a phone', () => {
       }
     }
     expect(silent).toEqual([])
+
+    // A scroller drawn straight on the page ground says so, or its cover is the wrong colour.
+    const jobs = fs.readFileSync(path.join(root, '..', '..', 'uis/stock', 'src/views/JobsView.vue'), 'utf8')
+    expect(jobs, 'the Jobs table sits on the page and needs the page cover').toContain('scroll-hint-page')
   })
 
   /**

@@ -55,3 +55,24 @@ export function kindLabel(kind: string): string {
   const key = KIND_KEY[kind]
   return key === undefined ? kind : t(key)
 }
+
+/**
+ * The *extra* line under a capture item, or `null` when there is nothing to add.
+ *
+ * The row already carries a badge saying included/skipped, so the state itself must not be repeated
+ * here — every ordinary row printed "included" twice on screen, once under the name and once in the
+ * badge. What the badge cannot say is where an item came from, why it is not captured, or that
+ * generated directories are skipped, and that is all this line is for.
+ */
+export function captureItemDetail(item: PanelNote & { included: boolean, origin?: string, ignoreGenerated?: boolean }): string | null {
+  if (item.included) {
+    const detail = item.origin !== undefined
+      ? t('settings.backups.fromOrigin', { origin: item.origin })
+      : panelNote(item)
+    if (!item.ignoreGenerated)
+      return detail
+    const generated = t('settings.backups.generatedSkipped')
+    return detail === null ? generated : `${detail} · ${generated}`
+  }
+  return panelNote(item) ?? t('settings.backups.notCaptured')
+}

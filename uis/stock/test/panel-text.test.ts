@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
 import { __resetLocaleForTests, setLocale } from '@/i18n'
-import { kindLabel, panelNote, panelText } from '@/lib/panel-text'
+import { captureItemDetail, kindLabel, panelNote, panelText } from '@/lib/panel-text'
 
 /**
  * The panel composes some display text itself — a backup entry's name, a data path's verdict, why a
@@ -55,5 +55,40 @@ describe('panelText', () => {
     expect(kindLabel('tls')).toBe('tls')
     // An unknown kind reads as itself, which is what a newer panel's new kind should look like.
     expect(kindLabel('brand-new')).toBe('brand-new')
+  })
+})
+
+/**
+ * The row under a capture item repeats the badge's own word.
+ *
+ * Every ordinary row read "accounts / included" and then "included" again in the badge beside it —
+ * the word was the fallback for "no extra detail" rather than a detail. The line is now only what
+ * the badge *cannot* say.
+ */
+describe('captureItemDetail', () => {
+  afterEach(() => __resetLocaleForTests())
+
+  it('adds nothing for an ordinary included item', () => {
+    expect(captureItemDetail({ included: true, note: null })).toBeNull()
+  })
+
+  it('names where an included item came from', () => {
+    expect(captureItemDetail({ included: true, note: null, origin: 'global:secrets' })).toBe('from global:secrets')
+  })
+
+  it('says why an item is not captured', () => {
+    expect(captureItemDetail({ included: false, note: 'no such directory' })).toBe('no such directory')
+    expect(captureItemDetail({ included: false, note: null })).toBe('not captured')
+  })
+
+  it('keeps the generated-directories warning a note or an origin can carry', () => {
+    expect(captureItemDetail({ included: true, note: null, ignoreGenerated: true })).toBe('generated directories skipped')
+    expect(captureItemDetail({ included: true, note: null, origin: 'workspace', ignoreGenerated: true }))
+      .toBe('from workspace · generated directories skipped')
+  })
+
+  it('never prints the badge word again', () => {
+    for (const item of [{ included: true, note: null }, { included: false, note: null }])
+      expect(captureItemDetail(item)).not.toBe('included')
   })
 })
