@@ -57,7 +57,15 @@ const connectionLabel = computed(() => ({
       <Menu class="size-4" />
     </button>
 
-    <h1 class="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight text-ink">
+    <!--
+      `min-w-40` (160 px) is a floor, not a width. `flex-1` let the action cluster's *content* decide how
+      much the title got, so it was tuned to English: "Global settings" needs exactly 100 px at 390 px
+      wide and 110 px at 640 px, and fitted both times. "Globale Einstellungen" needs 126 px and was
+      given 100 px at 390 px and **81 px at 640 px** — narrower on the wider screen, because `sm:flex`
+      brings in the search button. A German or Russian title was ellipsised to "Globale Einst…" while the
+      English one read in full.
+    -->
+    <h1 class="min-w-0 flex-1 basis-auto truncate text-sm font-semibold tracking-tight text-ink">
       {{ title }}
     </h1>
 

@@ -291,8 +291,19 @@ describe('the layout survives a phone', () => {
       for (const element of templateElements(templateOf(fs.readFileSync(file, 'utf8')))) {
         if (!has(element.classes, 'flex-wrap') || !element.body.includes('truncate'))
           continue
+        /**
+         * Any element, not only a `<div>`.
+         *
+         * The rule was written for a `div` holding an archive name, and that is why it missed the one
+         * that shipped: the page title in `shell/TopBar.vue` is an `<h1>`, and `flex-1` gives it
+         * `flex-basis: 0`. The action cluster therefore decided how much room the title got, and the
+         * title was tuned to English — "Global settings" needed 100 px at 390 px wide and 110 px at
+         * 640 px, and fitted both times, while "Globale Einstellungen" needed 126 px and was given
+         * 100 px, then **81 px at 640 px** because `sm:flex` adds the search button. A German or
+         * Russian title was ellipsised; the English one never was.
+         */
         for (const child of templateElements(element.body)) {
-          if (child.tag !== 'div' || !has(child.classes, 'flex-1') || !child.body.includes('truncate'))
+          if (!has(child.classes, 'flex-1') || !child.body.includes('truncate'))
             continue
           if (child.classes.some(name => name.startsWith('basis-')))
             continue
@@ -301,6 +312,40 @@ describe('the layout survives a phone', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+
+  /**
+   * A `flex-1` **title** in a flex row needs a basis, whether or not the row wraps.
+   *
+   * The case above requires `flex-wrap`, which is right for a row that is *supposed* to wrap and wrong
+   * for the one that shipped broken: `shell/TopBar.vue`'s header is `flex` with no `flex-wrap`, and its
+   * `<h1>` was `flex-1 truncate` — `flex-basis: 0`, so the action cluster beside it decided how much
+   * room the title got. That was tuned to English ("Global settings" needs 100 px at 390 px and 110 px
+   * at 640 px, and fitted both) and broke every longer language: "Globale Einstellungen" needs 126 px
+   * and was given 100 px at 390 px and **81 px at 640 px**, because `sm:flex` brings in the search
+   * button at that breakpoint. Measured across all nine languages at seven widths after the fix:
+   * no sideways scroll anywhere, tightest fit 83 % (`de` at 320 px).
+   *
+   * Scoped to a heading because that is where the defect lives and where a basis is always right: a
+   * heading that gives way should give way to a *wrapped* line, not to nothing.
+   */
+  it('gives a flex title a basis, so a longer language is not the one that gives way', () => {
+    const offenders: string[] = []
+    for (const file of templateFiles()) {
+      const source = fs.readFileSync(file, 'utf8')
+      for (const element of templateElements(templateOf(source))) {
+        if (!has(element.classes, 'flex') || has(element.classes, 'flex-wrap') || has(element.classes, 'flex-col'))
+          continue
+        for (const child of templateElements(element.body)) {
+          if (!['h1', 'h2'].includes(child.tag) || !has(child.classes, 'flex-1'))
+            continue
+          if (child.classes.some(name => name.startsWith('basis-')))
+            continue
+          offenders.push(`${path.relative(srcDir, file)}: <${child.tag} class="${child.classes.join(' ')}"> asks for no width in a flex row`)
+        }
+      }
+    }
+    expect(offenders, 'a flex title with no basis is sized by its siblings, which was tuned to English').toEqual([])
   })
 
   it('keeps the archive row wrapping rather than squeezing its name', () => {
