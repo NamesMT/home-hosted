@@ -12,6 +12,10 @@ version ships: its text lives on in that GitHub release's body.
 
 ## 0.16.0
 
+**This release carries three changes you must act on**, because a run of work landed together rather
+than as separate releases. Read all three before upgrading; they are independent, and the order below
+is the order to do them in. If you run nothing else, run `home-hosted migrate`.
+
 **A job is no longer a server entry.** `kind` and `schedule` are gone from `servers.config.json`; a
 scheduled job lives in `jobs.config.json`, with its own page, API and command — see
 [JOBS.md](../docs/JOBS.md).
@@ -45,8 +49,6 @@ schedule field, its table has four columns always, and the rules about what a jo
 (`port`, `health`, `restart`, `persistent`) are gone because those fields no longer exist on a job —
 a better answer than refusing them. Each job also gets its own expression, next run, last run, exit
 code and **Stop** button on a page of its own.
-
-## 0.15.0
 
 **The password and the API token are one thing now: an account.** Each account has an `id` you type
 and a `secret` only you hold. The same pair signs in to the panel *and* authenticates the API.
@@ -86,8 +88,6 @@ revoking one ends its sessions immediately.
 **One behaviour changed for the better:** rotating a credential used to sign *everyone* out. Now it
 ends only that account's sessions, because a session belongs to an account. Two people on one panel
 no longer log each other out.
-
-## 0.14.0
 
 **Exposing the panel beyond loopback now needs a password of at least 12 characters.** A panel bound
 to a non-loopback address, or reached through a proxy route to the panel, refuses to start while its

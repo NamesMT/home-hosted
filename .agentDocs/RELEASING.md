@@ -85,15 +85,18 @@ So the migration lives in `.agentDocs/UPGRADING.md`, one `## <version>` section,
 Write it when the release needs it and skip it when it does not — a version with no section ships
 the changelog alone.
 
-**The body carries every section up to the released version, not only the matching number.**
-`0.16.0` prints the `0.14.0`, `0.15.0` and `0.16.0` sections, oldest first, because a person
-upgrading from `0.13.0` has to read all three. This branch learned it the hard way: it accumulated
-three releases of breaking work while `package.json` stayed at `0.13.0`, with a section staged per
-version as though each would ship separately. One dispatch would have shipped all three changes and
-printed the migration for one — the two dropped were the account model and jobs leaving the server
-entry, which are exactly the ones a person must act on. So when the work is one release, **write one
-section for the version actually being dispatched**; sections for versions that will never ship
-separately are how that happened. `test/scripts/release-notes.test.ts` pins the behaviour either way.
+**One release, one section.** The body carries every section up to the released version, oldest
+first, so a version can never go out with an earlier migration missing — but the *authoring* rule is
+one section per release, for the version actually being dispatched.
+
+This branch learned both halves the hard way. It accumulated three releases of breaking work while
+`package.json` stayed at `0.13.0`, with a section staged per version as though each would ship
+separately. One dispatch would have shipped all three changes and printed the migration for one; the
+two dropped were the account model and jobs leaving the server entry, exactly the ones a person must
+act on. The sections are now consolidated into the single `0.16.0` one, opening by saying so.
+
+The rule to carry forward: if the work lands as one release, write one section, however many distinct
+migrations it contains. `test/scripts/release-notes.test.ts` pins the selection behaviour.
 
 ## Which version to dispatch
 
