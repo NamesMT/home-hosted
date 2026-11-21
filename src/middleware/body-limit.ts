@@ -49,11 +49,21 @@ export function createBodyLimitGuard(): MiddlewareHandler {
      * Counting the stream instead is not available here, and both ways were driven against a built
      * panel rather than reasoned about:
      *
-     *  - `hono/body-limit` re-wraps the request (`new Request(c.req.raw, init)`) to re-read it, and
-     *    against srvx the raw request carries a *relative* URL, so that constructor throws
-     *    `Failed to parse URL from [object Request]`. Mounted at `/api/*` it answered **500 for every
-     *    bodiless `POST`** — `start`, `stop`, `backup create`. (Per-route, as the upload handlers do, it
-     *    works; why the two differ is not something I established.)
+     *  - `hono/body-limit` re-wraps the request (`new Request(c.req.raw, init)`) to re-read it, and that
+     *    constructor throws under srvx. **The mechanism, established in `srvx/dist/adapters/node.mjs`**:
+     *    a `Request` built by its node adapter is a `PatchedRequest` whose own `url` getter resolves, and
+     *    its constructor does `if (typeof input === "object" && "_request" in input) input = input._request`
+     *    before `super(input, options)` — so rewrapping unwraps to the inner request, whose URL is
+     *    **relative**, and `super()` then throws `Failed to parse URL`. Mounted at `/api/*` it answered
+     *    **500 for every bodiless `POST`** — `start`, `stop`, `backup create`.
+     *
+     *    The upload handlers pass the *same* middleware per route and it works, and **why the two
+     *    differ I did not establish** — four isolation attempts (plain Hono, `createFactory` + `.route`,
+     *    with `hostname`/`trustProxy`, with a preceding middleware) all answered 200, while the real app
+     *    reliably answers 500 with the trace above. What *is* established, by instrumenting the real
+     *    guard: the request it receives carries a `_request` property, and a synthetic object of that
+     *    shape makes `new Request(...)` throw `Failed to parse URL` — so the rewrap is the mechanism, and
+     *    the isolation probes passed because they built a *native* `Request`, without `_request`.
      *  - Teeing the body and draining one branch hung the request rather than refusing it.
      *
      * So what cannot be measured is refused: `411 LENGTH_REQUIRED`. **`transfer-encoding` is the
