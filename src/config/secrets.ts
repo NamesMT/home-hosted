@@ -795,8 +795,8 @@ export class SecretsStore {
   }
 
   /**
-   * Re-reads whenever the file changes on disk, so a password set by
-   * `home-hosted set-password` (or another process) takes effect without
+   * Re-reads whenever the file changes on disk, so a secret set by
+   * `home-hosted account secret` (or another process) takes effect without
    * restarting `up`.
    */
   load(): SecretsFile {
@@ -1006,11 +1006,18 @@ export class SecretsStore {
     this.save({ ...this.load(), apiToken: null, apiTokens: next })
   }
 
-  /** The pre-0.14 single token, still what `set-token`/`set-token --clear` act on. */
+  /**
+   * Writes the pre-0.14 **single** token field, `apiToken`.
+   *
+   * Only tests call this. Nothing in the panel mints the legacy shape any more — accounts replaced it
+   * (`account create`, `POST /api/auth/accounts`) — but the field is still what an upgraded home
+   * arrives with, and the migration in `apiTokens` has to read it, so the state stays representable.
+   * The comment here used to name `set-token`, a command this release removed, which made a test
+   * fixture read as live code.
+   */
   setApiToken(token: string): ApiTokenRecord {
     const record = apiTokenRecord(token)
-    // The old route rotates `default`: it is the token an upgraded home already had, and the one a
-    // person running `set-token` means.
+    // The migration rotates `default`: it is the token an upgraded home already had.
     const existing = this.apiTokens
     const index = existing.findIndex(entry => entry.id === 'default')
     const named: NamedApiTokenRecord = index === -1
@@ -1531,7 +1538,7 @@ export class SecretsStore {
   private inScope(contents: SecretsFile): SecretsFile {
     if (this.scope === 'global')
       // A server's environment belongs to its workspace's file: a global store neither reads nor
-      // writes it, so `set-password` cannot rewrite a workspace's secrets.
+      // writes it, so an account write cannot rewrite a workspace's secrets.
       return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {}, jobEnv: {} }
     if (this.scope === 'workspace')
       return { ...contents, accounts: [], password: null, apiToken: null, apiTokens: [] }
@@ -1540,7 +1547,7 @@ export class SecretsStore {
 
   private save(contents: SecretsFile): void {
     // Refuse to write over a file this store could not parse. Every writer reaches here
-    // through `load()`, so without this the first `set-password`/`set-token` after a bad
+    // through `load()`, so without this the first `account secret`/`account create` after a bad
     // edit replaces the user's password hash, API token and credentials with the one field
     // being set. `runControlPlane` refuses at boot; this is the same rule for every command
     // that does not boot one.

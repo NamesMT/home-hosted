@@ -12,9 +12,12 @@ export interface ExposureState {
   /** Non-null when that exposure is not backed by a password. */
   blockedReason: string | null
 }
-
-/** The command that sets the password, spelled the way this process was invoked (`--home` included). */
-/** The command a refusal should name. `set-password` is gone: an account's secret is the credential. */
+/**
+ * The command a refusal names, spelled the way this process was invoked (`--home` included).
+ *
+ * `set-password` is gone — an account's secret is the credential now — so a refusal that still told
+ * someone to run it sent them to a command that does not exist.
+ */
 function setSecretCommand(): string {
   return `\`${invocation()} account secret <id>\``
 }

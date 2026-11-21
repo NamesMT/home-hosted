@@ -73,3 +73,60 @@ describe('scripts/ only names CLI commands that exist', () => {
     expect(known.has(command), 'set-password is gone, so this script would fail silently').toBe(false)
   })
 })
+
+/**
+ * A message that tells a person to run a command must name one this release has.
+ *
+ * `src/middleware/auth.ts` answered `AUTH_DISABLED_REMOTE` with *"set a password
+ * (`home-hosted set-password`) to reach it"* — a command the accounts refactor deleted. Nothing
+ * caught it because the refusal is a string, not a spawn: the `scripts/` scan above only reads lines
+ * that pass a command to `src/cli.ts`, and the docs links resolve whatever a message says.
+ *
+ * This is the user-facing half of the same deletion. A person reading it runs a command that is not
+ * there, and the message that was supposed to unblock them is the thing that blocks them.
+ */
+describe('no user-facing message names a command this release does not have', () => {
+  /**
+   * A **backticked** `home-hosted <command>` hint.
+   *
+   * The backticks are load-bearing: without them the pattern matched prose — "is another home-hosted
+   * running?", "no home-hosted state to migrate" — and reported fourteen offenders of which two were
+   * real. A guard that cries wolf gets switched off, so this only reads what is formatted as a command.
+   */
+  const HINT = /`home-hosted\s+([a-z][a-z-]*)/g
+
+  it('only names live commands in src/', () => {
+    const known = knownCommands()
+    const offenders: string[] = []
+    for (const entry of fs.readdirSync(path.join(root, 'src'), { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.ts'))
+        continue
+      const file = path.join(entry.parentPath, entry.name)
+      const relative = path.relative(root, file)
+      const lines = fs.readFileSync(file, 'utf8').split('\n')
+      for (const [index, line] of lines.entries()) {
+        for (const match of line.matchAll(HINT)) {
+          const command = match[1]
+          if (command === undefined || known.has(command))
+            continue
+          // `--version` and friends are flags the regex cannot see; a single-letter capture is not a
+          // command name either.
+          if (command.length < 3)
+            continue
+          offenders.push(`${relative}:${index + 1} names \`home-hosted ${command}\`, which is not a command`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('catches the message it was written for', () => {
+    // The string that shipped. Kept as a literal so the regex is proven against real prose, not a shape
+    // invented to fit it.
+    const shipped = 'authentication is off — set a password (`home-hosted set-password`) to reach it'
+    const known = knownCommands()
+    const named = [...shipped.matchAll(HINT)].map(match => match[1])
+    expect(named).toEqual(['set-password'])
+    expect(known.has('set-password'), 'set-password is gone, so this hint sends a reader nowhere').toBe(false)
+  })
+})

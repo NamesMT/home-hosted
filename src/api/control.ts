@@ -252,12 +252,16 @@ export function createControlRoute(deps: AppDeps) {
     )
 
     /**
-     * Run a job now, over the local channel — `home-hosted run <id>` while the panel is up.
+     * Run a job now, over the local channel — `home-hosted job run <id>` while the panel is up.
+     *
+     * A **server** entry has its own `/servers/:id/run` beside this one; a scheduled job lives in
+     * `jobs.config.json` and is run through `job run`, which is why this comment named a `run` command
+     * this release does not have.
      *
      * The same `supervisor.runJob` the schedule calls, and it **waits**: the exit code is the outcome,
      * and the CLI prints it. A failure answers the body a script needs (`exitCode`, `durationMs`) under
-     * the `JOB_FAILED` code, so `home-hosted run nightly || alert` works on the answer rather than on
-     * English.
+     * the `JOB_FAILED` code, so `home-hosted job run nightly || alert` works on the answer rather than
+     * on English.
      */
     .post(
       '/servers/:id/run',

@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, green, invocation } from '#src/cli/io'
-import { API_TOKEN_SCOPES, generateApiToken } from '#src/config/secrets'
+import { API_TOKEN_SCOPES } from '#src/config/secrets'
 import { formatDateTimeIso } from '#src/shared/ui-format'
 
 /**
@@ -121,6 +121,3 @@ export const tokenCommand = defineCommand({
     process.stdout.write(`${dim(`  revoke it with: ${invocation()} token revoke ${created.record.id}`)}\n`)
   },
 })
-
-/** Exported so `set-token` can say what a token still cannot do without importing the whole command. */
-export { generateApiToken }

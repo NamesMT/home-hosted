@@ -54,7 +54,7 @@ export function accessRefusal(c: Context, auth: AuthService, identity: AuthIdent
       code: 'AUTH_UNARMED',
     })
   }
-  return new DetailedError('authentication is off, so only this machine may use the panel — set a password (`home-hosted set-password`) to reach it through a proxy or from another machine', {
+  return new DetailedError('authentication is off, so only this machine may use the panel — create an account (`home-hosted account create <id> --scope read,lifecycle,config,proxy,admin`) and turn authentication on to reach it through a proxy or from another machine', {
     statusCode: 401,
     code: AUTH_DISABLED_CODE,
   })

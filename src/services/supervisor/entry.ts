@@ -26,7 +26,7 @@ export interface SupervisorOptions {
   /**
    * The workspace's secrets, for `secretEnv` — a server's declared secret names to their values.
    *
-   * A function rather than the store, so a re-read picks up a value written by `set-password`, a
+   * A function rather than the store, so a re-read picks up a value written by `account secret`, a
    * restore or an offline CLI without the supervisor holding a stale cache. Optional: a unit harness
    * that declares no `secretEnv` needs nothing.
    */

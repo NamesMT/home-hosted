@@ -551,7 +551,7 @@ export class PanelService {
       // Lazily, so a workspace created later is still part of the answer: the runtimes map is read
       // at call time, never captured when this supervisor was built.
       siblingServers: async () => this.siblingServers(id),
-      // Read through the runtime's own store, so a value written by `set-password`, a restore or an
+      // Read through the runtime's own store, so a value written by `account secret`, a restore or an
       // offline CLI is picked up on the next spawn without restarting the panel.
       serverEnv: serverId => this.runtimes.get(id)?.secrets.serverEnv(serverId) ?? {},
       // The same read, with a writer: a removed entry takes its stored values with it, as it already

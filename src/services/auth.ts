@@ -38,8 +38,8 @@ export interface SessionRecord {
   /**
    * The `updatedAt` of the password this session was issued under.
    *
-   * Sessions live in this process's memory, so a password written by *another* process — the
-   * `set-password` CLI, which writes the secrets file directly — was invisible here: it rotated
+   * Sessions live in this process's memory, so a secret written by *another* process — the
+   * `account secret` CLI, which writes the secrets file directly — was invisible here: it rotated
    * the hash the panel honoured while every existing cookie stayed valid for up to `sessionTtlMs`.
    * Stamping the revision on the session makes any rotation invalidate it, whoever wrote it.
    */
