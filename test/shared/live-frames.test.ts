@@ -1,4 +1,6 @@
 import type { AppState } from '#src/shared/contracts'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { type } from 'arktype'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { appStateSchema, sseMessageSchema } from '#src/shared/contracts'
@@ -57,6 +59,42 @@ describe('the lenient frame parser', () => {
     expect(parseFrame(JSON.stringify({ type: 'server', ts: 1, serverId: 'web', server }))?.lenient).toBe(true)
     const log = { type: 'log', ts: 1, workspaceId: 'default', serverId: 'web', lines: [{ ts: 1, stream: 'trace', text: 'hi' }] }
     expect(parseFrame(JSON.stringify(log))?.lenient).toBe(true)
+  })
+
+  /**
+   * The fallback must accept **every** frame type the schema declares.
+   *
+   * `isFrameShape` is a hand-written mirror of `sseMessageSchema`, used when the strict schema refuses
+   * a frame because a *field* carries a value this build does not know — the older-UI-against-newer-panel
+   * case the whole lenient path exists for. It had no `ping` case, so it answered `false` for a
+   * keep-alive: latent today, because the strict schema accepts a `ping`, but the moment any other
+   * field of that frame is unknown the fallback decides and every keep-alive would be logged as
+   * "ignored malformed SSE frame".
+   *
+   * Read from the source because the mirror has no runtime identity to compare; a type-level
+   * exhaustiveness check on a `(value: unknown) => boolean` cannot fail, which is why the list drifted.
+   */
+  it('lists every frame type the schema declares', () => {
+    const contract = readFileSync(fileURLToPath(new URL('../../src/shared/contracts.ts', import.meta.url)), 'utf8')
+    /**
+     * Only the SSE frame block, and both spellings the file uses there: `type: '"hello" | "state"'`
+     * and — because the key is optional in some frames — `'type': '"server"'`.
+     *
+     * Scoping matters: scanning the whole file matched `'start'`, a lifecycle status in an unrelated
+     * schema, and reported a frame type that does not exist. The `declared.size` guard below is what
+     * caught the first version finding two of four.
+     */
+    const framesBlock = contract.slice(contract.indexOf('export const sseStateFrameSchema'), contract.indexOf('export type SseMessage ='))
+    const declared = new Set([...framesBlock.matchAll(/'?type'?: '([^']+)'/g)]
+      .flatMap(match => [...(match[1] ?? '').matchAll(/"([a-z]+)"/g)].map(inner => inner[1]!)))
+    expect(declared.size, 'the frame-type scan must find the schemas').toBeGreaterThan(2)
+
+    const frames = readFileSync(fileURLToPath(new URL('../../src/shared/live-frames.ts', import.meta.url)), 'utf8')
+    const fallback = frames.slice(frames.indexOf('function isFrameShape'))
+    for (const kind of declared) {
+      // `hello` and `state` share one `case`; the others are named individually.
+      expect(fallback, `isFrameShape has no case for "${kind}", so a lenient frame of that type is dropped`).toContain(`'${kind}'`)
+    }
   })
 
   it('still refuses a frame whose envelope or containers are wrong', () => {

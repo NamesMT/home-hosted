@@ -107,6 +107,16 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Metrics
 
+- **A hand-written mirror of a schema drifts the moment the schema grows.** `isFrameShape` in
+  `src/shared/live-frames.ts` re-implements `sseMessageSchema` for the lenient path — the
+  older-UI-against-newer-panel case, where the strict schema refuses a frame because one *field* holds a
+  value this build does not know. It had cases for `hello`/`state`, `server` and `log`, and **none for
+  `ping`**, so it answered `false` for a keep-alive. Latent while the strict schema accepts a ping, and
+  live the moment any other field of that frame is unknown: every keep-alive is then dropped and logged
+  as "ignored malformed SSE frame". A type-level exhaustiveness check cannot help — the function takes
+  `unknown` and returns `boolean`, so nothing forces it to grow. The parity is read from source in
+  `test/shared/live-frames.test.ts` instead, scoped to the SSE block (scanning the whole file matched
+  `'start'`, a lifecycle status in an unrelated schema).
 - **A guard over a hand-written file list protects the files somebody remembered.** The `windowsHide`
   scan named 13 sources; a new `src/providers/zz-probe.ts` spawning `powershell.exe` with no flag
   passed it, verified by adding exactly that file. It now reads every `.ts` under `src/`. This is the

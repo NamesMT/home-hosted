@@ -63,6 +63,8 @@ function isFrameShape(value: unknown): boolean {
       return isString(value.serverId) && isServerShape(value.server)
     case 'log':
       return isString(value.serverId) && Array.isArray(value.lines) && value.lines.every(isLineShape)
+    case 'ping':
+      return true
     default:
       return false
   }
