@@ -38,9 +38,45 @@ const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 
 const DEFAULT_PANEL_PORT = 6600
 const DEFAULT_UI_PORT = 6601
-// `pnpm` is a `.cmd` shim on Windows and cannot be spawned without a shell. `scripts/build-uis.mjs`
-// resolves the same way for the same reason.
-const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+
+/**
+ * The package manager this checkout is driven by, as a spawnable command.
+ *
+ * A bare `pnpm` is resolved from `PATH`, and `PATH` is not something this script can assume: run it
+ * from a bare `env -i`, an editor task, a CI step or a systemd unit and there is no pnpm on it even
+ * though the install is right there — `spawn pnpm ENOENT`, from a stack trace rather than a message.
+ * `process.execPath` is the node running this script, and every install layout we support puts pnpm
+ * beside it (fnm/nvm/volta do; a distro package puts it in `/usr/bin` and `PATH` finds it anyway), so
+ * that directory first, then the plain name as the last resort.
+ *
+ * Windows needs the `.cmd` shim and `shell: true` to execute it; a POSIX shell would re-parse the
+ * argv and mangle a path with a space, so the shell is Windows-only.
+ */
+const windows = process.platform === 'win32'
+function resolvePnpm() {
+  const name = windows ? 'pnpm.cmd' : 'pnpm'
+  const besideNode = path.join(path.dirname(process.execPath), name)
+  if (fs.existsSync(besideNode))
+    return besideNode
+  return name
+}
+const pnpm = resolvePnpm()
+
+/**
+ * `PATH` for every child, with this node's own directory on it.
+ *
+ * Resolving pnpm to an absolute path is not enough: pnpm runs the scripts it is asked for through a
+ * shell, and those scripts call a bare `node` (vite, tsx and `build-locales.mjs` all do). From a `PATH`
+ * that has no node — the case the resolution above exists for — pnpm found none of them and every
+ * child exited 127 with `env: 'node': No such file or directory`. Prepending the directory is what
+ * makes the *grandchildren* work, and it costs nothing when the directory is already on `PATH`.
+ */
+const childPath = (() => {
+  const nodeDir = path.dirname(process.execPath)
+  const current = process.env.PATH ?? ''
+  const parts = current.split(path.delimiter).filter(part => part.length > 0)
+  return parts.includes(nodeDir) ? current : [nodeDir, ...parts].join(path.delimiter)
+})()
 
 /** `resolveDataRoot()`'s own default: the one directory dev must never touch on its own. */
 const REAL_STATE = path.join(os.homedir(), '.home-hosted')
@@ -156,12 +192,15 @@ function seedDevPassword() {
   const result = spawnSync(pnpm, ['exec', 'tsx', 'src/cli.ts', '--home', stateDir, 'account', 'create', DEV_ACCOUNT, '--scope', 'read,lifecycle,config,proxy,admin'], {
     cwd: root,
     stdio: 'ignore',
-    shell: process.platform === 'win32',
+    shell: windows,
     // `HHOSTED_SECRET` is the non-interactive way to give `account create` a known secret.
-    env: { ...process.env, HHOSTED_HOME: stateDir, HHOSTED_SECRET: DEV_PASSWORD },
+    env: { ...process.env, PATH: childPath, HHOSTED_HOME: stateDir, HHOSTED_SECRET: DEV_PASSWORD },
   })
   if (result.status !== 0) {
-    process.stderr.write(`could not seed the dev account (account create exited ${result.status})\n`)
+    // `status` is null when the process never started at all, which is a different problem from a
+    // non-zero exit and deserves the reason rather than "exited null".
+    const why = result.error ? result.error.message : `exited ${result.status}`
+    process.stderr.write(`could not seed the dev account: ${why}\n`)
     return false
   }
   return true
@@ -178,15 +217,19 @@ function seedDevPassword() {
  * `import.meta.glob` resolves at transform time, so the fix is to build once, before it starts.
  */
 function buildLocales() {
-  const result = spawnSync('node', ['scripts/build-locales.mjs'], {
+  // `process.execPath`, not a bare `node`: this script is already running on a node, and a `PATH`
+  // without one on it is the same trap the pnpm resolution above exists for.
+  const result = spawnSync(process.execPath, ['scripts/build-locales.mjs'], {
     cwd: root,
     stdio: 'ignore',
-    shell: process.platform === 'win32',
+    shell: windows,
   })
   // Not fatal: a clone whose sheets are fine still runs on whatever is on disk, and refusing to
   // start over a catalog would be a worse trade than a stale one.
-  if (result.status !== 0)
-    process.stderr.write('could not rebuild the i18n catalogs — serving whatever is on disk\n')
+  if (result.status !== 0) {
+    const why = result.error ? ` (${result.error.message})` : ''
+    process.stderr.write(`could not rebuild the i18n catalogs${why} — serving whatever is on disk\n`)
+  }
 }
 
 /**
@@ -255,7 +298,7 @@ function buildStockUi() {
   const result = spawnSync(pnpm, ['run', 'build:ui'], {
     cwd: root,
     stdio: 'ignore',
-    shell: process.platform === 'win32',
+    shell: windows,
   })
   // Not fatal: a stale panel build is a degraded demo, and refusing to start over it is worse.
   if (result.status !== 0)
@@ -290,13 +333,26 @@ function run(label, command, args, env) {
   const child = spawn(command, args, {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...env },
+    env: { ...process.env, PATH: childPath, ...env },
     // Only Windows needs it, and only for the `.cmd` shim; a shell here on POSIX would re-parse
     // the argv and mangle a path containing a space.
-    shell: process.platform === 'win32',
+    shell: windows,
   })
   child.stdout.on('data', chunk => process.stdout.write(`[${label}] ${chunk}`))
   child.stderr.on('data', chunk => process.stderr.write(`[${label}] ${chunk}`))
+  /**
+   * A command that cannot be spawned at all fires `error`, not `exit`.
+   *
+   * Without this listener node treats it as an unhandled 'error' event and rethrows it, so the
+   * whole dev run died with a raw stack trace (`spawn pnpm ENOENT`) instead of saying which
+   * process failed and why — from a bare `PATH`, which is exactly when the message matters most.
+   */
+  child.on('error', (error) => {
+    process.stderr.write(`[${label}] could not start \`${command}\`: ${error.message}\n`)
+    if (error.code === 'ENOENT' && command === pnpm)
+      process.stderr.write(`[${label}] pnpm was not found. Run \`pnpm install\` in ${root} first, or put pnpm on PATH.\n`)
+    stopAll(1)
+  })
   child.on('exit', (code) => {
     console.log(`[${label}] exited with code ${code}`)
     stopAll(code ?? 0)
