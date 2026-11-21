@@ -92,6 +92,35 @@ describe('the request body ceiling', () => {
     expect(response.status).not.toBe(413)
   })
 
+  /**
+   * A **chunked** body is refused, because its size cannot be known without reading it.
+   *
+   * This was the residual gap the first version of the guard accepted, and it was exploitable rather
+   * than theoretical: a hand-built `Transfer-Encoding: chunked` `POST` carrying a 3 MB `command` was
+   * accepted (`201`), written to `servers.config.json` (3 000 304 bytes), and the state frame became
+   * 3 005 852 bytes — the same DoS, through the one door left open. Verified against a built panel
+   * after the fix: `411 LENGTH_REQUIRED`, config still 252 bytes.
+   *
+   * `transfer-encoding` is the discriminator, not the presence of a body: srvx gives every request a
+   * body stream, so a bodyless `POST` and a chunked one look identical by that measure. Checked against
+   * a running panel — a lifecycle `POST` carries neither header, and only a chunked one carries
+   * `te=chunked`.
+   */
+  it('refuses a chunked body, whose length no header declares', async () => {
+    const created = await fixture()
+    const cookie = await signIn(created)
+
+    const response = await created.app.request('/api/servers?workspace=default', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'transfer-encoding': 'chunked' },
+      body: JSON.stringify({ id: 'chunky', command: 'C'.repeat(4096) }),
+    })
+
+    expect(response.status).toBe(411)
+    expect(await response.json()).toMatchObject({ code: 'LENGTH_REQUIRED' })
+    expect(created.store.servers.map(entry => entry.id), 'a chunked body reached the config file').not.toContain('chunky')
+  })
+
   it('accepts a body of a realistic size', async () => {
     // Anti-vacuity: a guard that refused everything would satisfy the case above and break the panel.
     const created = await fixture()

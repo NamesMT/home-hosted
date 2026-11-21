@@ -73,6 +73,31 @@ export function createBodyLimitGuard(): MiddlewareHandler {
      * can do that can equally send a thousand well-sized requests. The threat this guards against is a
      * typo, a runaway script, or a paste of the wrong file, and all three carry a length.
      */
+    /**
+     * **A chunked body is refused outright**, because its size cannot be known without reading it.
+     *
+     * This was the residual gap and it was real, not theoretical: a hand-built `Transfer-Encoding:
+     * chunked` `POST` carrying a 3 MB `command` was accepted (`201`), written to
+     * `servers.config.json` (3 000 304 bytes), and the state frame became 3 005 852 bytes — the same
+     * DoS the guard exists to prevent, through the one door it left open.
+     *
+     * Reading the stream is not an option here: `hono/body-limit` rewraps the request and throws
+     * against srvx, and teeing it hung the request (both measured, see the note below). So the
+     * choice is to refuse what cannot be measured. **`transfer-encoding` is the discriminator** —
+     * verified against a running panel: a bodyless `POST` (every lifecycle action) carries neither
+     * header, and only a chunked one carries `te=chunked`. `c.req.raw.body` is a stream in both cases,
+     * so it cannot be used.
+     *
+     * No client this panel has sends a chunked JSON request: `api-client.ts` sends `fetch` with a
+     * `JSON.stringify` body, which always carries a length.
+     */
+    if (c.req.header('transfer-encoding') !== undefined) {
+      throw new DetailedError(
+        'a request body must declare its length — a chunked body cannot be size-checked',
+        { statusCode: 411, code: 'LENGTH_REQUIRED' },
+      )
+    }
+
     const declared = c.req.header('content-length')
     if (declared === undefined)
       return next()

@@ -152,6 +152,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   kept drawing the old policy. `PATCH /api/settings` hides this, because that path usually moves
   something else in the same turn; a hand edit has no companion. Sign the whole view, as `control`,
   `host` and each workspace already are.
+- **A size limit that only reads `content-length` has a door: `Transfer-Encoding: chunked`.** The
+  guard's first version let an unsized body through, and that was exploitable, not theoretical — a
+  hand-built chunked `POST` with a 3 MB `command` was accepted (`201`), written to
+  `servers.config.json` (3 000 304 bytes), and the state frame became 3 005 852 bytes: the same DoS
+  through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
+  request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
+  chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
 - **`hono/body-limit` cannot wrap an srvx request, and the unit suite cannot see it.** It re-wraps the
   request to re-read the stream — `c.req.raw = new Request(c.req.raw, init)` — and srvx's raw request
   carries a **relative** URL, so that constructor throws `Failed to parse URL from [object Request]`
