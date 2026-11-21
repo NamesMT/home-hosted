@@ -159,6 +159,12 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **An SSE stream looks dead under a 3-second probe, and that is not a bug.**
+  `PING_INTERVAL_MS` is 15 s (`src/helpers/event-stream.ts`), and a quiet panel publishes nothing in
+  between, so a 3 s read captures exactly one frame (`hello`) and reads as "the stream is broken". I
+  spent a pass on that before measuring over 20 s, where 4 frames arrived including a ping. Probe a
+  stream for at least one full ping cycle, or you will diagnose the interval as a defect.
+
 - **A workspace route is `/w/<id>/…`, not `/<id>/…` — and the wrong one silently shows a different page.**
   `/default/jobs` renders the **Servers** view (which then says "No servers anywhere yet"), so a browser
   check against it looks like a working page and reports nothing. The real table is in
