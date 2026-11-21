@@ -1,4 +1,6 @@
 import type { Fixture } from './fixture'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { makeFixture, makeView } from './fixture'
 
@@ -21,6 +23,100 @@ async function fixture(): Promise<Fixture> {
   fixtures.push(created)
   return created
 }
+
+/**
+ * Every `/api` route the app mounts is in the published spec, and every documented path is mounted.
+ *
+ * `AGENTS.md` requires it — "Document every route (`describeRoute` + `jsonBody(schema)`)" — and the
+ * product promise is that "the API, its SSE frames and its spec are the contract". Nothing checked it,
+ * so a new route that forgot `describeRoute` would simply be absent from `/openapi/spec.json`: the
+ * panel would serve it and no generated client would know it exists. The opposite drift is worse — a
+ * path in the spec that nothing answers — because a generator emits a method that 404s.
+ *
+ * Compared in one spelling: the router writes `:id`, OpenAPI writes `{id}`.
+ */
+describe('the spec covers the routes the app mounts', () => {
+  /** `:id` and `{id}` in one shape, so the two spellings can be compared. */
+  const shape = (path: string): string => path
+    .replaceAll(/\{([A-Z_]\w*)\}/gi, '<$1>')
+    .replaceAll(/:([A-Z_]\w*)/gi, '<$1>')
+
+  it('documents every /api route and mounts every documented one', async () => {
+    const created = await fixture()
+    try {
+      const response = await created.app.request('/openapi/spec.json')
+      expect(response.status).toBe(200)
+      const spec = await response.json() as { paths: Record<string, Record<string, unknown>> }
+      const documented = new Set(Object.keys(spec.paths).map(shape))
+
+      /**
+       * The routes the app answers, from the app's own route table.
+       *
+       * Reading `src/app.ts`'s mounts plus each factory's path literals rather than the spec is the
+       * whole point: this is the independent side of the comparison.
+       */
+      const root = new URL('../../', import.meta.url)
+      const read = (relative: string): string => readFileSync(new URL(relative, root), 'utf8')
+      const app = read('src/app.ts')
+      const imports = new Map(
+        [...app.matchAll(/import \{ (\w+) \} from '#src\/api\/([\w/$.-]+)'/g)].map(match => [match[1]!, match[2]!]),
+      )
+      const mounts = new Map<string, string[]>()
+      for (const match of app.matchAll(/\.route\('([^']+)',\s*(\w+)\(/g)) {
+        const module = imports.get(match[2]!)
+        if (module === undefined)
+          continue
+        const key = module.endsWith('/$.routes') ? module.slice(0, -9) : module
+        mounts.set(key, [...(mounts.get(key) ?? []), match[1]!])
+      }
+      expect(mounts.size, 'the mount scan must find the /api factories').toBeGreaterThan(5)
+
+      const mounted: string[] = []
+      for (const file of readdirSync(new URL('src/api/', root), { recursive: true, withFileTypes: true })) {
+        if (!file.isFile() || !file.name.endsWith('.ts'))
+          continue
+        const relative = path.relative(new URL('src/api/', root).pathname, path.join(file.parentPath, file.name))
+        const key = relative.replace(/\.ts$/, '').replace(/\/\$(\.routes)?$/, '').replace(/\$$/, '')
+        const bare = key.endsWith('/$') ? key.slice(0, -2) : key
+        const prefixes = mounts.get(key) ?? mounts.get(bare) ?? []
+        if (prefixes.length === 0)
+          continue
+        const source = readFileSync(path.join(file.parentPath, file.name), 'utf8')
+        for (const match of source.matchAll(/\.(get|post|put|patch|delete)\(\s*'([^']+)'/g)) {
+          for (const prefix of prefixes)
+            mounted.push(prefix.replace(/\/$/, '') + (match[2]!.startsWith('/') ? match[2]! : `/${match[2]!}`))
+        }
+      }
+      expect(mounted.length, 'the route scan must find the /api routes').toBeGreaterThan(30)
+
+      /**
+       * A mount prefix plus an empty path (`''` or `'/'`) is the factory's own index route, which the
+       * spec writes without the trailing slash: `/api/servers/` and `/api/servers` are the same route.
+       */
+      const tidy = (route: string): string => (route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route)
+      const documentedTidy = new Set([...documented].map(tidy))
+      const undocumented = [...new Set(mounted.map(tidy))].filter(route => !documentedTidy.has(shape(route)))
+      /**
+       * Three routes are not `/api` surface and are absent on purpose: the static-UI catch-all (`/*`),
+       * the ACME challenge channel (`/_acme/...`, which has its own generated credentials and is
+       * described in `docs/REVERSE_PROXY.md`), and `/api/*`, the API's own fall-through.
+       */
+      const notApiSurface = (route: string): boolean =>
+        route === '/*' || route === '/api/*' || route.startsWith('/_acme')
+      expect(
+        undocumented.filter(route => !notApiSurface(route)),
+        'a route is served but absent from the spec',
+      ).toEqual([])
+
+      const mountedShapes = new Set(mounted.map(route => shape(tidy(route))))
+      const unmounted = [...documentedTidy].filter(route => route.startsWith('/api/') && !mountedShapes.has(route))
+      expect(unmounted, 'the spec documents a path the app does not mount').toEqual([])
+    }
+    finally {
+      await created.cleanup()
+    }
+  })
+})
 
 afterAll(async () => {
   for (const created of fixtures.splice(0).reverse()) await created.cleanup()
