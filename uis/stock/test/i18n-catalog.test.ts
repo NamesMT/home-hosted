@@ -125,6 +125,48 @@ describe('the sheets', () => {
     expect(offenders).toEqual([])
   })
 
+  /**
+   * A placeholder in a fixed-width box must fit that box in every language.
+   *
+   * `palette.placeholder` read "Jump to a server, run an action, open a setting…" — a three-capability
+   * sentence that did not fit the command palette's search input in **any** language:
+   *
+   * | language | needs | box |
+   * | --- | --- | --- |
+   * | en | 277 px | 266 px |
+   * | fr | 339 px | 266 px |
+   * | de | 372 px | 266 px |
+   * | ru | 384 px | 266 px |
+   *
+   * The input is `94vw` (367 px) minus the search icon, so 266 px at a 390 px viewport. Every language
+   * was cut mid-word, which is why nobody would have noticed it was wrong rather than merely long.
+   *
+   * Measured by character count rather than pixels — a test cannot run a browser's font metrics, and
+   * the box fits about 38 average characters. The Russian string sits at 90 % of the real width, so this
+   * ceiling has headroom without being loose.
+   */
+  it('keeps the command-palette placeholder short enough to fit its input', () => {
+    const row = readSheet().find(entry => entry.KEY === 'palette.placeholder')
+    expect(row, 'palette.placeholder must exist, or this scan proves nothing').toBeTruthy()
+
+    const LIMIT = 42
+    const codes = new Set(LOCALES.map(locale => locale.code))
+    const tooLong: string[] = []
+    let checked = 0
+    for (const [locale, text] of Object.entries(row!)) {
+      // `LOCALES` is a list of `{ code, iso, name }`, not of codes: `.includes(locale)` is always false
+      // and skipped every column, which made the first version of this guard pass on a 48-character
+      // placeholder it was written to refuse. The `checked` count below is what catches that.
+      if (!codes.has(locale) || typeof text !== 'string')
+        continue
+      checked += 1
+      if (text.length > LIMIT)
+        tooLong.push(`${locale} (${text.length} chars): "${text}"`)
+    }
+    expect(checked, 'the scan must have compared every locale column').toBe(codes.size)
+    expect(tooLong, `a palette placeholder over ${LIMIT} characters is cut off in the search box`).toEqual([])
+  })
+
   it('keeps every sheet small enough to read whole', () => {
     // Why the sheets exist: one 462 KB file was returned in full by a single read (~118K tokens).
     // A budget here stops that creeping back once a sheet grows past the point of being usable.

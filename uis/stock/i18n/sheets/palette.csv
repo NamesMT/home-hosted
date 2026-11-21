@@ -1,5 +1,5 @@
 KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
-palette.placeholder,"Jump to a server, run an action, open a setting…","Chuyển tới máy chủ, chạy thao tác, mở cài đặt…",跳转到服务器、运行操作、打开设置…,サーバーへ移動、操作を実行、設定を開く…,"Ir a un servidor, ejecutar una acción, abrir un ajuste…","서버로 이동, 작업 실행, 설정 열기…","Перейти к серверу, выполнить действие, открыть настройку…","Aller à un serveur, lancer une action, ouvrir un paramètre…","Zu einem Server springen, Aktion ausführen, Einstellung öffnen…"
+palette.placeholder,"Search servers, actions, settings…","Tìm máy chủ, thao tác, cài đặt…","搜索服务器、操作、设置…","サーバー・操作・設定を検索…","Buscar servidores, acciones, ajustes…","서버, 작업, 설정 검색…","Поиск серверов, действий, настроек…","Rechercher serveurs, actions, réglages…","Server, Aktionen, Einstellungen suchen…"
 palette.openServer,Open {label},Mở {label},打开 {label},{label} を開く,Abrir {label},{label} 열기,Открыть {label},Ouvrir {label},{label} öffnen
 palette.serverLogs,Logs for {label},Nhật ký của {label},{label} 的日志,{label} のログ,Registros de {label},{label}의 로그,Журналы {label},Journaux de {label},Protokolle von {label}
 palette.startServer,Start {label},Khởi động {label},启动 {label},{label} を起動,Iniciar {label},{label} 시작,Запустить {label},Démarrer {label},{label} starten
