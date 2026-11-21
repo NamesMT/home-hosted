@@ -159,17 +159,25 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
-- **The process-tree walk follows `ppid` with no start time, so a recycled pid can join the tree.**
-  `proc.test.ts > processTreeOwners > includes a grandchild` failed once on Windows with
-  `owners.has(process.pid)` unexpectedly `true` — the test's **own** process appearing as a descendant of
-  a tree it spawned. A re-run was green, so it is a race rather than a regression: `collectTree` follows
-  parent links from a snapshot whose rows are `{ pid, ppid, rssKb, cpuPercent }` and carry **no start
-  time**, so between the grandchild dying and the snapshot being taken, Windows can hand its pid to
-  another process — and the walk then attributes that process to the tree. Nothing here is unsound for
-  *liveness* (that is `runtimeLiveness`/`processLiveness`, which do compare start times); it is the tree
-  walk that cannot tell "still my child" from "reused pid". Recorded rather than fixed: adding a start
-  time to the scan means changing what every platform's parser emits, which is a larger change than a
-  flake warrants in passing.
+- **One Windows flake in `processTreeOwners` is unexplained, and my first explanation for it was wrong.**
+  `proc.test.ts > processTreeOwners > includes a grandchild` failed once with
+  `owners.has(process.pid)` unexpectedly `true` — the test's **own** process reported as a descendant of
+  a tree it spawned. A re-run was green, and the three runs before it were green.
+
+  I first wrote that a recycled pid explains it. **It does not, and the arithmetic is the reason**:
+  `collectTree` only walks *down* from the root, so the test process can appear only if some row claims
+  its parent is the spawned child. Recycling the *grandchild's* pid puts an unrelated process under the
+  spawned child, not the test process under it. So the mechanism is still open.
+
+  What has been checked, and ruled out: the walk only descends; `process.pid` as the *root* legitimately
+  reports itself; 20 consecutive runs on Linux never reproduced it; and the Windows CSV parser handles
+  both the `Get-CimInstance` and `wmic` column shapes correctly, including the `Node` column — so a
+  shifted-column `ppid` is not it either, for these numeric-only columns.
+
+  **Severity is lower than it first looked**, which is worth recording too: `processTreeOwners` feeds
+  `port-preflight` only to *name* an owner in a refusal message (`heldByOurs`), and the kill paths take a
+  live `ChildProcess` handle (`forceKillTree(child)`), never a pid from this map. So the worst case is a
+  refusal naming the wrong server, not a process stopped in error. Left open rather than guessed at.
 - **A spawn that never started reports differently from one that threw, unless you unify it.**
   `runBackupHook` wrapped the `catch` around `spawn(...)` as `could not start: <message>`, but its `error`
   listener reported `error.message` raw — and a missing binary arrives on the **`error` event**, not by

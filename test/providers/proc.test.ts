@@ -162,7 +162,20 @@ describe('processTreeOwners', () => {
     const owners = await processTreeOwners([parent.pid])
     expect(owners.has(parent.pid)).toBe(true)
     expect(owners.has(grandchild)).toBe(true)
-    expect(owners.has(process.pid)).toBe(false)
+    /**
+     * The walk must not wander **up**: the test's own process is the parent of this tree, and only
+     * downward links are followed.
+     *
+     * This failed once on Windows and nothing explains it yet — `collectTree` walks children only, so
+     * the test process can appear here only if a row claims its parent is the spawned child. A first
+     * explanation (a recycled grandchild pid) does not account for it, and 20 consecutive Linux runs
+     * never reproduced it. Kept as an assertion because the property is right; the message says what to
+     * look at if it ever fails again, rather than sending the next reader down the path I took.
+     */
+    expect(
+      owners.has(process.pid),
+      `the tree walk reported this test's own process (pid ${process.pid}) as a descendant of pid ${parent.pid} — see GOTCHAS for what has already been ruled out`,
+    ).toBe(false)
   })
 
   /**
