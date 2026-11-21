@@ -134,5 +134,14 @@ Neither is published: both are for agents working in this repo, so a pointer fro
 one.
 Verify a claim about the tarball with `npm pack --dry-run`, which prints the real contents, rather
 than by reading the `files` array: an entry there can name a directory whose contents are narrower
-than it looks. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
+than it looks.
+
+**`--dry-run` proves what is *in* the tarball, not that it *runs*.** Those are different failures and
+only the second one reaches a user. `pnpm pack`, then install the `.tgz` into an empty project
+(`npm install /tmp/pk/home-hosted-<version>.tgz`), and check three things from the installed copy:
+`./node_modules/.bin/home-hosted --version` answers, `up` serves the stock UI at `/`, and
+`/openapi/spec.json` answers `200`. Done that way for the version this branch is heading for: 22
+packages installed in 4 s, the CLI answered, and both routes came back `200` with the stock
+`<title>`. A missing `uis/stock/dist` or a `files` entry that excluded `bin/` shows up here and nowhere
+earlier — `prepack` builds into the working tree, so the repo looks complete either way. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
 devDependencies because the UIs are prebuilt.
