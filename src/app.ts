@@ -31,6 +31,7 @@ import { errorHandler } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { createAuthGuard } from '#src/middleware/auth'
+import { createBodyLimitGuard } from '#src/middleware/body-limit'
 import { createHostGuard } from '#src/middleware/host'
 import { createTokenScopeGuard } from '#src/middleware/token-scope'
 import { setupOpenAPI } from '#src/openapi'
@@ -92,6 +93,10 @@ export function createRootApp(deps: AppDeps) {
     // After the guard, so the identity is resolved: a token's scopes are checked against the one
     // declaration in `src/middleware/token-scope.ts`, and a session or a local caller passes through.
     .use('/api/*', createTokenScopeGuard({ defaultWorkspaceId: () => deps.panel.defaultId() }))
+    // After the guards, so an anonymous caller is refused on identity rather than on a size it never
+    // sent. A body large enough to blow up the state frame is refused here rather than written to a
+    // config file — see `createBodyLimitGuard` for the measurement.
+    .use('/api/*', createBodyLimitGuard())
 
     .route('/api', createAuthRoute(deps))
     .route('/api', createStateRoute(deps))

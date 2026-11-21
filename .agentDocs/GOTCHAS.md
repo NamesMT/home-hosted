@@ -152,6 +152,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   kept drawing the old policy. `PATCH /api/settings` hides this, because that path usually moves
   something else in the same turn; a hand edit has no companion. Sign the whole view, as `control`,
   `host` and each workspace already are.
+- **An unbounded JSON body is a self-inflicted DoS, because the frame is every second.** A `POST
+  /api/servers` carrying a 19 MB `command` was accepted and written to `servers.config.json`; the state
+  frame then became **20 MB**, rebuilt every second and pushed over SSE to every open tab, and read back
+  by `GET /api/settings` and the config editor. The caller is an authenticated admin, so the risk is a
+  typo or a wrong paste rather than an intruder — and the panel is unusable from the moment it lands.
+  `/api/*` now caps a JSON body at 1 MB (`src/middleware/body-limit.ts`), two orders of magnitude above
+  a real request. **The two routes whose body is a file — `POST /api/backups/restore` and
+  `POST /api/settings/ui` — are exempted by path**: a `use('/api/*')` middleware runs before their own
+  `bodyLimit`, so without the exemption a 3 MB archive was refused by the 1 MB JSON ceiling.
 - **The request path and the SSE fan-out are measurably cheap — don't "optimise" them on suspicion.**
   Measured on the built panel with nine workspaces and 54 servers: `GET /api/state` **mean 5.0 ms**
   (83 kB payload), `/api/servers` 2.4 ms, `/api/proxy` 2.2 ms, `/healthz` 3.2 ms; on an empty panel every
