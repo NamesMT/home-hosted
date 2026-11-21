@@ -113,9 +113,16 @@ stays visible in the run log rather than looking like a slip.
 ## What the package ships
 
 `pnpm pack` runs `prepack` (a full build) and ships the `files` list in `package.json`: `bin/`,
-`dist/`, `uis/stock/dist`, `README.md`, the nine user-facing `docs/*.md` (`API`, `BACKUPS`, `CLI`,
-`DDNS`, `NOTIFICATIONS`, `REVERSE_PROXY`, `SECURITY`, `SERVERS`, `UI_CREATION`), the
-three `docs/branding` and `docs/demo` assets, and `LICENSE`. **`AGENTS.md` is not in that list** — the
+`dist/`, `uis/stock/dist`, `README.md`, the **ten** user-facing `docs/*.md` (`API`, `BACKUPS`, `CLI`,
+`DDNS`, `JOBS`, `NOTIFICATIONS`, `REVERSE_PROXY`, `SECURITY`, `SERVERS`, `UI_CREATION`), the
+`docs/branding` and `docs/demo` assets, and `LICENSE`.
+
+**Every doc a shipped doc links to must itself be in `files`.** `docs/JOBS.md` was missing from the
+list when it was written, and four documents linked to it — `CLI.md` and `NOTIFICATIONS.md` among them,
+both of which do ship — so an npm user following "what a job is" from the CLI reference got a 404. The
+`check-doc-links.mjs` guard reads the working tree, where the file exists, so it cannot see this; the
+`npm pack --dry-run` tarball is the only thing that answers it. A count in this paragraph drifted the
+same way, which is why it now names the files rather than a number. **`AGENTS.md` is not in that list** — the
 `files` array omits it, so it is repo-only like `.agentDocs/`, even though it is not gitignored.
 Neither is published: both are for agents working in this repo, so a pointer from `AGENTS.md` into
 `.agentDocs/` is dead in an installed copy, and a reader who installs the package never sees either
