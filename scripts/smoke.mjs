@@ -15,6 +15,14 @@
  *   pnpm run smoke -- --keep             # leave it running, for a look
  *   HHOSTED_SMOKE_URL=http://… pnpm run smoke   # against an instance already up
  *
+ * It walks **both UIs**, because both ship: `stock` inside the package and `noc-console` as a release
+ * asset, with different route tables (`/default/servers` versus `/w/:workspaceId/servers`). Which one
+ * to walk is read from the panel's own `ui.json` — a panel serving the console cannot be checked
+ * against stock's routes, and the first version of this script only ever walked stock's.
+ *
+ * To check the console: `home-hosted ui-switch --file uis/dist/home-hosted-ui-noc-console.zip` against
+ * the instance first (`node scripts/build-uis.mjs noc-console --zip` makes the zip).
+ *
  * It is **not** part of `pnpm run check`: it needs a Chromium binary that `pnpm install` does not
  * fetch, and a full run of it is slower than the whole unit suite. Run it before a release, and when
  * touching `uis/`.
@@ -58,17 +66,63 @@ const keep = args.includes('--keep')
 const explicitUrl = process.env.HHOSTED_SMOKE_URL ?? null
 const PORT = Number(process.env.HHOSTED_SMOKE_PORT ?? 6979)
 
-/** The signed-in routes every release must be able to draw. */
-const ROUTES = [
-  ['/global/overview', 'Global overview'],
-  ['/global/settings', 'Global settings'],
-  ['/default/overview', 'Workspace overview'],
-  ['/default/servers', 'Servers'],
-  ['/default/jobs', 'Jobs'],
-  ['/default/logs', 'Logs'],
-  ['/default/settings', 'Workspace settings'],
-  ['/global/proxy', 'Reverse proxy'],
-]
+/**
+ * The signed-in routes every release must be able to draw, **per UI**.
+ *
+ * Both UIs ship — `stock` inside the package, `noc-console` as a release asset — and they do not share
+ * a route table: stock is `/default/servers`, the console is `/w/:workspaceId/servers` and `/proxy`.
+ * Walking only stock's routes left the asset every release uploads with no browser check at all, which
+ * is the wrong half to leave out: it is the one a person installs deliberately.
+ */
+const UIS = {
+  'stock': [
+    ['/global/overview', 'Global overview'],
+    ['/global/settings', 'Global settings'],
+    ['/default/overview', 'Workspace overview'],
+    ['/default/servers', 'Servers'],
+    ['/default/jobs', 'Jobs'],
+    ['/default/logs', 'Logs'],
+    ['/default/settings', 'Workspace settings'],
+    ['/global/proxy', 'Reverse proxy'],
+  ],
+  'noc-console': [
+    ['/global/overview', 'Global overview'],
+    ['/global/settings', 'Global settings'],
+    ['/w/default/servers', 'Servers'],
+    ['/w/default/jobs', 'Jobs'],
+    ['/w/default/logs', 'Logs'],
+    ['/w/default/settings', 'Workspace settings'],
+    ['/proxy', 'Reverse proxy'],
+  ],
+}
+
+/**
+ * Which UI the panel under test is serving, from its own `ui.json`.
+ *
+ * Asked of the panel rather than assumed: `HHOSTED_SMOKE_URL` may point at an instance with either one
+ * installed, and walking stock's routes against the console reports eight 404s that are not defects.
+ */
+async function servedUi(page, base) {
+  const status = await page.request.get(`${base}/api/settings`)
+  if (!status.ok()) {
+    // Not a silent fallback: a `/api/settings` that will not answer means the routes below may be
+    // walking the wrong table, which is a false pass rather than a finding.
+    fail('ui', `GET /api/settings answered ${status.status()}, so the served UI is unknown`)
+    return 'stock'
+  }
+  const body = await status.json().catch(() => null)
+  const name = body?.ui?.meta?.name
+  if (typeof name === 'string' && name in UIS)
+    return name
+  /**
+   * A third UI (a hand-written `ui.json`) is legitimate, and this script has no route table for it.
+   * Walking stock's table against an unknown UI would report findings that are not defects, so the
+   * only honest thing is to say the walk is a best guess rather than a check of *that* UI.
+   */
+  const label = typeof name === 'string' && name.length > 0 ? `"${name}"` : 'an unnamed UI'
+  process.stdout.write(`[smoke] ${label} is not one of the UIs this script knows — walking stock's routes as a smoke, not as a check of ${label}\n`)
+  return 'stock'
+}
 
 const failures = []
 function fail(where, message) {
@@ -357,7 +411,11 @@ async function main() {
     if (!response.ok())
       fail('login', `POST /api/auth/login answered ${response.status()} — pass HHOSTED_SMOKE_USER/HHOSTED_SMOKE_SECRET`)
 
-    for (const [route, label] of ROUTES) {
+    const ui = await servedUi(page, base)
+    const routes = UIS[ui]
+    process.stdout.write(`[smoke] walking ${routes.length} ${ui} routes\n`)
+
+    for (const [route, label] of routes) {
       noise.length = 0
       const response = await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
       if (response === null || !response.ok())
@@ -374,15 +432,15 @@ async function main() {
       await page.waitForTimeout(1200)
 
       for (const problem of await inspectPage(page))
-        fail(route, problem)
+        fail(`${ui} ${route}`, problem)
       // The half `inspectPage` cannot do: a control painted over by a CSS background is still in the
       // DOM, still hit-tests to itself if the paint has no box, and only a pixel comparison sees it.
       for (const problem of await paintedOverControls(page))
-        fail(route, problem)
+        fail(`${ui} ${route}`, problem)
       for (const entry of noise)
-        fail(route, entry)
+        fail(`${ui} ${route}`, entry)
 
-      process.stdout.write(`[smoke] ${route} — ${label}\n`)
+      process.stdout.write(`[smoke] ${ui} ${route} — ${label}\n`)
     }
 
     // The two unauthenticated reads a UI reaches same-origin, and the spec a client builds on.
@@ -408,7 +466,7 @@ async function main() {
       process.stderr.write(`  - ${failure}\n`)
     process.exit(1)
   }
-  process.stdout.write(`\n[smoke] ${ROUTES.length} routes clean, spec and healthz answered\n`)
+  process.stdout.write(`\n[smoke] routes clean, spec and healthz answered\n`)
 }
 
 await main()
