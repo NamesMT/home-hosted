@@ -57,7 +57,14 @@ describe('the backup hook runner', () => {
     const entry = server({ dump: { command: 'home-hosted-no-such-binary', args: [] } })
     const result = await runBackupHook(entry.dump!, entry, path.join(makeDir(), 'dump'))
     expect(result.ok).toBe(false)
-    expect(result.error).toBeDefined()
+    /**
+     * The message is named, not merely required to exist.
+     *
+     * `toBeDefined()` passed on **any** failure — a timeout, a rejected child, a bug in the harness — so
+     * it could not tell "the spawn was refused" from "something else went wrong". That is the same
+     * weakness that let the archive-traversal assertion stand for a guard it never checked.
+     */
+    expect(result.error, 'the refusal must say the command could not start').toContain('could not start')
   })
 
   it('keeps the tail of what the hook said, and names it in the failure', async () => {

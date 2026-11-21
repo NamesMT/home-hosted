@@ -94,7 +94,16 @@ export async function runBackupHook(
     })
     child.once('error', (error) => {
       clearTimeout(timer)
-      resolve({ code: null, error: error.message })
+      /**
+       * The same sentence the `catch` above produces, because it is the same failure.
+       *
+       * A spawn that never started surfaces here as well as by throwing — `ENOENT` for a missing
+       * binary arrives on the `error` event, not from `spawn()` itself — and this used to report the raw
+       * `spawn <command> ENOENT`, so the same problem read two ways depending on which path fired. The
+       * test that asserted only `error` was defined could not see the difference; naming the message is
+       * what surfaced it.
+       */
+      resolve({ code: null, error: `could not start: ${error.message}` })
     })
   })
 

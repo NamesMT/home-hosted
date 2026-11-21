@@ -159,6 +159,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **A spawn that never started reports differently from one that threw, unless you unify it.**
+  `runBackupHook` wrapped the `catch` around `spawn(...)` as `could not start: <message>`, but its `error`
+  listener reported `error.message` raw — and a missing binary arrives on the **`error` event**, not by
+  throwing. So the same problem read two ways: `the dump hook for "hk" failed (spawn x ENOENT)` from one
+  path and `(could not start: …)` from the other, and `hookFailure` puts that sentence straight in front
+  of a person. The test asserting only `expect(result.error).toBeDefined()` could not see it. Both paths
+  now produce the same sentence.
 - **`hono/body-limit` is gone from this project, and the last copy was the one that mattered least.**
   The login route still had it after the upload routes were converted — a tighter 4 KB cap on the only
   unauthenticated endpoint. It *looked* safe because the panel-wide guard at `/api/*` refuses a chunked
