@@ -57,6 +57,7 @@
 import { spawn } from 'node:child_process'
 // @ts-check
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -424,6 +425,68 @@ async function paintedOverControls(page) {
     .map(entry => `${entry.box.label} is painted over at ${entry.box.x},${entry.box.y} (no pixel changed when it was hidden)`)
 }
 
+/**
+ * Create, act on and remove a throwaway server, asserting every step answers.
+ *
+ * Kept to the endpoints that take **no request body**, because those are the ones a body-size guard is
+ * most likely to break and the ones nothing tested: a middleware that mis-reads the request turns them
+ * into `500`s while every `POST` with a body keeps working, which is exactly how the regression looked.
+ */
+/**
+ * A `POST` with no body and no `content-length`, exactly as a browser `fetch` or `curl -X POST` sends it.
+ *
+ * `node:http` is the point: `page.request.post(url)` adds `content-length: 0`, which a body-size guard
+ * can answer from the header alone. The request this suite has to reproduce is the one without it.
+ */
+function bodilessPost(base, cookie, pathname) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(pathname, base)
+    const request = http.request({ hostname: url.hostname, port: url.port, path: `${url.pathname}${url.search}`, method: 'POST', headers: { cookie } }, (response) => {
+      response.resume()
+      response.on('end', () => resolve(response.statusCode ?? 0))
+    })
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+async function exerciseLifecycle(page, base, cookie) {
+  const workspace = 'smoke-probe'
+  const created = await page.request.post(`${base}/api/workspaces`, { data: { id: workspace, label: 'Smoke probe' } })
+  // An instance that already has this workspace is not a defect; clean it up and carry on.
+  if (!created.ok() && created.status() !== 409)
+    fail('lifecycle', `POST /api/workspaces answered ${created.status()}`)
+
+  try {
+    const entry = await page.request.post(`${base}/api/servers?workspace=${workspace}`, {
+      data: { id: 'probe', command: process.execPath, args: ['-e', '0'], bind: 'local' },
+    })
+    if (!entry.ok()) {
+      fail('lifecycle', `declaring a server answered ${entry.status()}`)
+      return
+    }
+
+    /**
+     * The two bodiless POSTs a person uses most: this is what the body-limit guard broke.
+     *
+     * **Sent through `node:http`, not `page.request`.** Playwright's request client sets
+     * `content-length: 0` on a bodyless POST, which is a *different request* from the one a browser
+     * `fetch` or `curl -X POST` sends — and it takes a different path through a body-size guard. Verified
+     * both ways against a panel with the broken guard: `page.request` answered `200` while the same call
+     * through the real client answered `500`. A check that cannot fail is not a check.
+     */
+    for (const action of ['start', 'stop']) {
+      const status = await bodilessPost(base, cookie, `/api/servers/probe/${action}?workspace=${workspace}`)
+      if (status >= 300)
+        fail('lifecycle', `POST /api/servers/probe/${action} answered ${status} — a bodiless POST must not fail`)
+    }
+    process.stdout.write(`[smoke] lifecycle: start and stop answered\n`)
+  }
+  finally {
+    await page.request.delete(`${base}/api/workspaces/${workspace}`)
+  }
+}
+
 async function main() {
   const target = explicitUrl === null ? await startPanel() : null
   const base = (explicitUrl ?? `http://127.0.0.1:${PORT}`).replace(/\/$/, '')
@@ -458,6 +521,25 @@ async function main() {
     const response = await page.request.post(`${base}/api/auth/login`, { data: { id: user, secret } })
     if (!response.ok())
       fail('login', `POST /api/auth/login answered ${response.status()} — pass HHOSTED_SMOKE_USER/HHOSTED_SMOKE_SECRET`)
+
+    // The cookie the login set, for the one check that speaks HTTP directly rather than through
+    // Playwright — `bodilessPost` explains why it has to.
+    const cookie = (response.headersArray().find(header => header.name.toLowerCase() === 'set-cookie')?.value ?? '').split(';')[0] ?? ''
+
+    /**
+     * The write paths, exercised once before the read-only walk.
+     *
+     * Every check above and below is a `GET`: the suite logged in and then read eight pages. It never
+     * sent a `POST`, so it could not have caught the round where a body-limit guard made **every
+     * bodiless `POST` answer 500** — `start`, `stop`, `backup create`, the panel's core actions. That
+     * defect shipped, was found by driving a panel by hand, and would have been caught here in one
+     * second.
+     *
+     * A scratch workspace, created and removed, so an instance reached through `HHOSTED_SMOKE_URL` is
+     * left as it was. Declared here rather than as a `ROUTES` entry because it is a sequence, and the
+     * point is the lifecycle, not the page.
+     */
+    await exerciseLifecycle(page, base, cookie)
 
     const ui = await servedUi(page, base)
     const routes = UIS[ui]
