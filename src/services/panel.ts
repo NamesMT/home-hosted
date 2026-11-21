@@ -834,11 +834,22 @@ function stateSignature(state: AppState): string {
      * sees; the measurement is in `.agentDocs/GOTCHAS.md`.
      */
     JSON.stringify(state.host),
-    // The archive list and the capture entries are no longer in the frame — they are `GET
-    // /api/backups`, fetched when the settings page mounts — so a new archive does not change this
-    // signature. `lastAutomaticAt` and `scheduleError` are the policy facts a page still redraws from.
-    state.backups.lastAutomaticAt,
-    state.backups.scheduleError?.at ?? 0,
+    /**
+     * The whole backups view, for the reason `control`, `host` and each workspace above are signed
+     * whole.
+     *
+     * This signed only `lastAutomaticAt` and `scheduleError`, on the reasoning that "the archive list
+     * is a separate `GET /api/backups`" — which is true of the *archives*, and false of the *policy*.
+     * `enabled`, `keep`, `dir` and `schedule` are in this view and in it only, so editing one by hand
+     * reloaded the store (`keep: 9` reached `panel.settings.backups.keep`) and then published
+     * nothing: `stateSignature` was identical, so `publishState` returned early and every other tab
+     * kept drawing the old policy. Measured in a harness — the store updated, `frames.length` did
+     * not move.
+     *
+     * `PATCH /api/settings` hid it, because that path publishes by moving the listener or by another
+     * field changing in the same turn. A hand edit has no such companion.
+     */
+    JSON.stringify(state.backups),
     // Which UI the panel serves. `ui.status()` reads the installed `ui.json`, so an upload
     // or a revert is news the moment it happens — and without this it was only picked up when
     // something else moved, which the host sample eventually does (up to one interval later).

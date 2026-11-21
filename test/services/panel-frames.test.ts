@@ -549,4 +549,47 @@ describe('the state frame a UI actually reads', () => {
       await dispose()
     }
   })
+
+  /**
+   * A hand edit to `settings.json` must publish a frame, not wait for something else to move.
+   *
+   * This is the path a person takes with the file open in an editor, and it is *different* from the
+   * API path: `PATCH /api/settings` writes through the store, while a hand edit is seen only by the
+   * `ConfigWatch` on `settings.path` → `handleSettingsChange()` → `scheduleState()`. Nothing tested
+   * that chain, so a change to it would leave every other tab showing the old value until the host
+   * sample happened to tick — the same symptom the signature comments describe, reached by a
+   * different road.
+   *
+   * Verified against a running panel by hand first: `PATCH {"backups":{"keep":9}}` delivered a frame
+   * carrying `"keep":9`. This pins it without a browser.
+   */
+  it('publishes a frame when the settings file is edited by hand', async () => {
+    const { panel, frames, dispose } = await makeHarness()
+
+    try {
+      const settings = panel.settings
+      const path_ = settings.path
+      // Freeze the clock-driven parts, so the file edit is the only thing that can move the frame.
+      const patched = panel as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }
+      const host = patched.options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      const before = frames.length
+
+      // Exactly what an editor does: read the file, change one value, write it back.
+      const onDisk = JSON.parse(fs.readFileSync(path_, 'utf8')) as Record<string, unknown>
+      onDisk.backups = { ...(onDisk.backups as Record<string, unknown> ?? {}), keep: 9 }
+      fs.writeFileSync(path_, JSON.stringify(onDisk, null, 2))
+
+      // The watcher is a filesystem event plus a 2 s poll, so it publishes on its own schedule.
+      await waitFor(() => frames.length > before, 8000)
+      expect(frames.at(-1)?.backups.keep, 'a hand edit to settings.json published no frame').toBe(9)
+    }
+    finally {
+      await dispose()
+    }
+  })
 })

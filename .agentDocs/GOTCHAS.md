@@ -107,6 +107,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Metrics
 
+- **A signature that signs a view must sign all of it — including the fields that look static.**
+  `stateSignature` signed `backups.lastAutomaticAt` and `backups.scheduleError`, reasoning that "the
+  archive list is a separate `GET /api/backups`". True of the *archives*, false of the *policy*:
+  `enabled`, `keep`, `dir` and `schedule` live in that view and nowhere else, so a hand edit to
+  `settings.json` reloaded the store — `panel.settings.backups.keep` became 9 — and then published
+  **nothing**, because the signature was unchanged and `publishState` returns early. Every other tab
+  kept drawing the old policy. `PATCH /api/settings` hides this, because that path usually moves
+  something else in the same turn; a hand edit has no companion. Sign the whole view, as `control`,
+  `host` and each workspace already are.
 - **A wall-clock budget cannot detect a per-frame file read.** The obvious guard for "the state frame
   must not touch the disk" is to build N frames and assert they took less than some number of
   milliseconds. It does not work, and the measurement is worth keeping: 50 frames at eight workspaces
