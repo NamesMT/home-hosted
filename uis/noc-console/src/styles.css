@@ -1200,10 +1200,19 @@ input[type='file'] {
  * The pinned cells need an opaque background of their own: the row's hover/selected tint would
  * otherwise show through from underneath, and content scrolling beneath them would print on top.
  */
+/*
+ * The two `local` layers are **covers**: they hide the shadow once the table is scrolled to its
+ * end, which only works if they are the colour of the ground behind the table. They were
+ * hardcoded to `--ink`; every `.tblwrap` happens to sit on ink today, so nothing was visibly
+ * wrong, but a table moved onto a panel would get a band down its edge that covers its last
+ * column — the exact defect stock's `.scroll-hint-x` shipped. `--scroll-cover` makes the ground
+ * a thing a scroller declares instead of a thing it assumes.
+ */
 .tblwrap {
+  --scroll-cover: var(--ink);
   background:
-    linear-gradient(to right, var(--ink) 40%, transparent) left center,
-    linear-gradient(to left, var(--ink) 40%, transparent) right center,
+    linear-gradient(to right, var(--scroll-cover) 40%, transparent) left center,
+    linear-gradient(to left, var(--scroll-cover) 40%, transparent) right center,
     linear-gradient(to right, rgb(0 0 0 / 45%), transparent) left center,
     linear-gradient(to left, rgb(0 0 0 / 45%), transparent) right center;
   background-repeat: no-repeat;

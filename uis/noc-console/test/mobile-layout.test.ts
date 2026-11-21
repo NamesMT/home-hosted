@@ -172,6 +172,11 @@ describe('noc-console is usable at a phone width', () => {
     const wrap = ruleIn(allRules, '.tblwrap')
     expect(wrap).toContain('background-attachment: local')
     expect(wrap).toContain('scroll')
+    // The two `local` layers are covers, so their colour has to be the ground behind the table.
+    // Hardcoded to `--ink` they are right only while every table sits on ink; stock shipped the
+    // same shape and a table on the page ground got a band that covered its last column.
+    expect(wrap, 'the cover is a declared surface, not an assumed one').toContain('--scroll-cover')
+    expect(wrap).toContain('var(--scroll-cover)')
   })
 
   /**
