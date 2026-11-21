@@ -85,7 +85,7 @@ const DEV_ACCOUNT = 'default'
 const DEV_PASSWORD = 'dev'
 
 function parseArgs(argv) {
-  const options = { ui: 'stock', panelPort: undefined, uiPort: undefined, home: undefined, passthrough: [] }
+  const options = { ui: 'stock', panelPort: undefined, uiPort: undefined, home: undefined, help: false, passthrough: [] }
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]
     const [name, inline] = arg.includes('=') ? arg.split(/=(.*)/s, 2) : [arg, undefined]
@@ -108,6 +108,18 @@ function parseArgs(argv) {
       options.home = value()
       continue
     }
+    /**
+     * `--help` answers here, not in the passthrough.
+     *
+     * Every unrecognised flag is handed to the panel (`--log-level`, `--bind`), which is right — but
+     * `--help` in that position reached `up`, and the panel answered it *after* both servers were up:
+     * measured, `pnpm dev --help` built the UI and bound 6950/6951 before printing anything. Someone
+     * asking what the command does got a dev server on two ports instead. `-h` is the same request.
+     */
+    if (name === '--help' || name === '-h') {
+      options.help = true
+      continue
+    }
     options.passthrough.push(arg)
   }
   options.uiPort ??= Number(process.env.HHOSTED_DEV_UI_PORT ?? DEFAULT_UI_PORT)
@@ -116,6 +128,27 @@ function parseArgs(argv) {
 }
 
 const options = parseArgs(process.argv.slice(2))
+
+/**
+ * Print what this does and stop, before anything is built or bound.
+ *
+ * The header comment above is the documentation; this is the same list a person can ask for. Printed
+ * here rather than passed to the panel because the panel's `up --help` describes *its own* flags, not
+ * this script's `--ui`/`--ui-port`/`--home`.
+ */
+if (options.help) {
+  process.stdout.write(`pnpm dev — run the panel and a UI dev server together
+
+  pnpm dev                            panel ${DEFAULT_PANEL_PORT} + ${options.ui} UI ${DEFAULT_UI_PORT}
+  pnpm dev --ui <name>                another UI from uis/
+  pnpm dev --port <n> --ui-port <n>   different ports
+  pnpm dev --home <dir>               a state directory of your own (default .dev-state/)
+
+Environment: HHOSTED_DEV_PANEL_PORT, HHOSTED_DEV_UI_PORT, HHOSTED_DEV_SKIP_BUILD.
+Any other flag is passed through to \`home-hosted up\`.
+`)
+  process.exit(0)
+}
 
 const uiDir = path.join(root, 'uis', options.ui)
 if (!fs.existsSync(path.join(uiDir, 'vite.config.ts'))) {

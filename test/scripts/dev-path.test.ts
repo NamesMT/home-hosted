@@ -193,4 +193,37 @@ describe('scripts/dev.mjs finds pnpm without it being on PATH', () => {
     expect(stdout, 'the panel never started listening').toContain('Listening on')
     expect(stdout, 'vite never became ready').toContain('ready in')
   }, 150_000)
+
+  /**
+   * `--help` answers immediately, without building or binding anything.
+   *
+   * Every unrecognised flag is passed through to `up`, which is right for `--log-level` and `--bind`.
+   * `--help` in that position reached the panel, and the panel answered it *after* both servers were
+   * up: measured, `pnpm dev --help` built the stock UI and bound 6950/6951 before printing a word. A
+   * person asking what the command does got a dev server on two ports — and on the default ports, that
+   * is someone's running panel being disturbed.
+   *
+   * The assertion that matters is the **absence of a build banner**: it is printed before anything is
+   * spawned, so if help is still being passed through, it appears.
+   */
+  it('prints its usage for --help and starts nothing', () => {
+    // Help must work on a `PATH` with no pnpm too — it is the answer to "why did this not run".
+    const bare = pathWithoutPnpm() ?? (process.env.PATH ?? '/usr/bin:/bin')
+    for (const flag of ['--help', '-h']) {
+      const result = spawnSync(node, [path.join(repo, 'scripts', 'dev.mjs'), flag], {
+        cwd: repo,
+        encoding: 'utf8',
+        timeout: 30_000,
+        env: { PATH: bare, HOME: os.tmpdir() },
+      })
+
+      expect(result.status, `${flag} must exit cleanly — stderr: ${result.stderr}`).toBe(0)
+      expect(result.stdout, `${flag} must say what the command does`).toContain('pnpm dev')
+      expect(result.stdout, `${flag} must name the flags`).toContain('--ui-port')
+      expect(
+        result.stdout,
+        `${flag} started building the UI instead of answering — the flag reached the panel`,
+      ).not.toContain('building the stock UI')
+    }
+  }, 90_000)
 })
