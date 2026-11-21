@@ -109,6 +109,27 @@ describe('release-notes carries every pending migration', () => {
       expect(body, `no sub-heading for ${version}`).toContain(`### ${version}`)
   })
 
+  /**
+   * The migration comes **first**, above the changelog.
+   *
+   * The body is what most people read instead of the git footer, and a person upgrading has to act on
+   * the migration before anything else. Under a changelog of a hundred and fifty entries it is a
+   * section nobody scrolls to, which is the same as not shipping it. Only its *absence* was asserted
+   * before, never where it sat.
+   */
+  it('puts the migration above the changelog, not buried under it', () => {
+    const dir = project({ version: '0.16.0', sections: THREE })
+    const body = notes(dir, '0.16.0')
+
+    const upgrading = body.indexOf('## Upgrading')
+    const firstChangelogHeading = body.search(/^### /m)
+    expect(upgrading, 'the body must carry an Upgrading section').toBeGreaterThan(-1)
+    expect(firstChangelogHeading, 'the body must still carry the changelog').toBeGreaterThan(-1)
+    expect(upgrading, 'the migration is below the changelog, where nobody reads it').toBeLessThan(firstChangelogHeading)
+    // And the whole body opens with it — a preamble above it would push it down the page.
+    expect(body.trimStart().startsWith('## Upgrading'), 'the body must open with the migration').toBe(true)
+  })
+
   it('ships the changelog alone when nothing needs a migration', () => {
     const dir = project({ version: '0.14.0', sections: [] })
     const body = notes(dir, '0.14.0')
