@@ -39,57 +39,27 @@ export function createBodyLimitGuard(): MiddlewareHandler {
       return next()
 
     /**
-     * **`hono/body-limit` cannot be used here, and the reason is worth keeping.**
+     * **A chunked body is refused**, because its size cannot be known without reading it.
      *
-     * It re-wraps the request to re-read the stream — `c.req.raw = new Request(c.req.raw, init)` — and
-     * against srvx the raw request carries a *relative* URL, so that constructor throws
-     * `TypeError: Failed to parse URL from [object Request]` with `[cause]: Invalid URL`. Every bodiless
-     * `POST` then answers **500**: `start`, `stop`, `backup create`. The unit tests never saw it because
-     * the fixture builds a plain `Request` with an absolute URL, where the rewrap succeeds — verified
-     * both ways, which is why the guard is written against the header instead.
+     * That gap was real, not theoretical. The guard originally checked only `content-length`, and a
+     * hand-built `Transfer-Encoding: chunked` `POST` carrying a 3 MB `command` was accepted (`201`) and
+     * written to `servers.config.json` — **3 000 304 bytes**, making the state frame **3 005 852
+     * bytes**. The same DoS the guard exists to prevent, through the one door it left open.
      *
-     * A declared `content-length` over the ceiling is refused before a byte of body is read, which is
-     * the case that matters: a browser or `curl -d` always sets it. A chunked request has no length to
-     * check up front; it is bounded by the routes that parse it (ArkType rejects a field over its own
-     * limits) and by the 1 MB being far above any real body, so this is a guard rather than a sandbox.
-     */
-    /**
-     * **Only the declared length is checked, and that is a deliberate limit.**
+     * Counting the stream instead is not available here, and both ways were driven against a built
+     * panel rather than reasoned about:
      *
-     * A `content-length` over the ceiling is refused before a byte of body is read. Every real client
-     * sets it: a browser form, `curl -d`, and — checked in `src/shared/api-client.ts` — every `fetch`
-     * with a `JSON.stringify` body, which undici and browsers both send with a computed length.
+     *  - `hono/body-limit` re-wraps the request (`new Request(c.req.raw, init)`) to re-read it, and
+     *    against srvx the raw request carries a *relative* URL, so that constructor throws
+     *    `Failed to parse URL from [object Request]`. Mounted at `/api/*` it answered **500 for every
+     *    bodiless `POST`** — `start`, `stop`, `backup create`. (Per-route, as the upload handlers do, it
+     *    works; why the two differ is not something I established.)
+     *  - Teeing the body and draining one branch hung the request rather than refusing it.
      *
-     * A **chunked** body declares no length, and this guard does not count it. Counting means consuming
-     * the stream, and every way of doing that here either throws or hangs:
-     *
-     *  - `hono/body-limit` re-wraps the request (`new Request(c.req.raw, init)`) to re-read it. Against
-     *    srvx the raw request carries a *relative* URL, so that constructor throws
-     *    `Failed to parse URL from [object Request]` — and **every bodiless `POST` answered 500**.
-     *  - Teeing the body and draining one branch hung the request outright rather than refusing it.
-     *
-     * Both were driven against a built panel, not reasoned about. So the residual gap is a deliberately
-     * chunked oversized body, which an authenticated admin has to construct by hand — and someone who
-     * can do that can equally send a thousand well-sized requests. The threat this guards against is a
-     * typo, a runaway script, or a paste of the wrong file, and all three carry a length.
-     */
-    /**
-     * **A chunked body is refused outright**, because its size cannot be known without reading it.
-     *
-     * This was the residual gap and it was real, not theoretical: a hand-built `Transfer-Encoding:
-     * chunked` `POST` carrying a 3 MB `command` was accepted (`201`), written to
-     * `servers.config.json` (3 000 304 bytes), and the state frame became 3 005 852 bytes — the same
-     * DoS the guard exists to prevent, through the one door it left open.
-     *
-     * Reading the stream is not an option here: `hono/body-limit` rewraps the request and throws
-     * against srvx, and teeing it hung the request (both measured, see the note below). So the
-     * choice is to refuse what cannot be measured. **`transfer-encoding` is the discriminator** —
-     * verified against a running panel: a bodyless `POST` (every lifecycle action) carries neither
-     * header, and only a chunked one carries `te=chunked`. `c.req.raw.body` is a stream in both cases,
-     * so it cannot be used.
-     *
-     * No client this panel has sends a chunked JSON request: `api-client.ts` sends `fetch` with a
-     * `JSON.stringify` body, which always carries a length.
+     * So what cannot be measured is refused: `411 LENGTH_REQUIRED`. **`transfer-encoding` is the
+     * discriminator, not the presence of a body** — srvx gives every request a body stream, so a
+     * bodiless `POST` and a chunked one are identical by that measure, and only the chunked one carries
+     * the header.
      */
     if (c.req.header('transfer-encoding') !== undefined) {
       throw new DetailedError(
