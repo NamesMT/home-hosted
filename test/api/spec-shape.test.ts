@@ -75,13 +75,27 @@ describe('the spec covers the routes the app mounts', () => {
       for (const file of readdirSync(new URL('src/api/', root), { recursive: true, withFileTypes: true })) {
         if (!file.isFile() || !file.name.endsWith('.ts'))
           continue
-        const relative = path.relative(new URL('src/api/', root).pathname, path.join(file.parentPath, file.name))
+        /**
+         * Posix separators, whatever the platform.
+         *
+         * `path.relative` returns backslashes on Windows, so the key never matched the `src/app.ts`
+         * import specifier (`api/servers/$.routes`) and every factory was skipped — **0 routes found**
+         * on the Windows runner while Linux found 57. The `mounted.length` guard below is what caught
+         * it, which is why that guard counts what the scan found instead of only checking its verdict.
+         */
+        const relative = path
+          .relative(new URL('src/api/', root).pathname, path.join(file.parentPath, file.name))
+          // `path.sep` is `'\\'` on Windows and `/` elsewhere; replacing both unconditionally means the
+          // conversion is exercised on every platform rather than only on the one where it matters.
+          .replaceAll('\\', '/')
         const key = relative.replace(/\.ts$/, '').replace(/\/\$(\.routes)?$/, '').replace(/\$$/, '')
         const bare = key.endsWith('/$') ? key.slice(0, -2) : key
         const prefixes = mounts.get(key) ?? mounts.get(bare) ?? []
         if (prefixes.length === 0)
           continue
         const source = readFileSync(path.join(file.parentPath, file.name), 'utf8')
+        // The calls are pretty-printed across lines, so the quote is not necessarily on the same line
+        // as the verb — a `\s*'` alone matched nothing after `eslint --fix` reflowed them.
         for (const match of source.matchAll(/\.(get|post|put|patch|delete)\(\s*'([^']+)'/g)) {
           for (const prefix of prefixes)
             mounted.push(prefix.replace(/\/$/, '') + (match[2]!.startsWith('/') ? match[2]! : `/${match[2]!}`))
