@@ -107,6 +107,18 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Metrics
 
+- **A guard over a hand-written file list protects the files somebody remembered.** The `windowsHide`
+  scan named 13 sources; a new `src/providers/zz-probe.ts` spawning `powershell.exe` with no flag
+  passed it, verified by adding exactly that file. It now reads every `.ts` under `src/`. This is the
+  same shape as `SHIPPED`, `IN_REPO`, `SOURCES` and `stateSignature` before it — when a guard needs to
+  cover "every X", discover the X.
+- **The Windows console-window effect cannot be observed from WSL.** Tried: `MainWindowHandle` (0 both
+  ways — console windows belong to `conhost`, not the child), `GetConsoleWindow()` in the child (0 both
+  ways — no console in this context at all), and enumerating visible windows via `EnumWindows` (PowerShell
+  script execution is refused with `UnauthorizedAccess` here). `conhost.exe` appears as a child either
+  way; only its *visibility* differs, and visibility is what a headless context lacks. So `windowsHide`
+  stays verified by source scan plus the documented `node:child_process` behaviour, and the guard being
+  complete is what carries the weight — say so plainly rather than implying it was run on Windows.
 - **`stateSignature` is `JSON.stringify(state)`, and it must stay that way.** A hand-written list of
   "the fields that matter" was wrong four times — `apiTokenSet`/`passwordSet`/`allowedHosts`, the host
   view's `enabled`, `backups`' policy, the proxy's `certificates`, and `ui.meta`'s `uploadedAt`/`files`/

@@ -16,7 +16,8 @@
  * spawn** — an injected fake or a mocked `execFile` never looks at it, and the real spawn's window is
  * not observable from a test. That is the same reason the state-layout test reads `paths.ts`.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -36,25 +37,28 @@ const WINDOWS_PROGRAMS = [
   'icacls',
 ] as const
 
-/** Provider/CLI sources, which are where a process is started on someone's machine. */
-const SOURCES = [
-  'src/providers/proc.ts',
-  'src/providers/port.ts',
-  'src/providers/process.ts',
-  'src/providers/identity.ts',
-  'src/providers/host.ts',
-  'src/providers/wsl-temperature.ts',
-  'src/services/supervisor/persistent.ts',
-  'src/services/proxy.ts',
-  'src/cli/up.ts',
-  'src/cli/down.ts',
-  // Added on this branch: these start a Windows process too, and were left out of the list the
-  // guard was first written with. A guard over a hand-written file list only protects the files
-  // somebody remembered, which is the same failure mode as the missing flag.
-  'src/providers/docker.ts',
-  'src/services/scheduler.ts',
-  'src/providers/ui-release.ts',
-] as const
+/**
+ * **Every** source file, discovered rather than listed.
+ *
+ * This was a hand-written array. Three files were added to it after the guard was written, each time
+ * because a reviewer noticed — and the array still missed whatever came next: a new
+ * `src/providers/zz-probe.ts` that spawned `powershell.exe` with no `windowsHide` passed this test,
+ * which I checked before replacing the list. A guard over a list of files somebody remembered protects
+ * exactly those files, which is the same failure mode as the missing flag it is meant to catch.
+ *
+ * Reading all of `src/` costs a few milliseconds and cannot fall behind.
+ */
+function sources(): string[] {
+  const root = fileURLToPath(new URL('../../src', import.meta.url))
+  const found: string[] = []
+  for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.ts'))
+      continue
+    const relative = path.relative(path.join(root, '..'), path.join(entry.parentPath, entry.name))
+    found.push(relative.split(path.sep).join('/'))
+  }
+  return found.sort()
+}
 
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(`../../${relative}`, import.meta.url)), 'utf8')
 
@@ -121,7 +125,7 @@ describe('every Windows helper process is launched hidden', () => {
   it('passes windowsHide wherever a Windows program is started', () => {
     const offenders: string[] = []
     let seen = 0
-    for (const relative of SOURCES) {
+    for (const relative of sources()) {
       const source = read(relative)
       for (const program of WINDOWS_PROGRAMS) {
         // `'name'` as a call argument: a mention in a comment or a type does not count.
