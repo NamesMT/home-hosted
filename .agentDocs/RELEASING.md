@@ -81,9 +81,19 @@ must do about it*. Two failures follow from relying on it: a `fix(auth):` commit
 even listed as breaking, and a `BREAKING CHANGE:` footer's prose stays in git.
 
 So the migration lives in `.agentDocs/UPGRADING.md`, one `## <version>` section, and
-`scripts/release-notes.mjs` lifts that section above the commit list when building the release body.
+`scripts/release-notes.mjs` lifts those sections above the commit list when building the release body.
 Write it when the release needs it and skip it when it does not — a version with no section ships
 the changelog alone.
+
+**The body carries every section up to the released version, not only the matching number.**
+`0.16.0` prints the `0.14.0`, `0.15.0` and `0.16.0` sections, oldest first, because a person
+upgrading from `0.13.0` has to read all three. This branch learned it the hard way: it accumulated
+three releases of breaking work while `package.json` stayed at `0.13.0`, with a section staged per
+version as though each would ship separately. One dispatch would have shipped all three changes and
+printed the migration for one — the two dropped were the account model and jobs leaving the server
+entry, which are exactly the ones a person must act on. So when the work is one release, **write one
+section for the version actually being dispatched**; sections for versions that will never ship
+separately are how that happened. `test/scripts/release-notes.test.ts` pins the behaviour either way.
 
 ## Which version to dispatch
 
