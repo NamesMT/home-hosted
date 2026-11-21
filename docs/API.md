@@ -268,9 +268,9 @@ rather than hardcoding anything about a particular install.
 
 ```json
 {
-  "version": "0.14.0",
+  "version": "0.13.0",
   "apiVersion": 1,
-  "credential": { "kind": "token", "name": "hh_ab12cd" },
+  "credential": { "kind": "token", "name": "monitor" },
   "actor": "agent",
   "refused": ["auth.disable", "password.clear", "password.first", "restore.credentials", "token.generate", "token.revoke", "ui.install"],
   "features": { "proxy": true, "ddns": false, "temperature": false },
@@ -282,9 +282,10 @@ rather than hardcoding anything about a particular install.
 - **`version`** is the release running, and **`apiVersion`** the response-shape version (`1` today).
   Check `apiVersion` once, then read defensively; a field only ever arrives as an optional addition.
 - **`credential.kind`** says what answered: `session` (a browser's cookie), `token` (an API token), or
-  `local` (authentication is off and the caller is this machine). For a token, `name` is its readable
-  head — enough to tell two tokens apart, never enough to use one. `actor` is the same credential as a
-  history event names it (`user`, `agent`).
+  `local` (authentication is off and the caller is this machine). For a token, `name` is the name it
+  was minted with — what tells two credentials apart — falling back to the readable head of the
+  secret only for a token migrated from before `0.14`, whose name was never recorded. Neither is
+  enough to use one. `actor` is the same credential as a history event names it (`user`, `agent`).
 - **`refused`** lists the actions this credential may **not** take, and is **empty** for a session
   and for `local`. An API token gets: `password.clear`, `password.first`, `auth.disable`,
   `token.generate`, `token.revoke`, `ui.install`, `restore.credentials` — each refused because it is a
