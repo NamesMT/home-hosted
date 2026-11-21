@@ -32,7 +32,12 @@ const nextHeading = /^##\s/
 const start = lines.findIndex(line => heading.test(line))
 
 if (start === -1) {
-  console.error(`[release] no "## v${version}" section in CHANGELOG.md`)
+  console.error(
+    `[release] no "## v${version}" section in CHANGELOG.md — the body cannot be built.\n`
+    + `This script runs after changelogen in the release workflow, so an absent section means the`
+    + ` changelog step did not write one for ${version}: check that its --release succeeded and that`
+    + ` the tag it wrote is the version being published.`,
+  )
   process.exit(1)
 }
 
