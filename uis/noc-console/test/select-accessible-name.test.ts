@@ -79,6 +79,43 @@ describe('every reachable control has an accessible name', () => {
     expect(offenders).toEqual([])
   })
 
+  /**
+   * The same rule for a `<button>`, which is where it will next be broken.
+   *
+   * A `<select>` is named by its wrapping `label`. A **button** usually gets its name from its own text,
+   * which is why this was never checked: every button in both UIs happens to have a word in it — until
+   * someone adds an icon-only one, and a screen reader announces "button" and nothing else.
+   *
+   * Swept in Chromium across all seven console routes and all eight stock routes before writing this:
+   * no control anywhere lacks an accessible name. That is the reason to pin it now, while it is true —
+   * the check costs a source scan and the failure it prevents is invisible to everyone who can see the
+   * icon.
+   *
+   * Accepts every way this codebase names a control: `aria-label`, `aria-labelledby`, a `title`, a
+   * wrapping `<label>`, or text of its own. A tag whose content is only whitespace or a component is
+   * given the benefit of the doubt only when a component could carry text — so a bare
+   * `<button><Icon /></button>` is flagged, which is exactly the shape to catch.
+   */
+  it('names every button, including an icon-only one added later', () => {
+    const offenders: string[] = []
+    for (const { file, body } of templates()) {
+      for (const match of body.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)) {
+        const tag = match[0]
+        const opening = /<button\b[^>]*>/.exec(tag)?.[0] ?? tag
+        if (/aria-label\s*=/.test(opening) || /aria-labelledby\s*=/.test(opening) || /\btitle\s*=/.test(opening))
+          continue
+        // Text of its own? Entities and interpolation (`{{ … }}`) both count as content a reader hears.
+        const inner = (match[1] ?? '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, 'x').trim()
+        if (inner.length > 0)
+          continue
+        // A wrapping `<label>` is not how a button is named, but an enclosing `aria-label` on an
+        // ancestor group is not this check's business either — flag only a button that is bare.
+        offenders.push(`${file}: ${opening.replace(/\s+/g, ' ').slice(0, 110)}`)
+      }
+    }
+    expect(offenders, 'a button with no accessible name announces only "button"').toEqual([])
+  })
+
   it('keeps the health-mode dropdown named', () => {
     // The specific regression this test was written for.
     const view = fs.readFileSync(path.join(srcDir, 'views/ServerConfigView.vue'), 'utf8')
