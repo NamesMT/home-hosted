@@ -59,16 +59,28 @@ function shippedDocs() {
 
 const SHIPPED = shippedDocs()
 
-/** Repo-only docs, checked for their own links but never published. */
-const IN_REPO = [
-  'AGENTS.md',
-  '.agentDocs/ARCHITECTURE.md',
-  '.agentDocs/COMPATIBILITY.md',
-  '.agentDocs/GOTCHAS.md',
-  '.agentDocs/READINGS.md',
-  '.agentDocs/RELEASING.md',
-  '.agentDocs/UPGRADING.md',
-]
+/**
+ * Repo-only docs, checked for their own links but never published.
+ *
+ * **Discovered, not listed.** This was hand-written too, and it had the same failure mode as
+ * `SHIPPED` above: a new `.agentDocs/*.md` was simply not checked, and a broken link in it passed
+ * silently — verified by adding one that pointed at a file that does not exist and watching this
+ * report "all resolve". A list of files to check should be a rule about files, not a copy of them.
+ */
+function inRepoDocs() {
+  const docs = ['AGENTS.md']
+  const agentDocs = '.agentDocs'
+  if (fs.existsSync(agentDocs)) {
+    for (const found of fs.readdirSync(agentDocs, { recursive: true })) {
+      const relative = path.posix.join(agentDocs, String(found))
+      if (relative.endsWith('.md') && fs.statSync(relative).isFile())
+        docs.push(relative)
+    }
+  }
+  return docs.filter(file => fs.existsSync(file))
+}
+
+const IN_REPO = inRepoDocs()
 
 /**
  * A heading as GitHub slugs it in the URL fragment.
