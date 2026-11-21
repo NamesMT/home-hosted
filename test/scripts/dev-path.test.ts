@@ -43,13 +43,47 @@ function barePath(): string {
 function runDev(args: string[], waitMs = 25_000) {
   const result = spawnSync(node, [path.join(repo, 'scripts/dev.mjs'), ...args], {
     cwd: repo,
-    env: { PATH: barePath(), HOME: os.homedir() },
+    // The pre-builds write `i18n/generated/*.json` inside the repo, which every other worker in a
+    // full run reads. Skipping them is what keeps this test from failing the stock suite at random.
+    env: { PATH: barePath(), HOME: os.homedir(), HHOSTED_DEV_SKIP_BUILD: '1' },
     encoding: 'utf8',
     timeout: waitMs,
-    // Its own process group, so the panel and vite it spawns go with it when this test kills it.
     killSignal: 'SIGTERM',
   })
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', status: result.status }
+}
+
+/**
+ * Kill whatever is still holding a port the run used.
+ *
+ * `spawnSync`'s `timeout` signals the child it started, and this script is a *supervisor*: its
+ * children (pnpm → tsx → the panel, and pnpm → vite) are separate processes that survive it. Running
+ * this test left four panels and UI servers behind on every pass, each holding a port and a scratch
+ * home, so the next pass found the port busy — a leaked process is not a cosmetic problem.
+ *
+ * Matched on the port and the scratch home rather than by pid, because the pids are the grandchildren's
+ * and the test never learns them.
+ */
+function killLeftovers(port: string, home: string): void {
+  if (process.platform === 'win32')
+    return
+  // Two details that each made the first version silently do nothing, so three processes per run
+  // kept running while it reported success:
+  //  - `pgrep -f 'a|b'` is an extended regular expression, so a pattern built by joining terms finds
+  //    nothing;
+  //  - a pattern beginning with `--` is parsed as an *option* (`pgrep: unrecognized option`), so it
+  //    needs `--` in front of it.
+  for (const pattern of [`--port ${port}`, `--home ${home}`]) {
+    const found = spawnSync('pgrep', ['-f', '--', pattern], { encoding: 'utf8' })
+    for (const pid of (found.stdout ?? '').split('\n').map(line => line.trim()).filter(Boolean)) {
+      try {
+        process.kill(Number(pid), 'SIGKILL')
+      }
+      catch {
+        // Already gone.
+      }
+    }
+  }
 }
 
 describe('scripts/dev.mjs under a PATH with no pnpm and no node', () => {
@@ -66,6 +100,9 @@ describe('scripts/dev.mjs under a PATH with no pnpm and no node', () => {
       '--home',
       scratchHome,
     ])
+
+    killLeftovers('6969', scratchHome)
+    killLeftovers('6968', scratchHome)
 
     // The crash this test exists for: an unhandled spawn error, which node renders as a stack trace.
     expect(stderr, 'a spawn failure must be reported, not thrown').not.toContain('Unhandled \'error\' event')

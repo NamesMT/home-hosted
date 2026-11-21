@@ -299,14 +299,29 @@ function buildStockUi() {
     cwd: root,
     stdio: 'ignore',
     shell: windows,
+    // Same reason as every other child: pnpm runs `node` for the build, and this spawn does not go
+    // through `run()`, so it has to carry the PATH itself.
+    env: { ...process.env, PATH: childPath },
   })
   // Not fatal: a stale panel build is a degraded demo, and refusing to start over it is worse.
   if (result.status !== 0)
-    process.stderr.write('the stock UI build failed — the panel at / serves whatever dist/ holds\n')
+    process.stderr.write(`the stock UI build failed${result.error ? ` (${result.error.message})` : ` (exited ${result.status})`} — the panel at / serves whatever dist/ holds\n`)
 }
 
-buildLocales()
-buildStockUi()
+/**
+ * `HHOSTED_DEV_SKIP_BUILD=1` skips both pre-builds.
+ *
+ * They are convenience: the catalogs and the stock UI a fresh clone needs. A caller that already
+ * built them — a CI step, or the test that drives this script — pays for them twice, and both write
+ * files *inside the repo* while the rest of a parallel test run reads them (`i18n/generated/*.json`
+ * is a git-ignored build product the whole stock suite imports). Skipping is how that caller avoids
+ * racing every other worker. `pnpm dev` leaves it unset, which is the common case.
+ */
+const skipBuild = process.env.HHOSTED_DEV_SKIP_BUILD === '1'
+if (!skipBuild) {
+  buildLocales()
+  buildStockUi()
+}
 
 const seeded = seedDevPassword()
 
@@ -399,6 +414,23 @@ else
   process.stdout.write(`account  ${DEV_ACCOUNT} / ${DEV_PASSWORD} unless changed in the UI\n`)
 if (options.home === undefined && process.env.HHOSTED_HOME !== undefined)
   process.stdout.write(`         (HHOSTED_HOME=${process.env.HHOSTED_HOME} is set and ignored — pass --home to use it)\n`)
+
+/**
+ * A custom UI installed in this state silently shadows `uis/stock/dist`.
+ *
+ * The panel serves `.ui/` whenever it holds a complete UI and only falls back to the stock build
+ * when it does not, so a `pnpm run build:ui` here is invisible: measured on a dev state, the build
+ * wrote `index-BiD989Sc.js` while `:6600` kept serving `index-Bwwrw1n-.js` from `.dev-state/.hh/.ui/`.
+ * The rebuild is not broken, it is shadowed, and nothing on screen says so. Say so here, where the
+ * confusion starts.
+ */
+const installedUi = path.join(stateDir, '.hh', '.ui', 'index.html')
+if (fs.existsSync(installedUi)) {
+  process.stdout.write(
+    `ui       a custom UI is installed in this state and shadows uis/${options.ui}/dist\n`
+    + `         the panel at / serves .hh/.ui — \`home-hosted --home '${stateDir}' ui-revert\` to see the stock build\n`,
+  )
+}
 
 run('control', pnpm, panelArgs, devEnv)
 run(`${options.ui} ui`, pnpm, ['exec', 'vite', '--config', path.relative(root, path.join(uiDir, 'vite.config.ts'))], devEnv)
