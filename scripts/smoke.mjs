@@ -93,7 +93,8 @@ const UIS = {
   'stock': [
     ['/global/overview', 'Global overview'],
     ['/global/settings', 'Global settings'],
-    ['/w/default/overview', 'Workspace overview'],
+    // `workspacePath(id, 'overview')` is `/w/<id>` — the overview has no suffix of its own.
+    ['/w/default', 'Workspace overview'],
     ['/w/default/servers', 'Servers'],
     ['/w/default/jobs', 'Jobs'],
     ['/w/default/logs', 'Logs'],
@@ -621,6 +622,24 @@ async function main() {
       }
       // The state frame is a second apart; give the first one a moment to land.
       await page.waitForTimeout(1200)
+
+      /**
+       * The page must still be at the route that was asked for.
+       *
+       * A path this UI does not declare does **not** 404: the router's catch-all matches it and the
+       * guard rewrites to the panel-wide overview, so a wrong address answers `200` and renders a real
+       * page. That is how six of stock's eight entries were wrong for as long as they were — every one
+       * landed on `/global/overview` with `h1="Global Overview"`, and "routes clean" was true of a suite
+       * that had walked one page six times.
+       *
+       * **This has to run after the settle, not after `goto`.** Measured: immediately after
+       * `domcontentloaded` the URL is still `/default/jobs`, and it is `/global/overview` 1.5 s later —
+       * the guard rewrites from a Vue watcher, not from the initial navigation. Read too early, the
+       * check passes on exactly the defect it exists for.
+       */
+      const settled = new URL(page.url()).pathname.replace(/\/$/, '')
+      if (settled !== route.replace(/\/$/, ''))
+        fail(where, `landed on ${settled || '/'} — this UI does not declare that route, so the catch-all sent it elsewhere`)
 
       for (const problem of [...await inspectPage(page), ...await placeholderOverflow(page), ...await namelessControls(page)])
         fail(where, problem)
