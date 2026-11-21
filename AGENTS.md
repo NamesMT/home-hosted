@@ -92,7 +92,8 @@ pnpm run smoke                 # boot the BUILT panel and walk every route in Ch
   It hit-tests controls (an overlaying *element*) **and** compares pixels per control (a CSS
   background painted over one — the `scroll-hint-x` shape, which no hit-test can see), and checks for
   sideways document scroll (a table cut off). It walks **both UIs** — `stock` and `noc-console` have
-  different route tables, and it picks the right one from the panel's own `ui.json`.
+  different route tables, and it picks the right one from the panel's own `ui.json` — and does it
+  **twice per route**, at 1280x800 and 390x844, because the layout checks only bite at a phone width.
 - **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.
   CI on a push runs only the tests its changes reach since the last green run (`test.yml`); the
   whole suite with coverage runs on a manual dispatch of `test.yml` and in every release. `check:fast` follows imports, so a change only a spawned CLI or a source scan

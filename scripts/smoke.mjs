@@ -11,6 +11,10 @@
  *
  * So this runs the real thing: `dist/cli.js` on a scratch home, the real stock UI, Chromium.
  *
+ * Every route is walked **twice**: at 1280x800 and at 390x844. The layout checks are the ones that
+ * differ by width, and the sideways-scroll check exists for a mobile blow-out that never happens at
+ * desktop width — running only the wide pass meant it had never been exercised at a phone width.
+ *
  *   pnpm run smoke                       # boot a panel, walk every route, report
  *   pnpm run smoke -- --keep             # leave it running, for a look
  *   HHOSTED_SMOKE_URL=http://… pnpm run smoke   # against an instance already up
@@ -111,7 +115,16 @@ async function servedUi(page, base) {
     return 'stock'
   }
   const body = await status.json().catch(() => null)
-  const name = body?.ui?.meta?.name
+  const ui = body?.ui
+  /**
+   * `custom: false` **is** the stock UI — the panel reports `meta: null` for it, because there is no
+   * `ui.json` to read: stock ships inside the package. Trusting `meta.name` alone therefore labelled a
+   * stock panel "an unnamed UI" and warned about a UI it did not recognise, which is the exact
+   * opposite of what a fresh panel is.
+   */
+  if (ui?.custom !== true)
+    return 'stock'
+  const name = ui?.meta?.name
   if (typeof name === 'string' && name in UIS)
     return name
   /**
@@ -384,7 +397,8 @@ async function main() {
 
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
-    const page = await context.newPage()
+    // Reassignable: the mobile pass rebinds it so `walk` and the noise listeners follow the new tab.
+    let page = await context.newPage()
 
     /** Console errors and failed requests are defects; the panel logs neither on a happy path. */
     const noise = []
@@ -415,32 +429,78 @@ async function main() {
     const routes = UIS[ui]
     process.stdout.write(`[smoke] walking ${routes.length} ${ui} routes\n`)
 
-    for (const [route, label] of routes) {
+    /**
+     * Walk one route and assert everything that holds at any window size.
+     *
+     * Extracted because it now runs twice per route, at two widths — the layout checks below are the
+     * ones that differ by width, and running the desktop pass alone meant the sideways-scroll check
+     * (the mobile blow-out it exists for) had never been exercised at a phone width at all. The
+     * `.scroll-hint-x` defect was exactly this shape: invisible at 1280 px, a covered action column at
+     * 390 px.
+     */
+    const walk = async (route, label, width) => {
+      const where = `${ui} ${route}${width === null ? '' : ` @${width}`}`
       noise.length = 0
       const response = await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
       if (response === null || !response.ok())
-        fail(route, `answered ${response?.status() ?? 'nothing'}`)
+        fail(where, `answered ${response?.status() ?? 'nothing'}`)
         // The SPA route may 200 the shell; the heading check below is what proves it rendered.
       try {
         await page.waitForSelector('h1, h2', { timeout: 15_000 })
       }
       catch {
-        fail(route, 'nothing rendered (no heading after 15 s)')
-        continue
+        fail(where, 'nothing rendered (no heading after 15 s)')
+        return
       }
       // The state frame is a second apart; give the first one a moment to land.
       await page.waitForTimeout(1200)
 
       for (const problem of await inspectPage(page))
-        fail(`${ui} ${route}`, problem)
+        fail(where, problem)
       // The half `inspectPage` cannot do: a control painted over by a CSS background is still in the
       // DOM, still hit-tests to itself if the paint has no box, and only a pixel comparison sees it.
       for (const problem of await paintedOverControls(page))
-        fail(`${ui} ${route}`, problem)
+        fail(where, problem)
       for (const entry of noise)
-        fail(`${ui} ${route}`, entry)
+        fail(where, entry)
+      process.stdout.write(`[smoke] ${where} — ${label}\n`)
+    }
 
-      process.stdout.write(`[smoke] ${ui} ${route} — ${label}\n`)
+    for (const [route, label] of routes)
+      await walk(route, label, null)
+
+    /**
+     * The same routes again at a phone width, where the layout is a different program.
+     *
+     * 390 px is the width `mobile-layout.test.ts` reasons about in both UIs. A second context rather
+     * than `setViewportSize` on the existing page, so a media-query-driven re-render cannot leave a
+     * half-adjusted DOM for the next route.
+     */
+    const MOBILE = { width: 390, height: 844 }
+    const mobileContext = await browser.newContext({ viewport: MOBILE })
+    await mobileContext.addCookies(await context.cookies())
+    const mobilePage = await mobileContext.newPage()
+    mobilePage.on('pageerror', error => noise.push(`uncaught: ${error.message}`))
+    mobilePage.on('console', (message) => {
+      if (message.type() === 'error')
+        noise.push(`console: ${message.text().slice(0, 160)}`)
+    })
+    mobilePage.on('requestfailed', (request) => {
+      if (request.url().startsWith(base))
+        noise.push(`request failed: ${request.url().slice(base.length)} (${request.failure()?.errorText ?? '?'})`)
+    })
+
+    // `walk` closes over `page`; rebind it for the mobile pass rather than duplicating the body.
+    const desktopPage = page
+    page = mobilePage
+    try {
+      process.stdout.write(`[smoke] the same ${routes.length} routes at ${MOBILE.width}×${MOBILE.height}\n`)
+      for (const [route, label] of routes)
+        await walk(route, label, MOBILE.width)
+    }
+    finally {
+      page = desktopPage
+      await mobileContext.close()
     }
 
     // The two unauthenticated reads a UI reaches same-origin, and the spec a client builds on.
