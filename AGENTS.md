@@ -91,7 +91,11 @@ pnpm run smoke                 # boot the BUILT panel and walk every route in Ch
   `uis/`: every UI defect this project has shipped was invisible to `check` and obvious to a browser.
   It hit-tests controls (an overlaying *element*) **and** compares pixels per control (a CSS
   background painted over one — the `scroll-hint-x` shape, which no hit-test can see), and checks for
-  sideways document scroll (a table cut off). It walks **both UIs** — `stock` and `noc-console` have
+  sideways document scroll (a table cut off), and measures every `input[placeholder]` against its own
+  box with `canvas.measureText` — a hint that does not fit is a hint nobody finishes reading, and no
+  scroll-width comparison sees it. It opens the command palette on each route, because that is a lazy
+  modal: the one fixed-width box holding a translatable string does not exist until the shortcut is
+  pressed. It walks **both UIs** — `stock` and `noc-console` have
   different route tables, and it picks the right one from the panel's own `ui.json` — and does it
   **twice per route**, at 1280x800 and 390x844, because the layout checks only bite at a phone width.
 - **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.

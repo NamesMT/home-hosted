@@ -214,6 +214,40 @@ async function startPanel() {
  * Layout questions have to be asked in the page: only the engine knows whether a gradient covers a
  * button, and `happy-dom` answers `scrollWidth === clientWidth` for every element it is given.
  */
+/**
+ * A placeholder that does not fit its own input is a hint nobody can finish reading.
+ *
+ * Measured rather than read: the palette's input is `94vw` minus a search icon — 266 px at a 390 px
+ * viewport — and `palette.placeholder` was "Jump to a server, run an action, open a setting…", which
+ * needs 277 px in English and 384 px in Russian. **Every** language was cut mid-word, and that is why it
+ * survived: a hint you cannot finish looks like a hint that is merely long.
+ *
+ * `canvas.measureText` at the input's own computed font is the only way to answer this without a
+ * screenshot diff — a `placeholder` is not `overflow: hidden`, so no scroll-width comparison sees it.
+ *
+ * Separate from `inspectPage` because it is also the only check worth running with a modal open, and
+ * `inspectPage`'s others read an open dialog's backdrop as a cover.
+ */
+async function placeholderOverflow(page) {
+  return page.evaluate(() => {
+    const overflowing = []
+    for (const input of document.querySelectorAll('input[placeholder]')) {
+      const cs = getComputedStyle(input)
+      if (cs.visibility === 'hidden' || cs.display === 'none' || input.clientWidth === 0)
+        continue
+      const context = document.createElement('canvas').getContext('2d')
+      if (context === null)
+        continue
+      context.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+      const needed = context.measureText(input.placeholder).width
+      // A little slack: sub-pixel rounding differs per platform and a 1 px miss is not a defect.
+      if (needed > input.clientWidth + 2)
+        overflowing.push(`"${input.placeholder.slice(0, 40)}" needs ${Math.round(needed)}px in ${input.clientWidth}px`)
+    }
+    return overflowing.map(entry => `placeholder does not fit its input: ${entry}`)
+  })
+}
+
 async function inspectPage(page) {
   return page.evaluate(() => {
     const problems = []
@@ -455,12 +489,43 @@ async function main() {
       // The state frame is a second apart; give the first one a moment to land.
       await page.waitForTimeout(1200)
 
-      for (const problem of await inspectPage(page))
+      for (const problem of [...await inspectPage(page), ...await placeholderOverflow(page)])
         fail(where, problem)
       // The half `inspectPage` cannot do: a control painted over by a CSS background is still in the
       // DOM, still hit-tests to itself if the paint has no box, and only a pixel comparison sees it.
       for (const problem of await paintedOverControls(page))
         fail(where, problem)
+
+      /**
+       * The command palette is a **lazy modal** — nothing renders it until the shortcut — so every check
+       * above skips its search input, which is the one fixed-width box in the UI holding a translatable
+       * string. Without this the placeholder overflow that shipped was invisible to this script: the
+       * first version of the check passed because the input did not exist on the page.
+       *
+       * Opened only where the UI has one, and closed again so the next route starts clean. A UI without
+       * the shortcut (noc-console) simply reports nothing here.
+       */
+      const paletteOpened = await page.evaluate(() => {
+        // `Mod+K` is what the button itself advertises; dispatch the event rather than a real keypress,
+        // so the check does not depend on focus having landed anywhere in particular.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, metaKey: true, bubbles: true }))
+        return true
+      })
+      if (paletteOpened) {
+        await page.waitForTimeout(600)
+        /**
+         * Only the input check runs while a modal is open.
+         *
+         * `inspectPage`'s other two checks read an open dialog as a defect — its backdrop genuinely does
+         * paint over the page behind it, which is what a modal is for. Running the whole function here
+         * reported eight "controls painted over" findings that were all the overlay working correctly.
+         */
+        for (const problem of await placeholderOverflow(page))
+          fail(`${where} (palette)`, problem)
+        await page.keyboard.press('Escape').catch(() => {})
+        await page.waitForTimeout(200)
+      }
+
       for (const entry of noise)
         fail(where, entry)
       process.stdout.write(`[smoke] ${where} — ${label}\n`)
