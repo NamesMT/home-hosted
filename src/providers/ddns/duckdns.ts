@@ -38,6 +38,17 @@ export const duckdnsProvider: DdnsProvider = {
       const body = (await response.text()).trim()
       if (body.toUpperCase() === 'OK')
         return succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true)
+      /**
+       * `KO` is duckdns's whole vocabulary for "no", and it means the **token or the domain was
+       * rejected** — the same inputs will get the same answer.
+       *
+       * Reported as transient it was retried every interval forever: a mistyped token produced
+       * `duckdns answered "KO"` on the settings page indefinitely, with nothing saying what to fix.
+       * `permanent` is what stops the retry loop (`src/services/ddns.ts` reads it to end the record),
+       * and the message now names the two things a person can act on.
+       */
+      if (body.toUpperCase() === 'KO')
+        return failed('duckdns rejected the token or the domain — check both in the account settings', true)
       return failed(`duckdns answered "${body.slice(0, 120) || `HTTP ${response.status}`}"`)
     }
     catch (error) {

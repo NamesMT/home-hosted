@@ -470,9 +470,23 @@ describe('simple token providers', () => {
     expect(calls[0]?.url).toContain('domains=home&token=t&ip=93.184.216.7')
   })
 
-  it('duckdns reports KO', async () => {
+  /**
+   * `KO` is permanent, and that is what stops the retry loop.
+   *
+   * DuckDNS answers `KO` when it rejects the token or the domain: the same inputs get the same answer,
+   * so retrying every interval is pointless. The provider reported it as transient with the raw body as
+   * the message, so a mistyped token produced `duckdns answered "KO"` on the settings page indefinitely,
+   * with nothing saying what to fix. `src/services/ddns.ts` reads `permanent` to end the record.
+   *
+   * The previous assertion here was `ok === false`, which a transient failure satisfies just as well —
+   * it could not see the difference this case exists for.
+   */
+  it('duckdns reports KO as a permanent refusal that says what to check', async () => {
     const { fetch } = recorder(() => text('KO'))
-    expect((await updater(duckdnsProvider)(record(), { credentials: { token: 't' }, fetch })).ok).toBe(false)
+    const result = await updater(duckdnsProvider)(record(), { credentials: { token: 't' }, fetch })
+    expect(result.ok).toBe(false)
+    expect(result.permanent, 'a rejected token must not be retried forever').toBe(true)
+    expect(result.error, 'the message must name what a person can fix').toMatch(/token|domain/i)
   })
 
   it('dynu uses basic auth', async () => {
