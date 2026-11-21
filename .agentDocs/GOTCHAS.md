@@ -159,6 +159,21 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **A DDNS failure is retried forever unless the provider sets `permanent`, and most do not.**
+  `src/services/ddns.ts` reads `result.permanent` to end a record; a transient result is retried every
+  interval. Of the 14 providers, only `cloudflare` and `duckdns` classified anything, and `noip`/`desec`
+  inherit the `dyndns2` vocabulary — so a mistyped API token produced a failure line on the settings page
+  indefinitely, with nothing saying the token was the problem. `wrote()` in
+  `src/providers/ddns/types.ts` is where four REST providers end their write, so 401/403 are classified
+  **once**, there: those two statuses mean "your credentials are wrong" for every one of these APIs,
+  whereas 429/5xx are the provider's problem and 404 can mean a record not created yet — guessing at
+  those would turn a temporary fault into a permanent one.
+
+  **Still unclassified, knowingly**: `porkbun` (returns its own envelope, no status kept) and
+  `namecheap-api` (its `request()` returns `string | null`, discarding the status before the caller can
+  see it). Fixing either means changing what that helper returns, which is a larger change than the gap
+  warrants right now; both need a real API key to test anyway. Recorded so the next person does not
+  assume the classification is complete.
 - **One Windows flake in `processTreeOwners` is unexplained, and my first explanation for it was wrong.**
   `proc.test.ts > processTreeOwners > includes a grandchild` failed once with
   `owners.has(process.pid)` unexpectedly `true` — the test's **own** process reported as a descendant of

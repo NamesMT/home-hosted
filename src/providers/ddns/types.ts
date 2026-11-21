@@ -105,8 +105,22 @@ export function failed(error: string, permanent = false): DdnsResult {
  * result and "ok" would not say what actually moved.
  */
 export async function wrote(response: Response, record: DdnsRecord): Promise<DdnsResult> {
-  if (!response.ok)
-    return failed(await errorText(response))
+  if (!response.ok) {
+    /**
+     * **401 and 403 are permanent.** The credential was rejected, and the same credential will be
+     * rejected again: retrying it every interval is a loop that cannot succeed.
+     *
+     * Every provider here reported those as transient — only `cloudflare` and `duckdns` classified
+     * anything at all — so a mistyped API token produced a failure line on the settings page forever,
+     * with nothing saying it was the token. `src/services/ddns.ts` reads `permanent` to end the record.
+     *
+     * Scoped to the two statuses that mean "your credentials are wrong". A 429 or a 5xx is the
+     * provider's problem and is worth retrying, and a 404 can mean a record that has not been created
+     * yet — guessing at those would turn a temporary fault into a permanent one.
+     */
+    const rejected = response.status === 401 || response.status === 403
+    return failed(await errorText(response), rejected)
+  }
   return succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true)
 }
 

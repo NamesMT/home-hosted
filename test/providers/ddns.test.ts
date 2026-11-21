@@ -521,6 +521,34 @@ describe('simple token providers', () => {
 })
 
 describe('rest providers', () => {
+  /**
+   * A rejected credential is permanent, and every REST provider got this wrong.
+   *
+   * Only `cloudflare` and `duckdns` classified any failure at all. The rest reported everything as
+   * transient, so a mistyped API token produced a failure line on the settings page **forever**, with
+   * nothing saying the token was the problem. `src/services/ddns.ts` reads `permanent` to end a record.
+   *
+   * `wrote()` is where four of them end their write, so the status is classified once. Scoped to 401 and
+   * 403: those mean "your credentials are wrong" for every one of these APIs, while a 429 or a 5xx is
+   * the provider's problem and worth retrying.
+   */
+  it('treats 401 and 403 as permanent, on the provider that shares wrote()', async () => {
+    for (const status of [401, 403]) {
+      const { fetch } = recorder(() => json({ message: 'denied' }, status))
+      const result = await updater(gandiProvider)(record(), { credentials: { token: 'bad' }, fetch })
+      expect(result.ok, `a ${status} must not read as success`).toBe(false)
+      expect(result.permanent, `a ${status} is the credential being rejected, and retrying cannot fix it`).toBe(true)
+    }
+  })
+
+  it('keeps a 5xx transient, because the next try may succeed', async () => {
+    // Anti-vacuity for the case above: marking every failure permanent would satisfy it and break retry.
+    const { fetch } = recorder(() => json({ message: 'boom' }, 500))
+    const result = await updater(gandiProvider)(record(), { credentials: { token: 'ok' }, fetch })
+    expect(result.ok).toBe(false)
+    expect(result.permanent, 'a provider-side error must stay retryable').not.toBe(true)
+  })
+
   it('gandi PUTs a one-value rrset with a PAT', async () => {
     const { fetch, calls } = recorder((_url, init) => (init?.method === 'PUT' ? json({ message: 'created' }, 201) : json({}, 404)))
     const result = await updater(gandiProvider)(record(), { credentials: { token: 'pat_x' }, fetch })
