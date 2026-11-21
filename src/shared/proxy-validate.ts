@@ -28,6 +28,20 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
       errors.push(`route id "${route.id}" is used twice`)
     ids.add(route.id)
 
+    /**
+     * A hostname longer than 253 characters cannot resolve, so accepting one stores a route that can
+     * never work — and `renderCaddyConfig` passes it straight to the engine.
+     *
+     * Found by driving it: a 5004-character host was accepted `200` by `PATCH /api/proxy` and stored
+     * intact. The schema's pattern has no length bound (only the shape), and nothing else checked.
+     * The limit is DNS's own — 253 octets for a name, 63 for one label — so a longer route is not a
+     * policy choice, it is a route that cannot exist.
+     */
+    if (route.host.length > 253)
+      errors.push(`"${route.host.slice(0, 40)}…" is ${route.host.length} characters; a hostname cannot exceed 253`)
+    else if (route.host.split('.').some(label => label.length > 63))
+      errors.push(`"${route.host}" has a label longer than 63 characters`)
+
     const key = routeKey(route)
     if (seen.has(key))
       errors.push(`"${route.host}" is routed twice`)

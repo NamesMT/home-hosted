@@ -473,6 +473,26 @@ describe('validateProxyConfig', () => {
     expect(errors).toContain('"ONE.example.com" is routed twice')
   })
 
+  /**
+   * A hostname longer than DNS allows is refused, because it cannot resolve.
+   *
+   * The schema checks the *shape* of a host and has no length bound, and nothing else did: a
+   * 5004-character name was accepted `200` by `PATCH /api/proxy` against a built panel, stored intact,
+   * and handed to `renderCaddyConfig`. The limit is DNS's own — 253 octets for a name, 63 for a label —
+   * so a longer route is not a policy choice, it is a route that can never work.
+   */
+  it('rejects a hostname longer than DNS allows', () => {
+    const long = validateProxyConfig(config({ routes: [{ id: 'a', host: `${'a'.repeat(300)}.com` }] }))
+    expect(long.some(error => error.includes('cannot exceed 253')), 'a 304-character name was accepted').toBe(true)
+
+    const label = validateProxyConfig(config({ routes: [{ id: 'b', host: `${'b'.repeat(70)}.example.com` }] }))
+    expect(label.some(error => error.includes('label longer than 63')), 'a 70-character label was accepted').toBe(true)
+
+    // Anti-vacuity: a normal name must still pass, and a 63-character label is legal.
+    const fine = validateProxyConfig(config({ routes: [{ id: 'c', host: `${'c'.repeat(63)}.example.com` }] }))
+    expect(fine.filter(error => error.includes('253') || error.includes('label'))).toEqual([])
+  })
+
   it('reads a path without its slash, or in another case, as the same route', () => {
     // Caddy's host and path matchers are case-insensitive and the renderer adds the leading slash,
     // so each pair rendered matchers that shadow each other while the clash check let them through.
