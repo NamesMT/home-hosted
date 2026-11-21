@@ -1,6 +1,8 @@
 import type { Fixture } from '../api/fixture'
+import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MAX_JSON_BODY_BYTES } from '#src/middleware/body-limit'
+import { errorHandler } from '#src/helpers/error'
+import { createUploadLimit, MAX_JSON_BODY_BYTES } from '#src/middleware/body-limit'
 import { makeFixture, makeView } from '../api/fixture'
 
 /**
@@ -37,6 +39,21 @@ async function signIn(created: Fixture): Promise<string> {
   })
   expect(response.status).toBe(200)
   return response.headers.get('set-cookie')!.split(';')[0]!
+}
+
+/**
+ * A minimal app carrying the **panel's** error handler.
+ *
+ * A bare `Hono()` has none, so a thrown `DetailedError` becomes a `500` instead of its own status —
+ * which is how these two cases first failed while the same code answered `413` against a built panel.
+ * The real app installs `errorHandler` in `src/app.ts`; a test that omits it is testing a server the
+ * project does not run.
+ */
+function uploadApp() {
+  const app = new Hono()
+  app.onError(errorHandler)
+  app.post('/up', createUploadLimit(1024), async c => c.json({ len: (await c.req.text()).length }))
+  return app
 }
 
 describe('the request body ceiling', () => {
@@ -152,5 +169,42 @@ describe('the request body ceiling', () => {
       body: `--x\r\nContent-Disposition: form-data; name="file"; filename="a.zip"\r\n\r\n${'P'.repeat(MAX_JSON_BODY_BYTES * 2)}\r\n--x--\r\n`,
     })
     expect(response.status, 'the upload was refused by the JSON ceiling instead of reaching its route').not.toBe(413)
+  })
+
+  /**
+   * The upload routes' ceiling, which must not be `hono/body-limit`.
+   *
+   * That middleware re-wraps the request to re-read its stream, and srvx's `PatchedRequest` constructor
+   * unwraps `_request` before `super(...)`, whose URL is relative — `Failed to parse URL`, a `500`. The
+   * upload routes looked fine because a normal upload carries `content-length` and never reaches the
+   * rewrap; a **chunked** upload to `/api/backups/restore` answered `500` with the identical stack,
+   * measured against a built panel.
+   *
+   * `createUploadLimit` counts the stream instead of re-wrapping it.
+   */
+  describe('the upload ceiling', () => {
+    it('refuses a declared length over the cap', async () => {
+      const app = uploadApp()
+
+      const response = await app.request('/up', {
+        method: 'POST',
+        headers: { 'content-length': '5000' },
+        body: 'x'.repeat(2048),
+      })
+      expect(response.status).toBe(413)
+      expect(await response.json()).toMatchObject({ code: 'UPLOAD_TOO_LARGE' })
+    })
+
+    it('lets a body under the cap through, and refuses one over it as it arrives', async () => {
+      const app = uploadApp()
+
+      // No `content-length` on either: the counting path is what is under test.
+      const small = await app.request('/up', { method: 'POST', body: 'a'.repeat(100) })
+      expect(small.status, 'a request under the cap was refused').toBe(200)
+      expect(await small.json()).toEqual({ len: 100 })
+
+      const big = await app.request('/up', { method: 'POST', body: 'a'.repeat(5000) })
+      expect(big.status, 'a chunked body over the cap was not refused').toBe(413)
+    })
   })
 })

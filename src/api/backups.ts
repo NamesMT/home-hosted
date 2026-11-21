@@ -8,7 +8,6 @@ import { Readable } from 'node:stream'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute, resolver } from 'hono-openapi'
-import { bodyLimit } from 'hono/body-limit'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -16,6 +15,7 @@ import { ensureStateDir } from '#src/helpers/paths'
 import { parseOrThrow } from '#src/helpers/validate'
 import { validate } from '#src/helpers/validator'
 import { requestIdentity } from '#src/middleware/auth'
+import { createUploadLimit } from '#src/middleware/body-limit'
 import { selectionWritesCredentials } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupSelectionSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
@@ -139,12 +139,7 @@ export function createBackupsRoute(deps: AppDeps) {
      * ceiling was a memory limit rather than a guard. This middleware counts chunks and aborts at the
      * cap, which is the half the header check cannot do.
      */
-    bodyLimit({
-      maxSize: MAX_UPLOAD_BYTES,
-      onError: () => {
-        throw new DetailedError(`the upload is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
-      },
-    }), async (c) => {
+    createUploadLimit(MAX_UPLOAD_BYTES), async (c) => {
       const confirm = c.req.valid('query').confirm === true
       const contentType = c.req.header('content-type') ?? ''
 

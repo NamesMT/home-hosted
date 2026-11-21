@@ -57,13 +57,14 @@ export function createBodyLimitGuard(): MiddlewareHandler {
      *    **relative**, and `super()` then throws `Failed to parse URL`. Mounted at `/api/*` it answered
      *    **500 for every bodiless `POST`** — `start`, `stop`, `backup create`.
      *
-     *    The upload handlers pass the *same* middleware per route and it works, and **why the two
-     *    differ I did not establish** — four isolation attempts (plain Hono, `createFactory` + `.route`,
-     *    with `hostname`/`trustProxy`, with a preceding middleware) all answered 200, while the real app
-     *    reliably answers 500 with the trace above. What *is* established, by instrumenting the real
-     *    guard: the request it receives carries a `_request` property, and a synthetic object of that
-     *    shape makes `new Request(...)` throw `Failed to parse URL` — so the rewrap is the mechanism, and
-     *    the isolation probes passed because they built a *native* `Request`, without `_request`.
+     *    **This is not specific to `/api/*`.** The upload routes used `bodyLimit` per route and only
+     *    appeared* to work: a normal upload carries `content-length`, takes the header fast-path and
+     *    never reaches the rewrap. A **chunked** upload to `/api/backups/restore` answered `500` with
+     *    the identical stack — driven, not reasoned. Both upload routes now use
+     *    `createUploadLimit` below, which counts the stream without re-wrapping anything.
+     *
+     *    Why the isolation probes below all answered 200 is settled: they built a *native* `Request`,
+     *    without `_request`, so the unwrap found nothing to unwrap.
      *  - Teeing the body and draining one branch hung the request rather than refusing it.
      *
      * So what cannot be measured is refused: `411 LENGTH_REQUIRED`. **`transfer-encoding` is the
@@ -98,4 +99,84 @@ function carriesAnUpload(method: string, pathname: string): boolean {
   if (method !== 'POST')
     return false
   return pathname === '/api/backups/restore' || pathname === '/api/settings/ui'
+}
+
+/**
+ * The same ceiling, for a **route that carries a file**, without `bodyLimit`.
+ *
+ * `hono/body-limit` cannot be used anywhere in this panel: it re-wraps the request to re-read its
+ * stream, and srvx's `PatchedRequest` constructor unwraps `_request` before `super(...)`, whose URL is
+ * relative — `Failed to parse URL`, a 500. **That is true per-route too, not only at `/api/*`**: the
+ * upload routes looked fine because a normal upload carries `content-length` and takes the header
+ * fast-path, never reaching the rewrap. A chunked upload answered **500** with the identical stack.
+ *
+ * So this counts the stream without touching `c.req.raw`: a `TransformStream` sits in front of the one
+ * the handler wants, and the count aborts the request the moment it crosses the ceiling. The handler is
+ * handed a `Request` built around the measured side, which is exactly what `parseBody()` will read.
+ */
+export function createUploadLimit(maxBytes: number): MiddlewareHandler {
+  return async (c, next) => {
+    const declared = c.req.header('content-length')
+    // The cheap answer, and the one a browser upload always allows.
+    if (declared !== undefined) {
+      const length = Number.parseInt(declared, 10)
+      if (Number.isFinite(length) && length > maxBytes) {
+        throw new DetailedError(`the upload is larger than ${Math.round(maxBytes / 1024 / 1024)}MB`, {
+          statusCode: 413,
+          code: 'UPLOAD_TOO_LARGE',
+        })
+      }
+      return next()
+    }
+
+    const body = c.req.raw.body
+    if (body === null)
+      return next()
+
+    // Count as the body flows. `tee()` is not used: the copy the handler reads has to stay the only
+    // one, or `parseBody()` sees two consumers and one of them stalls.
+    let size = 0
+    let aborted = false
+    const counter = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        size += chunk.byteLength
+        if (size > maxBytes) {
+          // `controller.error()` surfaces as a bare 500 — nothing turns a stream error into a status, so
+          // the flag is set and the refusal raised by this middleware below the `next()`.
+          aborted = true
+          controller.error(new Error('the upload exceeded its ceiling'))
+          return
+        }
+        controller.enqueue(chunk)
+      },
+    })
+
+    c.req.raw = new Request(c.req.raw.url, {
+      method: c.req.raw.method,
+      headers: c.req.raw.headers,
+      body: body.pipeThrough(counter),
+      duplex: 'half',
+    } as RequestInit)
+
+    const refuse = (): never => {
+      throw new DetailedError(`the upload is larger than ${Math.round(maxBytes / 1024 / 1024)}MB`, {
+        statusCode: 413,
+        code: 'UPLOAD_TOO_LARGE',
+      })
+    }
+
+    try {
+      await next()
+    }
+    catch (error) {
+      // The counter errored mid-stream: that is the ceiling firing, and it must answer `413` rather
+      // than the bare `500` a stream error becomes on its own.
+      if (aborted)
+        refuse()
+      throw error
+    }
+    // A handler that returned without consuming the stream still crossed the ceiling.
+    if (aborted)
+      refuse()
+  }
 }

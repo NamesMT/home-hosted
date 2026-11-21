@@ -6,7 +6,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
-import { bodyLimit } from 'hono/body-limit'
 import { ConfigError } from '#src/config/store'
 import { displayHost } from '#src/helpers/bind'
 import { afterResponse } from '#src/helpers/deferred'
@@ -17,6 +16,7 @@ import { ERROR_RESPONSES, jsonBody, multipartFileBody } from '#src/helpers/opena
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestIdentity } from '#src/middleware/auth'
+import { createUploadLimit } from '#src/middleware/body-limit'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { buildControlView } from '#src/services/state'
 import { unknownBackupIds } from '#src/shared/backup-scope'
@@ -250,12 +250,7 @@ export function createSettingsRoute(deps: AppDeps) {
      * everything — so an upload with no declared length was read into memory in full and then refused.
      * See the same reasoning in `api/backups.ts`.
      */
-    bodyLimit({
-      maxSize: MAX_UI_UPLOAD_BYTES,
-      onError: () => {
-        throw new DetailedError(`the upload is larger than ${Math.round(MAX_UI_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
-      },
-    }), async (c) => {
+    createUploadLimit(MAX_UI_UPLOAD_BYTES), async (c) => {
       // Pre-flight only; `file.size` below is the authoritative check for a *declared* length.
       // `parseInt` is safe because Node's HTTP parser rejects a non-decimal `Content-Length` with a
       // 400 before any handler runs — see the same note in `api/backups.ts`.
