@@ -854,19 +854,20 @@ function stateSignature(state: AppState): string {
     // or a revert is news the moment it happens — and without this it was only picked up when
     // something else moved, which the host sample eventually does (up to one interval later).
     `${state.ui.custom}:${state.ui.meta?.name ?? ''}:${state.ui.meta?.version ?? ''}`,
-    // The proxy is the one panel-wide service whose live state changes on its own
-    // (a start, a stop, a rejected route), so it has to be part of the signature.
-    state.proxy === undefined
-      ? ''
-      : [
-          state.proxy.config.enabled,
-          state.proxy.status.state,
-          state.proxy.status.pid,
-          state.proxy.status.lastError ?? '',
-          state.proxy.engine.installed,
-          state.proxy.engine.version ?? '',
-          ...state.proxy.routes.map(route => `${route.route.id}:${route.status}:${route.upstream ?? ''}`),
-        ].join(':'),
+    /**
+     * The whole proxy view, for the reason everything above is signed whole.
+     *
+     * This signed a hand-picked list — `config.enabled`, status, engine, routes — which left out
+     * `config.certificates`, `certificates`, `dnsAccounts` and `engines`. Measured: uploading a
+     * certificate through `PUT /api/proxy/certificates/:id` while the engine was **off** published no
+     * frame, so a second tab kept showing the old list. With the engine *on* the route calls
+     * `apply()`, the status moves, the frame is published and the certificate rides along — which is
+     * why the first upload in a session looks fine and the second does not.
+     *
+     * `undefined` is "this panel has no proxy", which is a different fact from an empty view, so it
+     * stays its own branch rather than collapsing into `null`.
+     */
+    state.proxy === undefined ? '' : JSON.stringify(state.proxy),
     /*
      * The whole workspace view, for the reason the host view above is signed whole: a hand-picked
      * list left out `orphans`, so a stray process appearing or going published nothing.

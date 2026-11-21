@@ -107,6 +107,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Metrics
 
+- **A hand-picked field list in `stateSignature` is a bug that waits for the right trigger.** The
+  proxy was signed as `config.enabled`, status, engine and routes — which left out
+  `config.certificates`, `certificates`, `dnsAccounts` and `engines`. With the engine **on**, storing a
+  certificate calls `apply()`, the status moves, and the certificate rides along in the frame; with it
+  **off**, nothing else moves and the upload publishes nothing, so a second tab keeps showing the old
+  list. That asymmetry is why it survived: the first upload of a session looks fine. Sign the whole
+  view — `JSON.stringify(state.proxy)` — as `control`, `host`, `backups` and each workspace now are.
 - **A signature that signs a view must sign all of it — including the fields that look static.**
   `stateSignature` signed `backups.lastAutomaticAt` and `backups.scheduleError`, reasoning that "the
   archive list is a separate `GET /api/backups`". True of the *archives*, false of the *policy*:

@@ -38,6 +38,13 @@ export interface Harness {
   hub: import('#src/services/events').EventHub
   dir: string
   hhDir: string
+  /**
+   * The reverse-proxy service, when `withProxy` asked for one.
+   *
+   * `PanelService` keeps it behind a `() => ProxyService | null` accessor and exposes no getter, so a
+   * case that needs to change proxy state has to be handed the instance directly.
+   */
+  proxy: import('#src/services/proxy').ProxyService | null
   /** Every frame the panel published, newest last. */
   frames: AppState[]
   dispose: () => Promise<void>
@@ -269,6 +276,7 @@ export async function makeHarness(options: {
     dir,
     hhDir,
     frames,
+    proxy: proxyService,
     dispose: async () => {
       proxyService?.dispose()
       await panel.dispose()

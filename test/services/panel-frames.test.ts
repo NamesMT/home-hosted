@@ -1,5 +1,6 @@
 import type { WorkspaceView } from '#src/shared/contracts'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
@@ -592,4 +593,62 @@ describe('the state frame a UI actually reads', () => {
       await dispose()
     }
   })
+
+  /**
+   * Storing a certificate must publish a frame, or another tab keeps showing the old list.
+   *
+   * The signature signed a hand-picked proxy list — `config.enabled`, status, engine, routes — and left
+   * out `config.certificates`, `certificates`, `dnsAccounts` and `engines`. With the engine **off**
+   * nothing else moves, so `PUT /api/proxy/certificates/:id` published nothing at all: measured
+   * against a running panel, the upload answered 200 and the frame stream carried no certificate.
+   * With the engine **on** the route calls `apply()`, the status moves, and the certificate rides
+   * along — so the first upload of a session looks fine and a later one does not.
+   *
+   * Drive it through the service, not the route: the route is `apply()`-conditional, and the bug is
+   * precisely the branch where `apply()` does not run.
+   */
+  it('publishes a frame when a certificate is stored while the engine is off', async () => {
+    const { panel, frames, proxy, dispose } = await makeHarness({ withProxy: true })
+
+    try {
+      expect(proxy, 'the harness must build a proxy for this case').not.toBeNull()
+
+      // Freeze the clock-driven parts, so the certificate is the only thing that can move the frame.
+      const patched = panel as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }
+      const host = patched.options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      const before = frames.length
+
+      // The engine is off in this harness, which is the branch the bug lives in: the route skips
+      // `apply()`, so the only state change is the stored pair itself.
+      const pair = await selfSignedPair()
+      const saved = proxy!.saveCertificate('probe', 'probe label', pair.certificate, pair.key)
+      expect(saved.ok, `the certificate was refused: ${saved.error ?? '?'}`).toBe(true)
+      panel.notifyStateChange()
+
+      await waitFor(() => frames.length > before, 8000)
+      const certificates = frames.at(-1)?.proxy?.config.certificates ?? []
+      expect(certificates.map(entry => entry.id), 'a stored certificate published no frame').toContain('probe')
+    }
+    finally {
+      await dispose()
+    }
+  })
 })
+
+/** A real self-signed pair, so `saveCertificate` accepts it. */
+async function selfSignedPair(): Promise<{ certificate: string, key: string }> {
+  const { execFileSync } = await import('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-cert-'))
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(dir, 'k.pem'), '-out', path.join(dir, 'c.pem'), '-days', '1', '-subj', '/CN=probe.local'], { stdio: 'ignore' })
+    return { certificate: fs.readFileSync(path.join(dir, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(dir, 'k.pem'), 'utf8') }
+  }
+  finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
