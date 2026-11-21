@@ -36,15 +36,20 @@ The step runs `playwright install --with-deps chromium` first: the script drives
 against `dist/cli.js`, and neither the browser binary nor its system libraries come with
 `pnpm install`.
 
-Four workflows, and the split is deliberate:
+Five workflows, and the split is deliberate:
 
 | workflow | runs on | what it proves |
 | --- | --- | --- |
 | `quickcheck.yml` | every push and PR | lint, types, doc links — Linux only |
 | `test.yml` | every push and PR; manual dispatch | the tests a push's changes reach since the last green run (Linux); dispatched, the whole suite with coverage |
-| `release.yml` | manual dispatch | cross-platform, then lint, types and the whole suite **with coverage** — the coverage floors' automatic gate |
+| `smoke.yml` | every push and PR; by hand | the **browser** pass: every route of both UIs at two viewports, with the pixel, placeholder and sideways-scroll checks. Nothing else here is blind to a UI defect the way `check` is |
 | `cross-platform.yml` | the release gate, or by hand | the same suite on macOS and Windows |
-| `release.yml` | dispatched with a version | the platform gate, then tag, publish, release assets |
+| `release.yml` | dispatched with a version | the platform gate, the browser pass, then tag, publish, release assets |
+
+**The browser pass runs before anything is published, in the release workflow as well as on a push.**
+That ordering is the point: Chromium used to be installed only for the optional media regeneration,
+which runs *after* `npm publish`, so a defect it could have caught was reported on a release that had
+already shipped.
 
 The platform gate is not a per-push job on purpose: it is the expensive half, and it is what makes a
 platform-specific break fail before shipping rather than on someone's machine. Every job carries a

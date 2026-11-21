@@ -119,6 +119,23 @@ jobs:
       - name: Build the CLI, the stock UI and the UI bundles
         run: pnpm run build && pnpm run build:uis
 
+      # **Before the changelog commit and the tag**, which is the point: everything below this line
+      # publishes. `quickcheck && vitest` are both blind to what a browser sees, and every UI defect
+      # this project has shipped was invisible to them — a CSS band over a table's action buttons, a
+      # page scrolling sideways at a phone width, a title ellipsised in German but not English, a
+      # search hint cut mid-word in every language. The Chromium download was already paid for below
+      # (the media step installs it), but that runs *after* `npm publish`, so it could only report a
+      # defect on a release that had already shipped.
+      #
+      # `push` CI runs this too (`.github/workflows/smoke.yml`). Repeating it is deliberate: a tag can be
+      # cut from a commit whose push run failed, and the release is the last place a browser defect can
+      # be caught before users get it. A dry run runs this as well — the point of a dry run is to
+      # rehearse the parts most likely to fail, and this is one of them.
+      - name: Walk every route in Chromium, before anything is published
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm run smoke
+
       - name: Changelog, version bump, commit and tag
         run: |
           # the runner has no git identity, and changelogen will happily exit 0 after a
