@@ -159,6 +159,14 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **A workspace route is `/w/<id>/…`, not `/<id>/…` — and the wrong one silently shows a different page.**
+  `/default/jobs` renders the **Servers** view (which then says "No servers anywhere yet"), so a browser
+  check against it looks like a working page and reports nothing. The real table is in
+  `uis/stock/src/router.ts`: `/w/:workspaceId/jobs`. The same file warns that a missing entry in
+  `WORKSPACE_ROUTES` makes `/w/<id>/<unknown>` redirect to itself — an infinite navigation loop that
+  locks the renderer — so a route typo here has two failure modes and neither is a 404.
+  Cost me one wasted probe round: I read "no impossible row" as a rendering bug before checking the URL.
+
 - **`migrate` prints "moving N job(s)" before it has asked, and writes nothing until you consent.**
   The line is unconditional — it is the *plan* — while `applyJobMove` sits behind
   `if (yes || HHOSTED_MIGRATE=allow)`. Run it non-interactively without either and you get
