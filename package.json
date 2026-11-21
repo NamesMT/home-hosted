@@ -74,6 +74,7 @@
     "docs/branding/logo.svg",
     "docs/branding/social-preview.png",
     "docs/demo/blank-host-restore.sh",
+    "scripts/prepare.mjs",
     "uis/stock/dist"
   ],
   "engines": {
@@ -97,7 +98,7 @@
     "quickcheck": "node scripts/quickcheck.mjs",
     "check": "pnpm run quickcheck && vitest run --coverage",
     "check:fast": "pnpm run quickcheck && vitest run --sinceLastRun",
-    "prepare": "simple-git-hooks && pnpm run build:locales",
+    "prepare": "node scripts/prepare.mjs",
     "build:locales": "node scripts/build-locales.mjs",
     "prepack": "pnpm run build",
     "build:ui": "node scripts/build-uis.mjs stock",
