@@ -195,6 +195,49 @@ describe('noc-console is usable at a phone width', () => {
   })
 
   /**
+   * **Every** `<table>` sits inside `.tblwrap`, discovered rather than listed.
+   *
+   * `AccountsSection.vue` did not, and it was the only one: measured in Chromium on
+   * `/global/settings`, the accounts table is **605 px wide inside a 296 px box at 320 px** (and
+   * 366 px at 390 px), with `overflow-x: visible` — so the page itself scrolled sideways and the
+   * `disable`/`revoke` buttons sat off-screen. `.tblwrap` is what gives the scroller its edge hint,
+   * so an unwrapped table is not only sideways, it is silent about being scrollable.
+   *
+   * The two cases above name their files by hand, which is why this one went unseen: a table added
+   * later was covered by nothing. This walks every `.vue` under `src/` instead.
+   */
+  it('wraps every table in the scroll container that gives it an edge hint', () => {
+    const unwrapped: string[] = []
+    for (const entry of fs.readdirSync(path.join(root, 'src'), { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.vue'))
+        continue
+      const file = path.join(entry.parentPath, entry.name)
+      const source = fs.readFileSync(file, 'utf8')
+      /**
+       * The template region with comments stripped.
+       *
+       * Stripping is load-bearing, and the first version of this guard was fooled by exactly the thing
+       * it was written next to: the `<!-- -->` explaining *why* the accounts table needs `.tblwrap`
+       * contains the word `tblwrap`, and it sat after the last `</div>`, so `lastIndexOf('tblwrap')`
+       * found the comment and called an unwrapped table wrapped. Verified by un-wrapping the table and
+       * watching the guard stay green — which is how a guard that reads prose instead of markup fails.
+       */
+      const template = source
+        .slice(source.indexOf('<template>'), source.lastIndexOf('</template>'))
+        .replaceAll(/<!--[\s\S]*?-->/g, '')
+      // A table counts as wrapped when a `.tblwrap` container opens before it and closes after.
+      for (const match of template.matchAll(/<table\b/g)) {
+        const before = template.slice(0, match.index)
+        const opened = before.lastIndexOf('tblwrap')
+        const closed = before.lastIndexOf('</div>', match.index)
+        if (opened === -1 || opened < closed)
+          unwrapped.push(path.relative(path.join(root, 'src'), file))
+      }
+    }
+    expect(unwrapped, 'a table outside .tblwrap scrolls the page sideways without saying so').toEqual([])
+  })
+
+  /**
    * A wrapped header is taller than its 38 px floor, and as a shrinkable flex child of `.view` it
    * painted over the table beneath it — measured as the filter box and the first row overlapping
    * the `start all` row. Chrome is not content: it does not shrink.

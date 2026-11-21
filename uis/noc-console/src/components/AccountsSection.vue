@@ -171,65 +171,72 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
     <p v-if="loading" class="faint" style="font-size: 11px">
       loading…
     </p>
-    <table v-else-if="accounts.length" class="tbl">
-      <thead>
-        <tr>
-          <th class="tbl__keep">
-            id
-          </th>
-          <th>scopes</th>
-          <th>workspaces</th>
-          <th>last used</th>
-          <th class="tbl__actions">
-            <span class="sr-only">actions</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="account in accounts" :key="account.id">
-          <td class="tbl__keep">
-            <span class="mono">{{ account.id }}</span>
-            <span v-if="account.label !== account.id" class="faint label">{{ account.label }}</span>
-            <span v-if="account.isDefault" class="chip chip--warn">first-run</span>
-            <span v-if="!account.enabled" class="chip">disabled</span>
-          </td>
-          <td class="mono">
-            {{ account.scopes.map(scopeMark).join(', ') }}
-          </td>
-          <td>{{ account.workspaces === undefined ? 'every workspace' : account.workspaces.join(', ') }}</td>
-          <td class="faint">
-            {{ when(account.lastUsedAt) }}
-          </td>
-          <td class="tbl__actions">
-            <span class="actions">
-              <!-- Disabling ends that account's sessions, so it confirms; enabling does not. -->
-              <ConfirmButton
-                v-if="account.enabled"
-                label="disable"
-                confirm-label="confirm disable"
-                tone="danger"
-                title="Disable this account?"
-                hint="Its sessions end immediately and its secret stops working until you enable it again."
-                :disabled="busy"
-                @confirm="toggleEnabled(account)"
-              />
-              <button v-else type="button" class="btn btn--sm btn--ghost" :disabled="busy" @click="toggleEnabled(account)">
-                enable
-              </button>
-              <ConfirmButton
-                label="revoke"
-                confirm-label="confirm revoke"
-                tone="danger"
-                title="Revoke this account?"
-                hint="Its sessions end immediately and the secret stops working. This cannot be undone."
-                :disabled="busy"
-                @confirm="revoke(account)"
-              />
-            </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <!--
+      Wrapped in `.tblwrap` like every other table in this UI. Without it the table is 605 px wide in a
+      296 px box at a phone viewport and the page scrolls sideways, with the action buttons off-screen —
+      measured at 390 px and 320 px. `.tblwrap` is what gives the scroller its edge hint.
+    -->
+    <div v-else-if="accounts.length" class="tblwrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th class="tbl__keep">
+              id
+            </th>
+            <th>scopes</th>
+            <th>workspaces</th>
+            <th>last used</th>
+            <th class="tbl__actions">
+              <span class="sr-only">actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="account in accounts" :key="account.id">
+            <td class="tbl__keep">
+              <span class="mono">{{ account.id }}</span>
+              <span v-if="account.label !== account.id" class="faint label">{{ account.label }}</span>
+              <span v-if="account.isDefault" class="chip chip--warn">first-run</span>
+              <span v-if="!account.enabled" class="chip">disabled</span>
+            </td>
+            <td class="mono">
+              {{ account.scopes.map(scopeMark).join(', ') }}
+            </td>
+            <td>{{ account.workspaces === undefined ? 'every workspace' : account.workspaces.join(', ') }}</td>
+            <td class="faint">
+              {{ when(account.lastUsedAt) }}
+            </td>
+            <td class="tbl__actions">
+              <span class="actions">
+                <!-- Disabling ends that account's sessions, so it confirms; enabling does not. -->
+                <ConfirmButton
+                  v-if="account.enabled"
+                  label="disable"
+                  confirm-label="confirm disable"
+                  tone="danger"
+                  title="Disable this account?"
+                  hint="Its sessions end immediately and its secret stops working until you enable it again."
+                  :disabled="busy"
+                  @confirm="toggleEnabled(account)"
+                />
+                <button v-else type="button" class="btn btn--sm btn--ghost" :disabled="busy" @click="toggleEnabled(account)">
+                  enable
+                </button>
+                <ConfirmButton
+                  label="revoke"
+                  confirm-label="confirm revoke"
+                  tone="danger"
+                  title="Revoke this account?"
+                  hint="Its sessions end immediately and the secret stops working. This cannot be undone."
+                  :disabled="busy"
+                  @confirm="revoke(account)"
+                />
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p v-else class="faint" style="font-size: 11px">
       no accounts yet
     </p>
