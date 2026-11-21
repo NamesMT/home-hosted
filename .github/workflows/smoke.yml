@@ -1,0 +1,93 @@
+name: Browser smoke
+
+# The suite `pnpm run smoke` — the only check that sees what a browser sees.
+#
+# It is deliberately **not** part of `pnpm run check`: it needs a Chromium binary `pnpm install` does not
+# fetch (~150 MB) and it boots a real panel, which together cost more than the whole unit suite. That
+# decision was right, but it left the suite running only when somebody remembered to type the command —
+# and every UI defect this project has shipped was invisible to `check` and obvious to a browser:
+#
+#   - the `scroll-hint-x` band painted over the Jobs table's `disable`/`remove` (a CSS background, so no
+#     hit-test saw it);
+#   - the accounts table 605 px wide in a 296 px box, scrolling the page sideways;
+#   - a German or Russian page title ellipsised while English read in full;
+#   - the command palette's hint cut mid-word in every language, English included.
+#
+# So it runs here, on every push and pull request, on Linux — one runner, one Chromium, about four
+# minutes. A platform-specific *layout* difference is rare and the cross-platform job covers runtime
+# behaviour; this is the same suite that found the four above, so Linux is where it earns its keep.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second push to the same branch has nothing to learn from the first one's browser pass.
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Chromium
+    runs-on: ubuntu-latest
+
+    # `pnpm run build` plus two passes over eight routes at two viewports is about four minutes; the
+    # margin is for a slow runner, not for a hung one.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The browser is not a dependency, so it is cached separately — keyed on the Playwright version so
+      # a bump refetches rather than silently reusing a binary the driver no longer matches.
+      - name: Cache Chromium
+        id: browser
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Chromium
+        if: ${{ steps.browser.outputs.cache-hit != 'true' }}
+        run: pnpm exec playwright install --with-deps chromium
+
+      # `--with-deps` installs the system libraries only on a miss; a hit still needs them, and they are
+      # cheap to assert.
+      - name: Install Chromium system libraries
+        if: ${{ steps.browser.outputs.cache-hit == 'true' }}
+        run: pnpm exec playwright install-deps chromium
+
+      # The smoke pass boots `dist/cli.js` and serves the stock UI from `uis/stock/dist`, so both have to
+      # exist. `prepack` does this on a publish; here it is explicit.
+      - name: Build the panel and the stock UI
+        run: pnpm run build
+
+      - name: Walk every route in Chromium
+        run: pnpm run smoke
+
+      - name: Keep the state directory on a failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: smoke-state
+          path: |
+            /tmp/hh-smoke-*
+          retention-days: 3
+          if-no-files-found: ignore

@@ -85,10 +85,13 @@ pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated 
 pnpm run smoke                 # boot the BUILT panel and walk every route in Chromium
 ```
 
-- **`pnpm run smoke` is not part of the gate, and that is deliberate.** It needs a Chromium binary
-  `pnpm install` does not fetch (`pnpm exec playwright install chromium`) and it boots a real panel,
-  which costs more than the whole unit suite. Run it before a release and after any change under
-  `uis/`: every UI defect this project has shipped was invisible to `check` and obvious to a browser.
+- **`pnpm run smoke` is not part of `check`, and that is deliberate — but it does run in CI.** It needs
+  a Chromium binary `pnpm install` does not fetch (`pnpm exec playwright install chromium`, ~150 MB) and
+  it boots a real panel, which together cost more than the whole unit suite. Adding that to every
+  developer's gate would be the wrong trade. Leaving it to whoever remembered to type the command was
+  worse: every UI defect this project has shipped was invisible to `check` and obvious to a browser, so
+  `.github/workflows/smoke.yml` runs it on every push and pull request (one Linux runner, ~4 min, the
+  browser cached). Run it locally too before a release and after any change under `uis/`.
   It hit-tests controls (an overlaying *element*) **and** compares pixels per control (a CSS
   background painted over one — the `scroll-hint-x` shape, which no hit-test can see), and checks for
   sideways document scroll (a table cut off), and measures every `input[placeholder]` against its own
