@@ -76,6 +76,25 @@ describe('migrate --dry-run', () => {
     expect(fs.existsSync(`${settings}.bak`), 'no backup should be made by a dry run').toBe(false)
   })
 
+  /**
+   * A dry run on an **empty** home must not create the home.
+   *
+   * The case above seeds a complete one, so `registry.load()` finds `workspaces.json` and writes nothing
+   * — which is why the side effect survived. Measured on a bare directory: `migrate --dry-run` wrote
+   * `.hh/workspaces.json` and *then* answered "no home-hosted state to migrate — nothing at
+   * /tmp/…/.hh/settings.json", reporting an empty home it had already changed.
+   */
+  it('creates nothing on a home that has no state at all', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-empty-'))
+    dirs.push(home)
+
+    const result = runCli(home, ['migrate', '--dry-run'])
+
+    expect(result.status, 'an empty home is a refusal, not a crash').not.toBe(0)
+    expect(`${result.stdout}${result.stderr}`).toContain('no home-hosted state to migrate')
+    expect(fs.existsSync(path.join(home, '.hh')), 'a dry run created the state directory it said was absent').toBe(false)
+  })
+
   it('does write when actually asked, so the dry run is the thing being tested', () => {
     const { home, settings } = homeWithState()
     const before = fs.readFileSync(settings, 'utf8')

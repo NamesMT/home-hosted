@@ -48,7 +48,16 @@ function targets(): Target[] {
   ]
 
   const registry = new WorkspaceRegistry()
-  registry.load()
+  /**
+   * `{ write: false }`, because `migrate` — and especially `migrate --dry-run` — must not create the
+   * state it is inspecting.
+   *
+   * Measured: `migrate --dry-run` on an empty home answered *"no home-hosted state to migrate — nothing
+   * at /tmp/…/settings.json"* **after** writing `.hh/workspaces.json`, so it reported an empty home and
+   * had already changed it. A dry run saying "nothing was written" is a promise; `AGENTS.md` states the
+   * rule this broke: *"a caller that only reads a store loads it with `{ write: false }`"*.
+   */
+  registry.load({ write: false })
   if (registry.configError !== null)
     fail(`cannot read ${registry.path}: ${registry.configError}`)
 
@@ -301,7 +310,9 @@ export interface JobMove {
 /** Plans the moves for every workspace, without writing anything. */
 export function planJobMoves(): JobMove[] {
   const registry = new WorkspaceRegistry()
-  registry.load()
+  // Read-only, which is what this function's own docblock promises — a planner that seeds
+  // `workspaces.json` has written before it planned.
+  registry.load({ write: false })
   const moves: JobMove[] = []
   for (const workspace of registry.all()) {
     const serversFile = workspaceServersPath(workspace.id)
