@@ -96,6 +96,41 @@ describe('every interactive control has an accessible name', () => {
     expect(offenders, 'a select with no accessible name announces only its value').toEqual([])
   })
 
+  /**
+   * A **text-like input** needs a name too, and nothing checked it.
+   *
+   * Verified by planting two bare inputs in `uis/stock/src/views/ZzBad.vue` — `<input type="text">` and
+   * `<input type="number">`, each carrying only a `placeholder`. All four assertions passed. A screen reader
+   * announces those as "text field" with no name; a `placeholder` is not one, because it disappears on the
+   * first keystroke and some readers never announce it.
+   *
+   * The page's own fields are labelled correctly — `uis/stock/src/components/ui/NumberField.vue` pairs
+   * `<label :for="id">` with `:id="id"` — so this guards the *next* one, the bare `<input>` someone writes
+   * instead of reaching for the component. Checkboxes, radios, files, ranges, colours, dates and buttons are
+   * excluded: each has its own convention here (a wrapping label, a `type` that names it) and several are
+   * hidden form plumbing with a `v-model` and no user-facing value.
+   */
+  it('names every text-like input, where a placeholder is not a name', () => {
+    const offenders: string[] = []
+    let seen = 0
+    for (const { file, body } of templates()) {
+      for (const match of body.matchAll(/<input\b[^>]*>/g)) {
+        const opening = match[0]
+        const index = match.index ?? 0
+        // Skip the types whose naming convention is different or which carry no user-facing value.
+        if (/type\s*=\s*"(?:checkbox|radio|file|range|color|date|datetime-local|time|month|week|hidden|submit|reset|button|image|search)"/.test(opening))
+          continue
+        seen += 1
+        if (namedByAttribute(opening) || insideLabel(body, index) || namedByFor(body, opening))
+          continue
+        offenders.push(`${file}: ${opening.replace(/\s+/g, ' ').slice(0, 110)}`)
+      }
+    }
+    // Anti-vacuity: the scan must actually see text-like inputs, or it asserts nothing.
+    expect(seen, 'no text-like input found — the scan is stale').toBeGreaterThan(10)
+    expect(offenders, 'a named text field announces only "text field"; a placeholder is not a name').toEqual([])
+  })
+
   it('names every button, including an icon-only one added later', () => {
     const offenders: string[] = []
     for (const { file, body } of templates()) {

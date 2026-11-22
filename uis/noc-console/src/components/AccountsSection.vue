@@ -157,7 +157,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
       <p class="field__label">
         new secret — copy it now, it is shown once
       </p>
-      <input :value="minted.secret" readonly spellcheck="false" @focus="($event.target as HTMLInputElement).select()">
+      <input :value="minted.secret" readonly spellcheck="false" aria-label="the new secret — copy it now, it is shown once" @focus="($event.target as HTMLInputElement).select()">
       <p class="faint mono" style="font-size: 11px">
         Authorization: Bearer {{ minted.id }}:{{ minted.secret }}
       </p>
@@ -244,7 +244,7 @@ const canCreate = computed(() => id.value.trim().length > 0 && scopes.value.leng
     <div v-if="creating" class="group">
       <label class="field">
         <span class="field__label">account id</span>
-        <input v-model="id" placeholder="admin" autocapitalize="none" spellcheck="false">
+        <input v-model="id" placeholder="admin" autocapitalize="none" spellcheck="false" aria-label="account id">
         <span class="field__hint">lowercase letters, digits, - and _, at most 40 characters — this is what you type to sign in</span>
       </label>
       <label class="field">

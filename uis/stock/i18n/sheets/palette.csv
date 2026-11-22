@@ -1,5 +1,6 @@
 KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
 palette.placeholder,"Search servers, actions, settings…","Tìm máy chủ, thao tác, cài đặt…",搜索服务器、操作、设置…,サーバー・操作・設定を検索…,"Buscar servidores, acciones, ajustes…","서버, 작업, 설정 검색…","Поиск серверов, действий, настроек…","Rechercher serveurs, actions, réglages…","Server, Aktionen, Einstellungen suchen…"
+palette.search,"Search","Tìm kiếm","搜索","検索","Buscar","검색","Поиск","Rechercher","Suchen"
 palette.openServer,Open {label},Mở {label},打开 {label},{label} を開く,Abrir {label},{label} 열기,Открыть {label},Ouvrir {label},{label} öffnen
 palette.serverLogs,Logs for {label},Nhật ký của {label},{label} 的日志,{label} のログ,Registros de {label},{label}의 로그,Журналы {label},Journaux de {label},Protokolle von {label}
 palette.startServer,Start {label},Khởi động {label},启动 {label},{label} を起動,Iniciar {label},{label} 시작,Запустить {label},Démarrer {label},{label} starten

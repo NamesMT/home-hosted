@@ -336,6 +336,7 @@ onScopeDispose(() => window.removeEventListener('keydown', onGlobalKey))
             v-model="query"
             type="text"
             :placeholder="t('palette.placeholder')"
+            :aria-label="t('palette.search')"
             class="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
             autocomplete="off"
             spellcheck="false"
