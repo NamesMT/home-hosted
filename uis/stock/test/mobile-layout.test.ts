@@ -240,9 +240,28 @@ describe('the layout survives a phone', () => {
     // Anti-vacuity: the scan must be finding scrollers at all.
     expect(scrollers, 'no horizontal scroller matched — the scan has drifted off the markup').toBeGreaterThan(10)
 
-    // A scroller drawn straight on the page ground says so, or its cover is the wrong colour.
-    const jobs = fs.readFileSync(path.join(root, '..', '..', 'uis/stock', 'src/views/JobsView.vue'), 'utf8')
-    expect(jobs, 'the Jobs table sits on the page and needs the page cover').toContain('scroll-hint-page')
+    /**
+     * A scroller drawn straight on the **page** says so, or its cover paints the wrong colour.
+     *
+     * `--scroll-cover` defaults to `--panel`, and the two layers it covers are what hide the shadow at
+     * the far edge — so a scroller on the page's grey ground with a panel-white cover shows a **white
+     * band** where the shadow should be, which reads as "there is more to the right" backwards. That is
+     * the Jobs table's original defect, and it came back twice: the raw-config `<pre>` and the log
+     * viewer both sit on `bg-page` and both carried only `scroll-hint-x`. Checking `JobsView.vue` by
+     * name is what let them through, so the check is now part of the scan.
+     */
+    const wrongGround: string[] = []
+    for (const file of templateFiles()) {
+      const source = fs.readFileSync(file, 'utf8')
+      for (const match of source.matchAll(/class="([^"]*)"[^>]*>/g)) {
+        const classes = match[1] ?? ''
+        if (!HORIZONTAL.test(classes) || !/\bbg-page\b/.test(classes))
+          continue
+        if (!classes.split(/\s+/).includes('scroll-hint-page'))
+          wrongGround.push(`${path.relative(root, file)}: "${classes}"`)
+      }
+    }
+    expect(wrongGround, 'a scroller on the page ground needs `scroll-hint-page`, or its cover is panel-white').toEqual([])
   })
 
   /**

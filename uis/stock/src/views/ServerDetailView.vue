@@ -526,7 +526,7 @@ const SECTIONS = [
         -->
         <pre
           v-if="showRaw"
-          class="scroll-hint-x max-h-96 overflow-auto rounded-control border border-line bg-page/60 p-3 font-mono text-2xs leading-5 text-muted"
+          class="scroll-hint-x scroll-hint-page max-h-96 overflow-auto rounded-control border border-line bg-page/60 p-3 font-mono text-2xs leading-5 text-muted"
         >{{ rawConfig }}</pre>
 
         <dl v-else class="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
