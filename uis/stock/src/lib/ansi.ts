@@ -182,7 +182,7 @@ function pushSpan(spans: AnsiSpan[], text: string, state: AnsiState): void {
 }
 
 /** True when the text carries any escape sequence worth parsing. */
-export function hasAnsi(text: string): boolean {
+function hasAnsi(text: string): boolean {
   return text.includes('\u001B')
 }
 

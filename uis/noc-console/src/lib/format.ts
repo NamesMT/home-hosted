@@ -121,7 +121,7 @@ export function sparkSegments(values: (number | null)[], width: number, height: 
   return segments
 }
 
-export const shortByteUnits = ['B', 'K', 'M', 'G', 'T'] as const
+const shortByteUnits = ['B', 'K', 'M', 'G', 'T'] as const
 
 /** Bare number for a dense cell, with the unit in a separate column. */
 export function briefBytes(bytes: number | null): string {
