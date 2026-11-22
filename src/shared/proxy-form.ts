@@ -24,9 +24,9 @@ export interface CertificateErrors {
   privateKey?: string
 }
 
-export const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i
+const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i
 
-export const LOCAL_LISTENER = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?<authority>[^/?#]+)/i
+const LOCAL_LISTENER = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?<authority>[^/?#]+)/i
 
 export /** The reserved and homelab TLDs a public CA cannot serve (`isPublicHost` in the panel). */
 const LOCAL_TLDS = ['.localhost', '.local', '.internal', '.home.arpa', '.lan', '.home', '.test', '.invalid', '.example']
@@ -352,7 +352,7 @@ export function routeConflicts(
   })
 }
 
-export function sameWire(a: ProxyRoute, b: ProxyRoute): boolean {
+function sameWire(a: ProxyRoute, b: ProxyRoute): boolean {
   return JSON.stringify(toRouteWire(a)) === JSON.stringify(toRouteWire(b))
 }
 
@@ -392,7 +392,7 @@ export function toProxyRoutes(drafts: readonly RouteDraft[]): ProxyRoutePatch[] 
  * The wire shape of a route: a row key is a UI detail, and the schema rejects
  * undeclared keys.
  */
-export function toRouteWire(route: ProxyRoute): ProxyRoutePatch {
+function toRouteWire(route: ProxyRoute): ProxyRoutePatch {
   return {
     id: route.id,
     host: route.host,

@@ -2,7 +2,7 @@ import type { ProxyCertificateState, ProxyConfig, ProxyDnsAccountView, ProxyRout
 import type { ListenerDraft, RouteDraft } from '@shared/proxy-form'
 import { isPublicHost, proxyPatch } from '@shared/proxy-form'
 
-export { applyRouteDraft, certificateTitle, cloneListenerDraft, cloneRoutes, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, retryInLabel, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, targetSummary, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
+export { applyRouteDraft, certificateTitle, cloneListenerDraft, cloneRoutes, firstPublicHost, formatBytes, isPrivilegedPort, isPublicHost, listenerPatch, newRouteDraft, parseResolvers, parseUpstream, proxyPatch, requiresEmail, retryInLabel, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, slugifyCertificateId, slugifyRouteId, targetSummary, toProxyRoutes, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
 export type { CertificateErrors, ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrors } from '@shared/proxy-form'
 
 /**

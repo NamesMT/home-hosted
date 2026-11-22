@@ -4,7 +4,7 @@ import type { Tone } from '@/lib/status'
 import { isPublicHost, retryInLabel as sharedRetryInLabel, targetSummary as sharedTargetSummary } from '@shared/proxy-form'
 import { t, tc } from '@/i18n'
 
-export { applyRouteDraft, certificateTitle, cloneListenerDraft, cloneRoutes, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
+export { applyRouteDraft, certificateTitle, cloneListenerDraft, cloneRoutes, firstPublicHost, formatBytes, isPrivilegedPort, isPublicHost, listenerPatch, newRouteDraft, parseResolvers, parseUpstream, proxyPatch, requiresEmail, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, slugifyCertificateId, slugifyRouteId, toProxyRoutes, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
 export type { CertificateErrors, ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrors } from '@shared/proxy-form'
 
 /**
