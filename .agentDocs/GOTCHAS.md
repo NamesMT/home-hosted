@@ -175,3 +175,5 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **Narrowing what a route *reads* is half a limit when a write replaces the same list**. (`src/api/proxy.ts`, `src/services/state.ts`)
 - **A `read` route that spawns a process is a spawn amplifier** — `GET /api/host/temperature` runs a helper per request. (`src/api/wsl-temperature.ts`; `test/api/routes.test.ts`)
 - **A legacy `.control-secrets.json` fixture must use base64 for `salt` and `hash`**, and the salt is per-file.
+- **A source scan that reads a file by path stops covering whatever moves out of it, and keeps passing.** Read the directory instead, and assert a count floor so a split cannot shrink the scan silently. (`test/support/uis.ts` `contractsSource`; `test/shared/contracts.test.ts`)
+- **"A mount cannot check this" is a claim to verify, not to trust** — a docblock justifying a source scan named a live control plane the component no longer used, while its props already made the behaviour mountable. (`uis/noc-console/test/restart-required-chip.test.ts`)
