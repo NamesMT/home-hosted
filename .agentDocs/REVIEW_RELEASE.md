@@ -244,6 +244,23 @@ is valid"* for OpenAPI **3.1.0**, with seven warnings:
 - one `no-unused-components` on `SseMessage`, exported for the client's `.d.ts` but never `$ref`'d in the
   document, because SSE frames are not response bodies. Correct.
 
+## The README's quick start works, driven command for command (root agent)
+
+The path a new user hits first, run verbatim on a clean home rather than read:
+
+| Step | Result |
+| --- | --- |
+| `up` | prints `password jjnd-zb8m-zvn8 — the first-run password` and the log path, as documented |
+| `add web --port 4000 -- node server.js` | `added web`, then `not started — \`home-hosted --home '/tmp/hh-qs/home' start web\`` |
+| `start web` | `started web`; `ls` shows `running  4000  node server.js`, and `http://127.0.0.1:4000` answers `200` |
+| `secret set web DATABASE_URL` **before declaring it** | refused: *"DATABASE_URL is not declared in web's secretEnv — add it to the entry's `secretEnv` first (declared: none)"* — which is what the README's parenthetical tells the reader to expect |
+| after declaring `secretEnv` | `set DATABASE_URL on web`; the value appears **in `.secrets.json` at mode 600** and **nowhere in `servers.config.json`**, exactly as the sentence claims |
+
+Two notes for the reviewer, neither a defect:
+
+- The `add` hint carries `--home` because `invocation()` supplies it — that fixes the failure mode the command-hint guard exists for, and it reads correctly here.
+- A server whose command binds no port stays `starting` rather than `running`, which is right: the readiness probe has nothing to answer it. My first fixture was a bare `setInterval`, so this looked like a stuck state for a moment; a real listener moved it to `running` on the next restart.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
