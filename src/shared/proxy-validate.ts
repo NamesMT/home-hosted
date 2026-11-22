@@ -1,4 +1,5 @@
 import type { ProxyConfig } from './contracts'
+import { canonicalRoutePath } from '#src/shared/proxy-form'
 import { isPublicHost, routeKey, upstreamTarget } from './proxy-form'
 
 /** What a route's `dnsAccount` resolves to, for the save-time check. */
@@ -41,6 +42,20 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
       errors.push(`"${route.host.slice(0, 40)}…" is ${route.host.length} characters; a hostname cannot exceed 253`)
     else if (route.host.split('.').some(label => label.length > 63))
       errors.push(`"${route.host}" has a label longer than 63 characters`)
+
+    /**
+     * A path prefix is a **path**: no query, no fragment, no whitespace, no wildcard.
+     *
+     * Nothing checked it — the schema types `path` as a free `string` — so `app?x=1` was accepted and
+     * rendered as `http://host/app?x=1`, where the `?` starts a *query* and the route quietly matches
+     * `/app` instead of the prefix someone typed. A newline or a space produced a URL nobody can follow,
+     * and `*` is a Caddy matcher wildcard that turns a literal segment into a class.
+     */
+    if (route.path.length > 0) {
+      const canonical = canonicalRoutePath(route.path)
+      if (/[\s?#*]/.test(canonical))
+        errors.push(`route "${route.id}" has a path with a space, "?", "#" or "*" in it — a prefix is a plain path like /app`)
+    }
 
     const key = routeKey(route)
     if (seen.has(key))

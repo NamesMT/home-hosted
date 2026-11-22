@@ -494,6 +494,26 @@ describe('validateProxyConfig', () => {
   })
 
   /**
+   * A path prefix is a plain path, not a URL fragment.
+   *
+   * Nothing checked it — `proxyRouteSchema` types `path` as a free `string` — so `app?x=1` was accepted
+   * and rendered as `http://host/app?x=1`, where the `?` starts a *query*: the route then quietly matches
+   * `/app` rather than the prefix someone typed. A space or newline produced a URL nobody can follow, and
+   * `*` is a Caddy matcher wildcard that turns a literal segment into a class.
+   */
+  it('refuses a path prefix that is not a plain path', () => {
+    for (const path of ['a b', 'a\nb', 'app?x=1', 'app#f', '*']) {
+      const errors = validateProxyConfig(config({ routes: [{ id: 'r', host: 'app.lan', path, target: 'external', url: 'http://10.0.0.5:8080' }] }))
+      expect(errors.some(error => error.includes('prefix is a plain path')), JSON.stringify(path)).toBe(true)
+    }
+    // Anti-vacuity: the forms a person actually types still pass.
+    for (const path of ['', 'app', '/app', 'ok/path']) {
+      const errors = validateProxyConfig(config({ routes: [{ id: 'r', host: 'app.lan', path, target: 'external', url: 'http://10.0.0.5:8080' }] }))
+      expect(errors.filter(error => error.includes('prefix is a plain path')), JSON.stringify(path)).toEqual([])
+    }
+  })
+
+  /**
    * An empty upstream and an unusable one are different problems, and both used to read the same.
    *
    * `http://<304 characters>:8080` is present, parseable to a human, and refused — answering "needs an
