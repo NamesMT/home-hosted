@@ -159,6 +159,18 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **`/openapi/spec.json` documents `/_hh` as well as `/api`, and it is accurate in both directions.**
+  Measured on a built panel: 78 paths, 103 operations, of which 60 paths / 83 operations are `/api`.
+  Driving every documented `/api` operation — substituting `{id}`/`{workspaceId}`/`{kind}` and sending
+  an empty body — produced **zero** `404`s, so no path in the spec is a phantom. The reverse is covered
+  by `test/api/spec-shape.test.ts`, which reads `src/app.ts`'s `.route(...)` mounts **independently of
+  the spec** and fails in both directions, with `mounts.size > 5` so a broken scan cannot pass. That is
+  the check to extend when adding a route, not a new one.
+
+  `/_hh` appearing in the spec is deliberate — it is the CLI's channel and the doc says so — but a
+  client author skimming `paths` will see it beside `/api` and may not notice it needs the `run.json`
+  token rather than an account. It is not reachable with an account credential.
+
 - **One macOS `config-watch` failure is an unowned `ECONNREFUSED 127.0.0.1:3000`, and the source is open.**
   `test/services/config-watch.test.ts > sees an external write` failed once on macOS with an
   `AggregateError` listing `connect ECONNREFUSED` to both `::1:3000` and `127.0.0.1:3000`. A re-run was
