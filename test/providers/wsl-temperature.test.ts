@@ -55,12 +55,26 @@ describe('the WSL temperature bridge', () => {
    * An early `return` here reported a **pass** on Linux CI for a case that never ran — the shape
    * `.agentDocs/RELEASING.md` warns about. `it.runIf` over a condition computed once at module load
    * says "skipped", which is the truth.
+   *
+   * The Windows side is **mocked**. It was not, and the case really spawned `powershell.exe` with
+   * `%ProgramData%` unread — so it failed on any guest whose `powershell.exe` is not reachable from
+   * this process, which is most CI and this one. The claim it makes (the helper lands on a Windows
+   * drive, where `powershell.exe` can read it) is worth pinning; spawning a real shell to test it is
+   * not, and the neighbouring cases already answer with `installWindows`.
    */
   it.runIf(onWsl)('writes the helper under /mnt/c on a WSL guest', () => {
-    const target = wslScriptPath()
-    expect(target).not.toBeNull()
-    // The whole point: powershell.exe must be able to read it.
-    expect(target!.startsWith('/mnt/')).toBe(true)
+    forgetWslPaths()
+    vi.spyOn(cp, 'execFileSync').mockImplementation((() => 'C:\\ProgramData') as never)
+    try {
+      const target = wslScriptPath()
+      expect(target, 'a readable %ProgramData% must yield a path').not.toBeNull()
+      // The whole point: powershell.exe must be able to read it.
+      expect(target!.startsWith('/mnt/')).toBe(true)
+    }
+    finally {
+      vi.restoreAllMocks()
+      forgetWslPaths()
+    }
   })
 
   it.runIf(!onWsl)('answers null where there is no Windows drive to write to', () => {
