@@ -41,7 +41,8 @@
     "#src/*": "./src/*",
     "#src/providers/ddns": "./src/providers/ddns/index.ts",
     "#src/providers/proxy": "./src/providers/proxy/index.ts",
-    "#src/services/supervisor": "./src/services/supervisor.ts"
+    "#src/services/supervisor": "./src/services/supervisor.ts",
+    "#src/shared/contracts": "./src/shared/contracts/index.ts"
   },
   "exports": {
     ".": "./dist/cli.js",

@@ -75,7 +75,8 @@ describe('the lenient frame parser', () => {
    * exhaustiveness check on a `(value: unknown) => boolean` cannot fail, which is why the list drifted.
    */
   it('lists every frame type the schema declares', () => {
-    const contract = readFileSync(fileURLToPath(new URL('../../src/shared/contracts.ts', import.meta.url)), 'utf8')
+    // The frames moved to their own module; the scan follows them rather than the old location.
+    const contract = readFileSync(fileURLToPath(new URL('../../src/shared/contracts/frames.ts', import.meta.url)), 'utf8')
     /**
      * Only the SSE frame block, and both spellings the file uses there: `type: '"hello" | "state"'`
      * and — because the key is optional in some frames — `'type': '"server"'`.
