@@ -223,6 +223,25 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
   `apiTokenRecord`) — much easier to fixture than the password record above.
 
+- **A command with no same-named test file is usually tested under another name — check by content, not by
+  filename.** Auditing `src/cli/` for untested modules listed twelve, and driving four of them found no
+  defect:
+  - `usage` looked uncovered; it is tested in `test/api/panel.test.ts` (`/_hh/usage`) and in
+    `start-settle.test.ts` (`ranks by memory and never prints a zero for a reading it does not have`).
+  - `down` looked uncovered; `down-budget.test.ts` imports it through a **dynamic** `await import`, which a
+    static `grep "cli/down'"` misses.
+  - `ui-revert` genuinely had no test, and is correct: `--dry-run` is refused (`Unknown option`) — the past
+    bug where it deleted the installed UI — and install → revert → stock served was driven end to end.
+  - `run-deploy` genuinely had no test, and is correct: exit 1 with `unknown server "nope" in workspace
+    "default"`, and a step runs offline with `deployed dep in 0s` plus an honest "the panel is not running,
+    so nothing was restarted".
+
+  `import-write` and `nanny` are thin delegations (`addServerEntry`, `nannyCommand`) whose targets are
+  tested; a test on them would restate `add`'s.
+
+  The method that works: grep the **module path inside test sources**, including `await import(` forms, and
+  read the service the module delegates to. A filename diff reports eleven false positives in this repo.
+
 - **A legacy `.control-secrets.json` fixture must use **base64** for `salt` and `hash`, and the salt is
   decoded before use.** Two failed attempts to verify the credential migration were my fixture, not the
   code. `deriveKey` takes a `Buffer` salt (`hashPassword` does `salt.toString('base64')`), and the password
