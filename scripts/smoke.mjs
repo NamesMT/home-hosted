@@ -539,6 +539,91 @@ async function exerciseLifecycle(page, base, cookie) {
   }
 }
 
+/**
+ * A **form save**, driven through the UI, then checked against the panel.
+ *
+ * Every route walk proves a page renders. None of them proves that a Save works, or that a refused value
+ * says something a person can act on — and that gap shipped a real defect: `patchWorkspaceSettings` ran the
+ * outgoing patch through the `boundary()` helper, so typing `0` into a field with a floor of 50 answered
+ * "workspace settings patch contract mismatch: …" instead of naming the field. Found by hand, in a
+ * browser, six rounds after the last repair.
+ *
+ * Two things are checked here, because both were wrong in that defect and only one is visible to a page
+ * walk:
+ *
+ *  - a **valid** save persists — the value is read back from the panel, not from the field;
+ *  - an **invalid** save is refused with a sentence naming the field, and never with the word "contract".
+ *
+ * The field is the workspace's `logBufferLines`, which every panel has and which has a documented floor, so
+ * no fixture state is needed beyond the workspace the lifecycle check already creates.
+ */
+async function exerciseFormSave(page, base) {
+  /**
+   * Its **own** workspace, created and removed here.
+   *
+   * `exerciseLifecycle` deletes `smoke-probe` in its `finally`, so reusing that id answered
+   * `404` — a check that could not run. Each sequence owns the state it needs.
+   */
+  const workspace = 'smoke-form'
+  const created = await page.request.post(`${base}/api/workspaces`, { data: { id: workspace, label: 'Smoke form' } })
+  if (!created.ok() && created.status() !== 409) {
+    fail('form', `POST /api/workspaces answered ${created.status()}`)
+    return
+  }
+
+  const before = await page.request.get(`${base}/api/settings/workspace?workspace=${workspace}`)
+  if (!before.ok()) {
+    fail('form', `GET /api/settings/workspace answered ${before.status()}`)
+    await page.request.delete(`${base}/api/workspaces/${workspace}`)
+    return
+  }
+  const original = (await before.json()).defaults?.logBufferLines
+
+  await page.goto(`${base}/w/${workspace}/settings`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(1500)
+  const field = page.locator('input[type="number"]').first()
+  if (await field.count() === 0) {
+    fail('form', 'the workspace settings page has no number field to drive')
+    return
+  }
+
+  try {
+    // A valid save: `900` is above the floor and distinct from any default.
+    await field.fill('900')
+    await page.getByRole('button', { name: /^save/i }).first().click()
+    await page.waitForTimeout(1500)
+    const saved = await page.request.get(`${base}/api/settings/workspace?workspace=${workspace}`)
+    const readBack = (await saved.json()).defaults?.logBufferLines
+    if (readBack !== 900)
+      fail('form', `a valid save did not persist — the panel reports ${JSON.stringify(readBack)}, not 900`)
+
+    /**
+     * A refused value must name the field and must not answer with the client's internals.
+     *
+     * The message is read from the page rather than the network because that is where a person sees it; a
+     * rejection whose text is a stack-trace phrase is the defect.
+     */
+    await field.fill('0')
+    await page.getByRole('button', { name: /^save/i }).first().click()
+    await page.waitForTimeout(1500)
+    // `innerText`, not `textContent`: the question is what a person *sees*, and a refusal in a hidden
+    // element is not a message. The lint rule prefers `textContent`, which would also read hidden text.
+    // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+    const shown = await page.evaluate(() => document.body.innerText)
+    if (/contract mismatch/i.test(shown))
+      fail('form', 'a refused value answered with "contract mismatch" instead of naming the field')
+    if (!/logBufferLines/i.test(shown))
+      fail('form', 'a refused value did not name the field it was about')
+
+    process.stdout.write('[smoke] form: a save persists, and a refused value names the field\n')
+  }
+  finally {
+    // Remove the workspace, so a run against a real instance is left as it was found.
+    void original
+    await page.request.delete(`${base}/api/workspaces/${workspace}`)
+  }
+}
+
 async function main() {
   const target = explicitUrl === null ? await startPanel() : null
   const base = (explicitUrl ?? `http://127.0.0.1:${PORT}`).replace(/\/$/, '')
@@ -592,6 +677,7 @@ async function main() {
      * point is the lifecycle, not the page.
      */
     await exerciseLifecycle(page, base, cookie)
+    await exerciseFormSave(page, base)
 
     const ui = await servedUi(page, base)
     const routes = UIS[ui]

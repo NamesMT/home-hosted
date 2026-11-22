@@ -98,7 +98,10 @@ pnpm run smoke                 # boot the BUILT panel and walk every route in Ch
   box with `canvas.measureText` — a hint that does not fit is a hint nobody finishes reading, and no
   scroll-width comparison sees it. It opens the command palette on each route, because that is a lazy
   modal: the one fixed-width box holding a translatable string does not exist until the shortcut is
-  pressed. It walks **both UIs** — `stock` and `noc-console` have
+  pressed. It **saves a settings form and reads the value back from the panel**, because a route walk
+  proves a page renders and nothing more: a form whose Save silently failed, or whose refusal answered with
+  the client's internals ("contract mismatch"), was invisible to every check until someone drove it by
+  hand in a browser. It walks **both UIs** — `stock` and `noc-console` have
   different route tables, and it picks the right one from the panel's own `ui.json` — and does it
   **twice per route**, at 1280x800 and 390x844, because the layout checks only bite at a phone width.
 - **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.
