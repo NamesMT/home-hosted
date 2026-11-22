@@ -78,18 +78,23 @@ describe('the bin shim forwards a stop signal', () => {
       stdio: 'ignore',
     })
 
-    // The child is this shim's own child; find it by parentage rather than by argv, which the panel
-    // rewrites (`--foreground` is added by `up` itself).
+    /**
+     * Find the child **portably**. `/proc/<pid>/task/<pid>/children` is Linux-only and timed out on
+     * macOS CI the first time this ran — the exact cross-platform mistake this repo has a rule against.
+     * Argv is not a reliable handle either, because `up` rewrites its own (`--foreground` is added by the
+     * command itself). So the child announces itself: the panel writes `run.json` with its pid once it is
+     * listening, and that file is the panel's own contract with `down`.
+     */
     await until(() => {
       try {
-        const out = fs.readFileSync(`/proc/${shim.pid}/task/${shim.pid}/children`, 'utf8').trim()
-        childPid = out === '' ? undefined : Number.parseInt(out.split(/\s+/)[0]!, 10)
+        const run = JSON.parse(fs.readFileSync(path.join(home!, '.hh', 'run.json'), 'utf8')) as { pid?: number }
+        childPid = typeof run.pid === 'number' ? run.pid : undefined
         return childPid !== undefined && alive(childPid)
       }
       catch {
         return false
       }
-    }, 'the shim to spawn its CLI child')
+    }, 'the panel to write run.json with its pid')
     expect(childPid, 'the shim must have a child before a signal means anything').toBeDefined()
 
     shim.kill('SIGTERM')
