@@ -79,6 +79,23 @@ known majors from its own review and was patched as 0.9.1 ninety minutes later.
 So the pre-dispatch check is: read the review's findings list top to bottom and account for every
 line. "Addressed in a follow-up" is only true if the user chose the follow-up.
 
+**What to walk before dispatching.** Run these against a built panel on a scratch `HHOSTED_HOME`, in a
+browser, at 1280x800 and at ~390px:
+
+- **Every mutating action**, not every page: add/edit/delete a server, start/stop/restart, free-port,
+  edit a config and reload to see it persisted; change a value in each settings group and reload;
+  create a job and read its log; create a backup and open the restore tree; add a proxy route; mint and
+  revoke an account.
+- **A save that reports success must read back** from the panel, not from the field.
+- **One non-English language**, chosen in Global settings — it is per-browser, not a panel setting.
+- **Logs out, then in again**, and confirm a revoked session stops working.
+- `/openapi/spec.json` and `/openapi/ui` load.
+- `pnpm run smoke` against the panel it is meant to check.
+
+Not reachable on a laptop, so say so rather than implying otherwise: compose/Docker lifecycle (needs a
+daemon), full ACME issuance (needs a public name), and CPU temperature in a WSL2 guest (needs the
+optional Windows helper).
+
 ## The migration reaches the release body, not just git
 
 `CHANGELOG.md` is derived from commit subjects, so it names *what changed* and never *what a person
