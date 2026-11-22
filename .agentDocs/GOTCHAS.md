@@ -173,6 +173,23 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   **3 of 3**. When a live behaviour contradicts the reported config, check whether a per-object override
   is shadowing the shared block before suspecting the code.
 
+- **Every proxy write is refused before the engine binary exists — including a DNS-01-only change.**
+  `apply`/`configure` call `installed()` (a `statSync` on `enginePath`) before anything else, so
+  `PATCH /api/proxy` answers `400 ENGINE_MISSING` even for a settings change that needs no engine. That
+  means the proxy config cannot be prepared ahead of installing it; the order is install, then configure.
+  Not a defect — the page says **"No engine installed"** before a person tries to save — but it is the
+  reason a scripted setup must install first.
+
+- **The DNS-01 challenge endpoint refuses with `403 DNS01_DISABLED` before it asks for credentials.** That
+  ordering is deliberate and commented: *"an absent lock must never read as 'no lock', because this endpoint
+  writes records into somebody's zone."* So an unauthenticated caller on loopback learns whether DNS-01 is
+  configured — a small disclosure, chosen over the alternative of reading "no credentials configured" as
+  permission. `isLoopbackRequest` is checked first in the route, before any of this.
+
+  Both flows need infrastructure this container does not have: driving the compose lifecycle needs a
+  reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
+  so the next attempt does not rediscover that.
+
 - **`features` in `/api/meta` means "switched on", not "runnable", and `proxy` is not a settings-patch key.**
   Driven against a live panel: enabling the reverse proxy with no engine installed answers
   `400 ENGINE_MISSING` — a correct refusal — yet `features.proxy` then reads **true**, because the field is
