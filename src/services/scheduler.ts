@@ -4,39 +4,22 @@ import { cronDueAt, nextCronRun, parseCron, previousCronRun } from '#src/shared/
 /**
  * When a workspace's jobs run.
  *
- * **Beside the backup schedule, on the panel's own clock.** `BackupService.tick()` and this service
- * are driven by the same 1 Hz panel tick, for the same reasons: no second timer, no per-tick syscall,
- * and a pass that cannot stack up behind itself. `tick()` is therefore cheap enough to call every
- * second — it reads an in-memory map and, at most, one `Date` per job.
+ * Driven by the panel's own 1 Hz tick beside the backup schedule — no second timer, no per-tick
+ * syscall — so `tick()` reads an in-memory map and at most one `Date` per job. The clock is the host's
+ * local timezone.
  *
- * **The clock is the host's local timezone**, exactly as `src/shared/cron.ts` documents. A home
- * server's owner thinks in that machine's time.
+ * Three rules, each for a schedule a person would otherwise not trust:
  *
- * Three rules shape the behaviour, and each exists for a schedule a person would otherwise not trust:
+ * - **One run per occurrence, decided from the occurrence and not the tick**, so a late tick still
+ *   starts exactly one run. A loop stalled across several occurrences runs the one due when it resumes
+ *   and drops the ones between — replaying them would turn one stall into a burst.
+ * - **An overlapping run is skipped and recorded as `overlap`**, not queued: two copies of a backup
+ *   writing the same files is the failure this avoids.
+ * - **A missed occurrence runs once, at boot**, for the most recent one only, decided by comparing the
+ *   newest durable `job-run` event against it. A panel restarted in a loop does not replay.
  *
- *  - **One run per occurrence, decided from the occurrence and not the tick.** `tick()` asks cron for
- *    the last scheduled minute at or before now (`previousCronRun`), and remembers which occurrence it
- *    last started. A tick that lands a few hundred ms late, or a panel whose loop was busy for ten
- *    seconds, still starts exactly one run for that minute — **never two**. This is why the second and
- *    later ticks of the same minute do nothing.
- *
- *    It is *not* a promise that nothing is skipped: a loop stalled across several occurrences runs
- *    the one due when it resumes and drops the ones between (measured: 10:00 then 10:17 on
- *    a five-minute schedule runs 10:00 and 10:15, not 10:05 or 10:10). Replaying them would turn one stall
- *    into a burst, which is worse than a documented gap.
- *  - **An overlapping run is skipped, and said so.** A job still running when its next occurrence
- *    arrives is not queued behind itself: two copies of a backup writing the same files is the
- *    failure this avoids. The skip is logged on the entry and recorded as an `overlap` in its
- *    history, so it is a fact a person can find — not a silence.
- *  - **A missed occurrence runs once, at boot.** A panel that was down across 03:00 must not silently
- *    lose the night's job, and must not replay a week of them either. The first tick after boot starts
- *    at most **one** run per job — for the most recent occurrence — and the durable record is what
- *    decides whether it is owed: the newest `job-run` event in the workspace history (which survives a
- *    restart) is compared against that occurrence. A panel restarted in a loop therefore does not
- *    replay an occurrence it already ran.
- *
- * Nothing here persists a schedule of its own: the config is the list of jobs, and the history event
- * each run writes is both the durable record and what the view reports `lastRunAt` from.
+ * Nothing here persists a schedule: the config is the job list, and the history event each run writes is
+ * both the durable record and what the view reports `lastRunAt` from.
  */
 
 /** What the scheduler needs from the supervisor, and nothing more. */
@@ -204,12 +187,9 @@ export class JobScheduler {
       return
     }
 
-    // A usable expression clears any standing complaint, so a schedule that is fixed and later broken
-    // again is reported again. This is the **only** reset: it runs after both "nothing due" branches,
-    // because resetting before them wiped `reportedProblem` on every tick and turned the un-runnable
-    // case into one identical WARN per second, forever — 86 400 lines a day per mistyped job, against
-    // `reportOnce`'s own promise that "a standing problem is logged when it appears and when it
-    // changes, not on every tick".
+    // A usable expression clears any standing complaint, so a schedule fixed and later broken again is
+    // reported again. It must run after both "nothing due" branches: resetting before them re-logged the
+    // un-runnable case on every tick.
     clock.reportedProblem = null
 
     // Already started for this occurrence: every later tick of the same minute does nothing.

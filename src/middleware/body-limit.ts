@@ -2,24 +2,12 @@ import type { MiddlewareHandler } from 'hono'
 import { DetailedError } from '@namesmt/utils'
 
 /**
- * The ceiling on a JSON request body, panel-wide.
+ * The ceiling on a JSON request body, panel-wide. Without it a large `POST` becomes a stored config the
+ * panel then rebuilds into the frame every second — 1 MB is two orders of magnitude above any real
+ * request.
  *
- * **Absent, one `POST` could turn every frame into megabytes.** Measured on a scratch panel: a
- * 19 MB `POST /api/servers` with a 19 MB `command` was accepted (`201`), written to
- * `servers.config.json`, and the state frame then became **20 MB** — a payload the panel builds every
- * second and pushes over SSE to every open tab. The request was authenticated and admin, so this is not
- * an unauthenticated attack; it is a typo, a runaway script, or a paste of the wrong file, and it makes
- * the panel unusable from the moment it lands. `GET /api/settings` and the config editor both have to
- * load the file back, too.
- *
- * **1 MB is generous, measured against what a real request carries**: a server entry is ~400 bytes, so
- * fifty are ~20 KB; a fifty-route proxy table is ~15 KB; a settings `PATCH` with every field set is
- * ~5 KB. The largest legitimate body is two orders of magnitude under this.
- *
- * Two routes legitimately carry more — a backup restore upload and a UI zip — and each declares its own,
- * larger `bodyLimit`. **They are exempted by path here, because a plain `use('/api/*')` runs before them
- * and would refuse a 3 MB backup archive with this 1 MB limit.** Verified the wrong way first: the
- * upload came back `413` until these two were let through.
+ * The backup-restore upload and the UI zip declare their own larger limit and are exempted by path here,
+ * because a plain `use('/api/*')` runs before them.
  */
 export const MAX_JSON_BODY_BYTES = 1024 * 1024
 
@@ -39,38 +27,10 @@ export function createBodyLimitGuard(): MiddlewareHandler {
       return next()
 
     /**
-     * **A chunked body is refused**, because its size cannot be known without reading it.
-     *
-     * That gap was real, not theoretical. The guard originally checked only `content-length`, and a
-     * hand-built `Transfer-Encoding: chunked` `POST` carrying a 3 MB `command` was accepted (`201`) and
-     * written to `servers.config.json` — **3 000 304 bytes**, making the state frame **3 005 852
-     * bytes**. The same DoS the guard exists to prevent, through the one door it left open.
-     *
-     * Counting the stream instead is not available here, and both ways were driven against a built
-     * panel rather than reasoned about:
-     *
-     *  - `hono/body-limit` re-wraps the request (`new Request(c.req.raw, init)`) to re-read it, and that
-     *    constructor throws under srvx. **The mechanism, established in `srvx/dist/adapters/node.mjs`**:
-     *    a `Request` built by its node adapter is a `PatchedRequest` whose own `url` getter resolves, and
-     *    its constructor does `if (typeof input === "object" && "_request" in input) input = input._request`
-     *    before `super(input, options)` — so rewrapping unwraps to the inner request, whose URL is
-     *    **relative**, and `super()` then throws `Failed to parse URL`. Mounted at `/api/*` it answered
-     *    **500 for every bodiless `POST`** — `start`, `stop`, `backup create`.
-     *
-     *    **This is not specific to `/api/*`.** The upload routes used `bodyLimit` per route and only
-     *    appeared* to work: a normal upload carries `content-length`, takes the header fast-path and
-     *    never reaches the rewrap. A **chunked** upload to `/api/backups/restore` answered `500` with
-     *    the identical stack — driven, not reasoned. Both upload routes now use
-     *    `createBodyCeiling` below, which counts the stream without re-wrapping anything.
-     *
-     *    Why the isolation probes below all answered 200 is settled: they built a *native* `Request`,
-     *    without `_request`, so the unwrap found nothing to unwrap.
-     *  - Teeing the body and draining one branch hung the request rather than refusing it.
-     *
-     * So what cannot be measured is refused: `411 LENGTH_REQUIRED`. **`transfer-encoding` is the
-     * discriminator, not the presence of a body** — srvx gives every request a body stream, so a
-     * bodiless `POST` and a chunked one are identical by that measure, and only the chunked one carries
-     * the header.
+     * A chunked body is refused: its size cannot be known without reading it, and the ways to read it
+     * here do not work — `hono/body-limit` re-wraps the request and srvx's `PatchedRequest` throws on
+     * rewrap, answering `500` for every bodiless `POST`. `transfer-encoding`, not the presence of a
+     * body, is the discriminator, because srvx gives every request a body stream.
      */
     if (c.req.header('transfer-encoding') !== undefined) {
       throw new DetailedError(

@@ -84,16 +84,9 @@ export function selectedBy(
 }
 
 /**
- * Whether a selection reaches anything inside one item: the item itself, an alias, or a leaf of it.
- *
- * A leaf counts because selection is downwards only — naming `global:secrets:password` does not
- * select `global:secrets` — yet the restore still writes that one field of the same file.
- *
- * Both spellings of a leaf are recognised (`global:secrets:password` and its alias
- * `secrets:password`), because an exclusion the person wrote as `--exclude secrets` reaches the
- * leaves of that item through `selectionOf`'s prefix rule. Answering "the item is untouched" there
- * while the restore still wrote its leaves was a real bypass: `{"exclude":["secrets"]}` — the
- * spelling the docs recommend to leave credentials behind — rewrote the password and token hashes.
+ * Whether a selection reaches anything inside one item: the item, an alias, or a leaf of it. A leaf
+ * counts because selection is downwards only, yet the restore still writes that field of the same
+ * file — and an `--exclude` naming the item reaches its leaves through `selectionOf`'s prefix rule.
  */
 export function selectionTouches(
   options: { include?: readonly string[], exclude?: readonly string[] },
@@ -110,16 +103,9 @@ export function selectionTouches(
 }
 
 /**
- * Whether a restore selection would write the panel's own credential store.
- *
- * `global:secrets` holds the password hash and the API token hash, so a restore that carries it can
- * replace the credentials of the panel doing the restoring. That is a legitimate move for the owner
- * (a fresh host taking its own archive back) and a panel takeover for anyone holding only a token:
- * measured, a token-only upload restore left the victim's password hash byte-identical to the
- * attacker's, and the owner locked out.
- *
- * The predicate exists so the guard has one definition rather than a string literal at each call
- * site. It answers *whether* the store is touched; who may touch it is the route's decision.
+ * Whether a restore selection would write the panel's own credential store, which holds the password
+ * and token hashes — a legitimate move for the owner and a takeover for anyone holding only a token.
+ * It answers *whether* the store is touched; who may touch it is the route's decision.
  */
 export function selectionWritesCredentials(options: { include?: readonly string[], exclude?: readonly string[] }): boolean {
   return selectionTouches(options, GLOBAL_RESTORE_ITEMS.credentials)
