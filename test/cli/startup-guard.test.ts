@@ -118,6 +118,66 @@ async function runUp(home: string, timeoutMs = 30000): Promise<{ status: number 
   })
 }
 
+/**
+ * Start `up` and resolve as soon as `ready` matches the output, not after a fixed budget.
+ *
+ * A budget test is a test of the machine, not of the code: under a full suite this start took longer
+ * than 8 s and `up` was killed before it printed `auth:`, which reads as "the guard refused" when it is
+ * "the runner was busy". It now waits for the line that means the panel started, and still fails on a
+ * refusal because a refusal exits instead of printing it.
+ */
+async function runUpUntil(home: string, ready: RegExp | string, timeoutMs = 60000): Promise<{ status: number | null, stdout: string, stderr: string, killed: boolean, matched: boolean }> {
+  await seedControlPort(home)
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--foreground', '--no-autostart'], {
+      cwd: root,
+      env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    let killed = false
+    let matched = false
+    const finish = (status: number | null): void => {
+      if (settled)
+        return
+      settled = true
+      resolve({ status, stdout, stderr, killed, matched })
+    }
+    const check = (): void => {
+      if (matched)
+        return
+      const hit = typeof ready === 'string' ? `${stdout}${stderr}`.includes(ready) : ready.test(`${stdout}${stderr}`)
+      if (!hit)
+        return
+      matched = true
+      killed = true
+      // The panel is up and stays up; stop it rather than leaking the process.
+      child.kill('SIGTERM')
+      finish(null)
+    }
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk
+      check()
+    })
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+      check()
+    })
+    const timer = setTimeout(() => {
+      killed = true
+      child.kill('SIGKILL')
+      finish(null)
+    }, timeoutMs)
+    child.once('close', (status) => {
+      clearTimeout(timer)
+      finish(status)
+    })
+  })
+}
+
 /** A kill says "the guard never exited", not "the guard answered the wrong thing". */
 function expectRefused(result: { status: number | null, stdout: string, stderr: string, killed: boolean }): void {
   expect(result.killed, `up was still running after the budget and had to be killed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`).toBe(false)
@@ -169,12 +229,11 @@ describe('startup guard: an unreadable file stops `up`', () => {
     // What docs/SERVERS.md shows a person writing: no stamp. No migration changes a servers file.
     fs.writeFileSync(path.join(workspace, 'servers.config.json'), JSON.stringify({ servers: [{ id: 'app', command: 'node' }] }))
 
-    const result = await runUp(home, 8000)
+    const result = await runUpUntil(home, 'auth:')
 
-    // Still running when the budget ran out, having printed the lines that follow every guard.
+    // The guard let it through: the line that follows every guard was printed, and nothing refused.
     expect(result.stderr).not.toContain('refusing to start')
-    expect(result.killed, result.stderr).toBe(true)
-    expect(`${result.stdout}${result.stderr}`).toContain('auth:')
+    expect(result.matched, `up never printed "auth:"\nstdout: ${result.stdout}\nstderr: ${result.stderr}`).toBe(true)
   })
 
   it('refuses a workspace settings file from a newer release', async () => {
