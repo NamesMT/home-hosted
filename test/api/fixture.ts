@@ -62,12 +62,12 @@ export interface FakeSupervisor {
   freePort: (id: string) => Promise<FreePortResult>
   deploy: (id: string) => Promise<{ ok: boolean, error?: string, code?: 'UNKNOWN_SERVER' | 'NO_DEPLOY' | 'DEPLOY_RUNNING' }>
   /**
-   * Run a job now. The route's own refusals are what the API tests assert, so this answers from the
-   * declared entry the way the real supervisor does: a service is `NOT_A_JOB`. The real spawn, exit
-   * code, log and history are `test/services/supervisor-job.test.ts`.
+   * Removed with the embedded job path: jobs have their own service and routes now.
+   *
+   * The two docblocks here used to contradict each other — one described how this answers for a service
+   * (`NOT_A_JOB`), the next said it had been removed — and the type still named `NOT_A_JOB`, which nothing
+   * constructs any more. A reader had to work out which half was current.
    */
-  /** Removed with the embedded job path: jobs have their own service and routes now. */
-  runJob?: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: true, actor?: HistoryActor, outcome: { exitCode: number | null, signal: string | null, durationMs: number, cancelled: boolean } } | { ok: false, error: string, code: 'UNKNOWN_SERVER' | 'NOT_A_JOB' | 'SERVER_DISABLED' | 'JOB_RUNNING' | 'JOB_FAILED' | 'JOB_START_FAILED' }>
   orphans?: () => Array<{ serverId: string, pid: number, startedAt: number | null }>
   stopOrphan?: (id: string) => Promise<{ ok: boolean, error?: string }>
   dispose: () => Promise<void>

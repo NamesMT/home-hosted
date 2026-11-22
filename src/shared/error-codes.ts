@@ -89,9 +89,6 @@ export const ERROR_CODES = {
   UNKNOWN_SERVER: { status: 404, meaning: 'no server has that id in the workspace' },
   SERVER_DISABLED: { status: 409, meaning: 'the entry is switched off (`enabled: false`)' },
   SERVER_BUSY: { status: 409, meaning: 'a stop, or the same action, is already in flight' },
-  // Still reached by the embedded job path on a server entry (`kind: "job"`), which the jobs domain
-  // replaces. They go with that path, in the commit that removes it.
-  NOT_A_JOB: { status: 409, meaning: '`run` is for a job — a service is started and supervised instead, with `start`' },
   JOB_FAILED: { status: 409, meaning: 'the run happened and failed — its exit code is the outcome, and its log says why' },
   JOB_START_FAILED: { status: 400, meaning: 'the run could not be spawned at all (an unusable `command` or `cwd`)' },
   PORT_IN_USE: { status: 409, meaning: 'the entry\'s port is held and could not be freed' },

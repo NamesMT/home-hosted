@@ -83,11 +83,6 @@ export interface JobOutcome {
   cancelled: boolean
 }
 
-/** What `runJob` answers: whether a run happened, and how it ended when it did. */
-export type JobRunResult
-  = | { ok: true, outcome: JobOutcome }
-    | { ok: false, error: string, code: 'UNKNOWN_SERVER' | 'NOT_A_JOB' | 'SERVER_DISABLED' | 'JOB_RUNNING' | 'JOB_FAILED' | 'JOB_START_FAILED' }
-
 export interface StartResult {
   ok: boolean
   error?: string

@@ -124,7 +124,7 @@ export const jobRunCommand = defineCommand({
     const body = (answer.body ?? {}) as Partial<JobRunResultBody> & { message?: string, code?: string }
 
     if (answer.status !== 200) {
-      // The panel's own sentence, which already names the fix (`NOT_A_JOB` says to use `start`). A
+      // The panel's own sentence, which already names the fix. A
       // failed run keeps its numbers under `--json`, so a script reads the exit code rather than prose.
       const reason = body.message ?? `the panel answered ${answer.status}`
       if (json) {

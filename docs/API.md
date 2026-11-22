@@ -156,7 +156,6 @@ arrives with.
 | `SERVER_BUSY` | 409 | a stop, or the same action, is already in flight |
 | `PORT_IN_USE` | 409 | the entry's port is held and could not be freed |
 | `DEPENDENCY_FAILED` | 409 | an entry in `dependsOn` could not be started |
-| `NOT_A_JOB` | 409 | `run` was called on a `kind: "service"` entry — a service is started and supervised with `start` |
 | `JOB_RUNNING` | 409 | a run of this job is already in flight |
 | `JOB_FAILED` | 409 | the run happened and failed; its exit code is the outcome and its log says why |
 | `JOB_START_FAILED` | 400 | the run could not be spawned at all (an unusable `command` or `cwd`) |
@@ -228,7 +227,6 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | one entry. `PUT` is create-or-replace (201, then 200): the idempotent form for config management. **A `PUT` body must repeat the path `id`** — a mismatch is `400 ID_MISMATCH`, never a rename. It writes config only — restart to apply, and the view's `restartRequired` says when that is needed; `warnings` appears here too | ✅ |
 | `POST /api/servers/:id/{start,stop,restart,free-port,clear-logs}` | lifecycle; `free-port` asks whatever holds the port to stop (a supervised holder is refused). A refusal's `code` names it: `SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`, `DEPENDENCY_FAILED`, else `ACTION_FAILED` | ✅ |
 | `POST /api/servers/:id/deploy` | run the entry's `deploy` steps, then restart. **Waits** for the outcome; `?wait=false` answers `202` instead. Refusals name themselves: `NO_DEPLOY`, `DEPLOY_RUNNING`, `DEPLOY_FAILED` | ✅ |
-| `POST /api/servers/:id/run` | run a **job** now and wait for its exit code. `NOT_A_JOB` for a service (running a service once is what `start` is for), `JOB_RUNNING` when a run is already in flight | ✅ |
 | `POST /api/servers/orphans/:id/stop` | stop a process the panel started that no entry claims any more (the orphan list is on the workspace view) | ✅ |
 | `POST /api/servers/{start-all,stop-all}` | the whole workspace (`?withPersistent=true` includes persistent entries) | ✅ |
 | `GET /api/servers/:id/logs?limit=` | the in-memory buffer (1–100000 lines; a value outside that is a `400`, not a clamp) | ✅ |

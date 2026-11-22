@@ -51,13 +51,20 @@ describe('run, a job now', () => {
     expect(result.stdout).toBe('')
   })
 
-  it('refuses a service, naming the command that does start it', async () => {
-    const created = await panel(409, JSON.stringify({ code: 'NOT_A_JOB', message: 'server "web" is a service — `start` supervises it' }))
+  it('prints the panel\'s own sentence when a run is refused', async () => {
+    /**
+     * The panel names the fix and the CLI repeats it rather than inventing wording.
+     *
+     * This used `NOT_A_JOB`, which the jobs domain made unreachable — a `job run` can no longer land on a
+     * service, because the id is looked up among jobs. `JOB_RUNNING` is a refusal the panel still sends, so
+     * the test now exercises the path a person can actually reach.
+     */
+    const created = await panel(409, JSON.stringify({ code: 'JOB_RUNNING', message: 'job "web" is already running — stop it, or read `job log web`' }))
     writeRuntime(created.url)
 
     const result = await runCli(['job', 'run', 'web'])
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('start')
+    expect(result.stderr).toContain('already running')
   })
 
   it('exits 1 when the job itself exited non-zero, though the request succeeded', async () => {
