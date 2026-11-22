@@ -15,7 +15,9 @@
 # script fails loudly rather than continuing on a wrong assumption.
 #
 # Usage: docs/demo/blank-host-restore.sh
-# Requires: docker, pnpm, node 24. Runs entirely under $TMPDIR; touches nothing of yours.
+# Requires: docker (with a **running daemon**), pnpm, node 24 — all three are checked before anything
+# starts, so a missing one is one sentence rather than a failure four steps in.
+# Runs entirely under $TMPDIR; touches nothing of yours.
 
 set -euo pipefail
 
@@ -42,6 +44,27 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------- host A
+
+# Fail before doing anything, not halfway through.
+#
+# Without this the script started a panel, declared the entry and *then* died on
+# `failed to connect to the docker API at unix:///var/run/docker.sock` — leaving the reader to work out
+# that the prerequisite at the top of the file is the thing they lack. Measured on a host with no daemon:
+# the failure landed on the first `docker` call, four steps in. The `trap` cleaned up correctly, which is
+# why this is a message problem rather than a mess one.
+for tool in docker pnpm node; do
+  command -v "$tool" >/dev/null 2>&1 && continue
+  case "$tool" in
+    docker) printf 'this demo runs real containers and needs docker on PATH; it is not there.\n' >&2 ;;
+    pnpm) printf 'this demo drives the panel through pnpm; install it (https://pnpm.io/installation) or put it on PATH.\n' >&2 ;;
+    *) printf 'this demo needs node 24 or newer on PATH; it is not there.\n' >&2 ;;
+  esac
+  exit 1
+done
+docker info >/dev/null 2>&1 || {
+  printf 'docker is installed but its daemon is not answering.\n  Try `docker info`; on Linux that usually means starting docker.service, or adding yourself to the docker group.\n' >&2
+  exit 1
+}
 
 say "Host A: a blank machine with one stack"
 
