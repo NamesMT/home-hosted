@@ -159,6 +159,20 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **The schema sweep continued past the five defects, and the rest of the surface holds.**
+  After `expectStatus: 999` (this round's precedent), the neighbouring numeric and identifier schemas
+  were swept the same way and are sound:
+
+  - **server numerics** — `port` 0/70000/-1, `timeoutMs` 0/-5, `restart.maxRetries` -1, `restart.windowMs` 0
+    are all refused, as are an empty `command` and an empty `id`;
+  - **workspace ids** — the `/^[a-z0-9][a-z0-9_-]*$/` pattern refuses `../x`, `a/b`, `a b`, `""`, `a..b`,
+    `-x`, `.hidden` and uppercase, so a workspace id can never name a path or a sibling;
+  - **health intervals** — `intervalMs` and `timeoutMs` floors are enforced (`>= 500`, `>= 100`).
+
+  `cwd: "../../etc"` **is** accepted, and that is correct rather than a gap: `resolveCwd` is
+  `path.resolve(projectDir, cwd)`, and an entry's `command` is already arbitrary, so a `cwd` outside the
+  project adds no capability the entry did not have.
+
 - **The security predicates were brute-forced and hold — with the one exception already fixed.**
   After the `Host` userinfo bypass, every neighbouring predicate was probed the same way rather than
   assumed: `tokenScopesFor` classifies all nineteen risky method/path pairs correctly, and its
