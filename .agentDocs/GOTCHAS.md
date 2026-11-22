@@ -159,6 +159,25 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **A `load` hook runs only once the entry is _answering_, and a server that never binds its port
+  therefore never loads.** Driven end to end: `dump` runs at backup time and its `{dumpDir}` is captured
+  in the archive as `dumps/<workspace>/<id>/…` (verified by reading `db.sql` out of the zip), and restore
+  refills that directory before `load`. But `runPendingLoad` waits on `portAccepts` first — so an entry
+  declaring a `port` it never binds sits there until `hook.timeoutMs` (ten minutes by default) with
+  nothing in the log. With a server that really listens on its port, the round-trip worked:
+  `loaded.txt` held the dumped table.
+  A portless entry waits `hook.waitMs` instead, which is the case the field exists for.
+
+- **`GET /api/servers/:id` carries the hooks at `server.config.dump`, not `server.dump`.**
+  Read `server.dump` and it is `undefined`, which looks like the view dropping it. `ServerView` is
+  `Omit<…, 'config'> & { config: ServerConfig }`, so `dump`, `load`, `deploy` and every other entry field
+  live one level down. Cost me a false "the view drops the hooks" conclusion before I printed the actual
+  key list.
+
+- **Restoring a backup rewrites `servers.config.json` from the archive**, so a hook edited after the backup
+  is reverted by the restore. That is what a restore *is* — worth knowing before concluding a PATCH did
+  not apply.
+
 - **`down` refuses while a persistent entry runs, and that is the intended answer.**
   `home-hosted down` on a panel holding one exits with *"stop one with `home-hosted stop <id>`, or pass
   `--with-persistent`"* and leaves the panel up — so a script that treats `down` as unconditional will
