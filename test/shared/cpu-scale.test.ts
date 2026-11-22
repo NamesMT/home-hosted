@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { cpuBand, cpuCapacity } from '#src/shared/cpu-scale'
 import { stripComments } from '../helpers/strip-comments'
+import { uiNames } from '../support/uis'
 
 /**
  * A server's `cpuPercent` is a share of **this machine**, and one rule decides it.
@@ -79,7 +80,7 @@ describe('the UIs read the cpu scale from one module', () => {
         }
       }
     }
-    for (const ui of ['stock', 'noc-console'])
+    for (const ui of uiNames())
       walk(path.join(root, 'uis', ui, 'src'))
     return found
   }

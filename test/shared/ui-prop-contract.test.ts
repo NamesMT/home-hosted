@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../helpers/strip-comments'
 import { openingTags } from '../helpers/template-render'
+import { uiNames } from '../support/uis'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -77,7 +78,7 @@ describe('the two ConfirmButton copies take the same props', () => {
 
   it('binds no prop name its own copy does not declare', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console'] as const) {
+    for (const ui of uiNames()) {
       const declared = declaredProps(confirmButton(ui))
       for (const { file, prop } of boundOnConfirmButton(ui)) {
         if (!declared.includes(prop))
@@ -89,7 +90,7 @@ describe('the two ConfirmButton copies take the same props', () => {
 
   /** Anti-vacuity: the call sites are what the check above actually reads. */
   it('finds the call sites to check', () => {
-    for (const ui of ['stock', 'noc-console'] as const)
+    for (const ui of uiNames())
       expect(boundOnConfirmButton(ui).length, `${ui} ConfirmButton call sites`).toBeGreaterThan(5)
   })
 })

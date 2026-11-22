@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { uiNames } from '../support/uis'
 
 /**
  * Every workspace route the router declares must be in the guard's `WORKSPACE_ROUTES`.
@@ -16,7 +17,7 @@ import { describe, expect, it } from 'vitest'
  * component directly and never runs the guard.
  */
 describe('the workspace route guard', () => {
-  for (const ui of ['stock', 'noc-console']) {
+  for (const ui of uiNames()) {
     it(`${ui} names every workspace route in WORKSPACE_ROUTES`, () => {
       const source = fs.readFileSync(path.join(process.cwd(), 'uis', ui, 'src', 'router.ts'), 'utf8')
 

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { shownInSeconds } from '#src/shared/ui-format'
+import { uiNames } from '../support/uis'
 
 /**
  * A millisecond setting whose floor is a second is edited in seconds, in **both** UIs, and the
@@ -26,7 +27,6 @@ import { shownInSeconds } from '#src/shared/ui-format'
  * the binding is matched by the object it reads through, not by the bare field name.
  */
 const root = fileURLToPath(new URL('../..', import.meta.url))
-const UIS = ['stock', 'noc-console'] as const
 
 /** The catalog strings a duration box is labelled with, and whether their floor is >= 1000 ms. */
 const IN_SECONDS = [
@@ -211,7 +211,7 @@ describe('the unit is decided by the schema floor, not by the page', () => {
 describe('every UI states the unit its binding is in', () => {
   it('binds no seconds field as a raw millisecond count', () => {
     const offenders: string[] = []
-    for (const ui of UIS) {
+    for (const ui of uiNames()) {
       for (const file of uiFiles(ui)) {
         for (const block of fieldBlocks(file.body)) {
           const stated = statedUnit(block)
@@ -236,7 +236,7 @@ describe('every UI states the unit its binding is in', () => {
    */
   it('binds a seconds field only through the shared conversion', () => {
     const offenders: string[] = []
-    for (const ui of UIS) {
+    for (const ui of uiNames()) {
       for (const file of uiFiles(ui)) {
         for (const match of file.body.matchAll(/v-model(?:\.number)?="([^"]*)"/g)) {
           const expression = match[1] ?? ''
@@ -268,7 +268,7 @@ describe('every UI states the unit its binding is in', () => {
 
   it('finds every field in both UIs, so a broken walk cannot pass for free', () => {
     for (const { key, seen } of BOTH_UIS) {
-      for (const ui of UIS) {
+      for (const ui of uiNames()) {
         const hit = uiFiles(ui).some(file => seen.test(file.body))
         expect(hit, `${key} must be editable in ${ui}`).toBe(true)
       }
@@ -305,7 +305,7 @@ const NULL_ONLY_READ = /===\s*null\s*\?\s*0\s*:\s*secondsToMs\(/g
 describe('a cleared seconds box is never a stored zero', () => {
   it('reads no seconds field back through a coercion', () => {
     const offenders: string[] = []
-    for (const ui of UIS) {
+    for (const ui of uiNames()) {
       for (const file of uiFiles(ui)) {
         for (const match of file.body.matchAll(COERCED_READ))
           offenders.push(`${file.rel}: ${match[0]}…) — \`Number('')\` is 0, not "nothing decided"`)
@@ -329,7 +329,7 @@ describe('a cleared seconds box is never a stored zero', () => {
     expect([...guarded.matchAll(NULL_ONLY_READ)]).toHaveLength(0)
 
     // The walk reaches the sources, and the seconds conversion is still in use in both UIs.
-    for (const ui of UIS)
+    for (const ui of uiNames())
       expect(uiFiles(ui).some(file => file.body.includes('msToSeconds(')), `${ui} must still edit a duration in seconds`).toBe(true)
   })
 })

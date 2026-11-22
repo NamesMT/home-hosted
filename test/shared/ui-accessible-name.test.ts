@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../helpers/strip-comments'
+import { uiNames } from '../support/uis'
 
 /**
  * Every interactive control, in **either** UI, must have an accessible name.
@@ -26,11 +27,9 @@ import { templateRegion } from '../helpers/strip-comments'
  */
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
-const UIS = ['stock', 'noc-console']
-
 function templates(): Array<{ file: string, body: string }> {
   const out: Array<{ file: string, body: string }> = []
-  for (const ui of UIS) {
+  for (const ui of uiNames()) {
     const dir = path.join(root, 'uis', ui, 'src')
     for (const entry of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.vue'))
