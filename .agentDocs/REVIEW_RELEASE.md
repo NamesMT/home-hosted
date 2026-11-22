@@ -127,6 +127,31 @@ Measured across all 30 stock sheets:
 That third point is the one worth repeating: **a literal-only grep for `t('key')` reports 177 dead keys
 that are all live.** Check the data-style and template-literal references before deleting a string.
 
+## The i18n guards were already right — my manual scan was the naive one (root agent)
+
+Last round's commit recorded a manual i18n sweep and concluded *"do not delete a string because a literal
+grep cannot find it"*. Reading `uis/stock/test/` afterwards: **`i18n-unused.test.ts` already does exactly
+that**, and does it better.
+
+- It scans `uis/stock/src` **and** `src` — the same correction I made by hand.
+- It extracts the built prefixes from the source itself (`` /`([a-z][\w.]*)\$\{/ ``) instead of hardcoding
+  them, so `t(\`job.weekday.${day}\`)` and `tc(\`proxy.retry.in${unit}\`)` are covered when they are written.
+
+Four guards, 39 tests, all green:
+
+| Guard | Tests | Covers |
+| --- | --- | --- |
+| `i18n-catalog.test.ts` | 22 | every sheet has every locale column, placeholders match, no short rows |
+| `i18n.test.ts` | 11 | the runtime catalog itself |
+| `untranslated-copy.test.ts` | 5 | copy in `.vue` templates that never reached a sheet at all |
+| `i18n-unused.test.ts` | 1 | a catalog row nothing reads |
+
+`noc-console` has no copy guards and does not need them: it is **English-only and inline** by design
+(`AGENTS.md`, and it has no `i18n/` directory at all).
+
+So the i18n axis was covered before this audit began. What last round's commit adds is still worth having —
+it is a record of the measurements — but it is not a fix, and it should not be read as one.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
