@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../helpers/strip-comments'
+import { uiNames } from '../support/uis'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -28,7 +29,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
  */
 function vueFiles(): string[] {
   const out: string[] = []
-  for (const ui of ['stock', 'noc-console']) {
+  for (const ui of uiNames()) {
     const dir = path.join(root, 'uis', ui, 'src')
     for (const entry of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.vue'))

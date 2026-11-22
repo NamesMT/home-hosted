@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { stripComments } from '../helpers/strip-comments'
+import { uiNames } from '../support/uis'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -192,7 +193,7 @@ describe('every UI reads a failed action through failureMessage', () => {
   }
 
   it('has no refusal that answers with a status code instead of the panel sentence', () => {
-    const offenders = ['stock', 'noc-console'].flatMap(ui =>
+    const offenders = uiNames().flatMap(ui =>
       uiFiles(ui).flatMap(file => offendersIn(file.body).map(hit => `${file.rel}: ${hit}`)),
     )
     expect(offenders).toEqual([])
@@ -294,13 +295,13 @@ describe('every UI reads a failed action through failureMessage', () => {
     expect(action, 'serverAction must use the shared reader').toContain('failureMessage(')
     // And the helper itself is one definition, in the shared client.
     expect(action, 'serverAction must not re-implement it').not.toContain('function failureMessage')
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       const api = fs.readFileSync(path.join(root, 'uis', ui, 'src', 'lib', 'api.ts'), 'utf8')
       expect(api, `${ui} must reach the shared action`).toContain('@shared/api-client')
       expect(api, `${ui} must not re-implement the reader`).not.toContain('function failureMessage')
     }
     // And the walk reaches the sources, or an empty list would pass both scans.
-    for (const ui of ['stock', 'noc-console'])
+    for (const ui of uiNames())
       expect(uiFiles(ui).length, `${ui} sources`).toBeGreaterThan(20)
   })
 })

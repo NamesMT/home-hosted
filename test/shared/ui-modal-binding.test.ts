@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { uiNames } from '../support/uis'
 
 /**
  * A `<Modal>` must be opened with `v-model:open`, never `:open` plus a handler.
@@ -17,7 +18,7 @@ import { describe, expect, it } from 'vitest'
  */
 describe('the Modal binding', () => {
   it('opens with v-model:open in every view', () => {
-    const roots = ['stock', 'noc-console'].map(ui => path.join(process.cwd(), 'uis', ui, 'src'))
+    const roots = uiNames().map(ui => path.join(process.cwd(), 'uis', ui, 'src'))
     const offenders: string[] = []
     for (const root of roots) {
       for (const file of filesUnder(root)) {

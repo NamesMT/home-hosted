@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../helpers/strip-comments'
 import { isGeometry, renderedExpressions } from '../helpers/template-render'
+import { uiNames } from '../support/uis'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -243,7 +244,7 @@ describe('the UIs read a process’s numbers through one predicate', () => {
         }
       }
     }
-    for (const name of ['stock', 'noc-console'])
+    for (const name of uiNames())
       walk(path.join(root, 'uis', name, 'src'))
 
     // Anti-vacuity: the walk must see the templates, not an empty directory, and the matcher must

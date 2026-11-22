@@ -6,6 +6,7 @@ import { hostSchema } from '#src/shared/contracts'
 import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT, tempDialPercent, tempScale } from '#src/shared/host-readings'
 import { stripComments, templateRegion } from '../helpers/strip-comments'
 import { isGeometry, renderedExpressions } from '../helpers/template-render'
+import { uiNames } from '../support/uis'
 
 /**
  * A host frame with no sample has no readings, and the panel's own pages said otherwise.
@@ -288,7 +289,7 @@ describe('the panel reads host measurements from one module', () => {
    */
   it('renders a host measurement with no zero fallback', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
         for (const hit of zeroFallbacksOnReadings(templateRegion(sourceOf(rel))))
           offenders.push(`${rel}: ${hit}`)
@@ -335,7 +336,7 @@ describe('the UIs band the load against the configured threshold', () => {
 
   it('does not compare a per-cpu load against a literal', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
         for (const match of sourceOf(rel).matchAll(LOAD_COMPARISON))
           offenders.push(`${rel}: ${match[0].trim()}`)
@@ -383,7 +384,7 @@ describe('the UIs band the percentages against the configured thresholds', () =>
 
   it('does not compare a percentage reading against a literal', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
         for (const match of sourceOf(rel).matchAll(PERCENT_COMPARISON))
           offenders.push(`${rel}: ${match[0].trim()}`)
@@ -495,7 +496,7 @@ describe('the UIs band a disk from the predicate', () => {
 
   it('bands no disk reading against a number nobody configured', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
         for (const match of sourceOf(rel).matchAll(DISK_LITERAL))
           offenders.push(`${rel}: ${match[0].trim()}`)
@@ -588,7 +589,7 @@ describe('the UIs do not restate a temperature scale', () => {
 
   it('scales no temperature against a number nobody configured', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
         for (const match of sourceOf(rel).matchAll(TEMP_SCALE))
           offenders.push(`${rel}: ${match[0].trim()}`)
@@ -685,7 +686,7 @@ describe('a telemetry dial takes its verdict from the caller', () => {
 
   it('has no call site passing one', () => {
     const offenders: string[] = []
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
         if (/:(?:warn-at|danger-at)=/.test(sourceOf(rel)))
           offenders.push(rel)

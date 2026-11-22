@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { stripComments } from '../helpers/strip-comments'
+import { uiNames } from '../support/uis'
 
 /**
  * A command printed in the UI is a promise the package has to keep.
@@ -30,7 +31,7 @@ const PNPM_SCRIPT = /\bpnpm (?:run\s+)?([a-z][\w:-]*)/g
 
 function uiSources(): string[] {
   const files: string[] = []
-  for (const ui of ['stock', 'noc-console']) {
+  for (const ui of uiNames()) {
     for (const dir of ['src', 'i18n/sheets']) {
       const base = path.join(repoRoot, 'uis', ui, dir)
       if (!fs.existsSync(base))

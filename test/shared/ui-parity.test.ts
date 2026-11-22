@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { stripComments } from '../helpers/strip-comments'
+import { uiNames } from '../support/uis'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -29,7 +30,7 @@ describe('the UIs share one proxy form', () => {
     expect(shared).toContain('ROUTE_ID_PATTERN')
 
     // Neither UI re-declares them: a second copy is how the drift starts.
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       const source = uiProxy(ui)
       expect(source, `${ui} must not re-declare validateRouteDraft`).not.toMatch(/^export function validateRouteDraft/m)
       expect(source, `${ui} must not re-declare parseUpstream`).not.toMatch(/^export function parseUpstream/m)
@@ -71,7 +72,7 @@ describe('the UIs share one proxy form', () => {
     expect(shared).toContain('export function cloneRoutes')
     expect(shared).toContain('export function applyRouteDraft')
 
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       const source = uiProxy(ui)
       expect(source, `${ui} must not re-declare cloneRoutes`).not.toMatch(/^export function cloneRoutes/m)
       expect(source, `${ui} must not re-declare applyRouteDraft`).not.toMatch(/^export function applyRouteDraft/m)
@@ -95,7 +96,7 @@ describe('the UIs share one DDNS form', () => {
     expect(shared).toContain('export function ddnsConfigPatch')
     expect(shared, 'src/shared must not import Vue').not.toMatch(/from 'vue'/)
 
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       const dir = path.join(root, 'uis', ui, 'src', 'lib')
       expect(fs.existsSync(path.join(dir, 'ddns.ts')), `${ui} must not keep its own lib/ddns.ts`).toBe(false)
     }
@@ -110,7 +111,7 @@ describe('the UIs share one DDNS form', () => {
    */
   it('counts the DDNS diff on both pages, not the whole block', () => {
     for (const page of ['SettingsView.vue']) {
-      for (const ui of ['stock', 'noc-console']) {
+      for (const ui of uiNames()) {
         const source = fs.readFileSync(path.join(root, 'uis', ui, 'src', 'views', page), 'utf8')
         expect(source, `${ui} must reach the shared DDNS form`).toContain('from \'@shared/ddns-form\'')
         expect(source, `${ui} must diff the DDNS block for its count`).toContain('ddnsConfigPatch(')
@@ -147,7 +148,7 @@ describe('the UIs share one DDNS form', () => {
         }
       }
     }
-    for (const ui of ['stock', 'noc-console'])
+    for (const ui of uiNames())
       walk(path.join(root, 'uis', ui, 'src'))
 
     // Anti-vacuity: the walk sees the UI sources, and the stripper keeps a call a comment merely
@@ -174,7 +175,7 @@ describe('the UIs share one restore-from-file helper', () => {
     expect(shared).toContain('export async function restoreUploadedBackup')
     expect(shared).toContain('export interface RestoreOptions')
 
-    for (const ui of ['stock', 'noc-console']) {
+    for (const ui of uiNames()) {
       const source = fs.readFileSync(path.join(root, 'uis', ui, 'src', 'lib', 'api.ts'), 'utf8')
       expect(source, `${ui} must not re-declare restoreUploadedBackup`).not.toMatch(/^export async function restoreUploadedBackup/m)
       expect(source, `${ui} must not re-declare RestoreOptions`).not.toMatch(/^export interface RestoreOptions/m)
@@ -342,7 +343,7 @@ describe('the plain-object predicate has one definition', () => {
     // reaches shared code by the alias.
     // Counted, not merely matched: a single surviving import in one file satisfied a `toMatch` on the
     // joined text, so removing every shared import from a UI still passed.
-    for (const ui of ['stock', 'noc-console'])
+    for (const ui of uiNames())
       expect(uiImports(ui).length, `${ui} must reach shared code through the alias`).toBeGreaterThan(0)
     // The alias is used for more than contracts, so the check is not satisfied by one type-only import.
     expect(uiImports('noc-console').some(spec => spec !== '@shared/contracts')).toBe(true)

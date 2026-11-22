@@ -5,11 +5,15 @@ import process from 'node:process'
 /**
  * Every UI in this repository, discovered rather than listed.
  *
- * Six guards under `test/shared/` each carry `['stock', 'noc-console']` inline. That is correct today and
- * has two problems: a **third** UI would be silently unguarded by all six, and the lists could drift from
- * `uis/` without anything noticing. The same shape has bitten this repo five times — `SHIPPED`,
- * `IN_REPO`, `SOURCES`, `stateSignature`, the `windowsHide` scan, and the patch-pair list — and the answer
- * each time was to discover the set instead of writing it down.
+ * Fourteen guards under `test/shared/` carried `['stock', 'noc-console']` inline — **23 sites across eight
+ * files**. That is correct today and has two problems: a **third** UI would be silently unguarded by all of
+ * them, and the lists could drift from `uis/` without anything noticing. The same shape has bitten this repo
+ * repeatedly — `SHIPPED`, `IN_REPO`, `SOURCES`, `stateSignature`, the `windowsHide` scan, the patch-pair
+ * list — and the answer each time was to discover the set instead of writing it down.
+ *
+ * The first pass over this converted **five** files and called the class fixed. It was not: eleven sites in
+ * four more files were still literals, which is the recurring failure of fixing the instances in front of
+ * you and naming it a sweep.
  *
  * The predicate is the one `scripts/build-uis.mjs` uses: a directory under `uis/` holding a
  * `vite.config.ts`. Matching it means a UI the build would ship is a UI the guards check.

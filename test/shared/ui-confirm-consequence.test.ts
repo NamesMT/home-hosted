@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../helpers/strip-comments'
 import { openingTags } from '../helpers/template-render'
+import { uiNames } from '../support/uis'
 
 /**
  * A destructive action confirms in a popover, and the popover says what it destroys.
@@ -35,7 +36,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
 /** Every `.vue` in either UI, by path — the whole `src`, because a confirmation is not a folder. */
 function vueFiles(): Array<{ ui: string, file: string, rel: string }> {
   const found: Array<{ ui: string, file: string, rel: string }> = []
-  for (const ui of ['stock', 'noc-console']) {
+  for (const ui of uiNames()) {
     const srcDir = path.join(root, 'uis', ui, 'src')
     for (const entry of fs.readdirSync(srcDir, { recursive: true, withFileTypes: true })) {
       // The component itself declares the fallback; it is not a call site.
