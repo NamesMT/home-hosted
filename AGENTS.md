@@ -225,3 +225,8 @@ These are the ones that prevent real defects. Break one only with a reason in th
   channel (someone must act), a fix is a patch. Never hand-edit the version in `package.json`.
 - **Concise.** A comment explains non-obvious intent in a line or two; the argument for a change goes
   in the commit message, not the code.
+- **`src/shared/contracts.ts` splits leaf-first.** The clusters that moved cleanly — frames, logs, ddns,
+  proxy, backups, accounts — reference only themselves. The entry groups (restart, health, stop, deploy,
+  bootstrap, the backup hooks) do **not**: they are the substrate `serverSchema` is built from, and moving
+  them out collapses its inference into `{ [x: string]: any }`, which still compiles. A further cut takes
+  `serverSchema` **with** its helpers as one module, never the helpers out from under it.
