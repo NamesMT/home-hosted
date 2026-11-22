@@ -103,8 +103,9 @@ npx home-hosted secret set web DATABASE_URL             # a secret, prompted wit
                                                         #   servers.config.json)
 ```
 
-<sub>Needs Node 24+ — the CLI refuses to start on an older one and says which version it found, rather
-than failing somewhere inside the build. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
+<sub>Needs Node 24+ — the CLI refuses to start on an older one and names the version it found, rather
+than failing somewhere inside. (`engines` in `package.json` is advisory and `npx`/`pnpm dlx` do not check
+it, so the check is in the CLI itself.) `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
 `settings.json`, so the next plain `up` binds the same way.</sub>
 
 > [!IMPORTANT]
@@ -191,8 +192,8 @@ curl -N -H "Authorization: Bearer monitor:hh_…" http://127.0.0.1:3999/api/even
 home-hosted status --json                                                             # where everything is
 ```
 
-Building in TypeScript? `import { createClient } from 'home-hosted/client'` — a ~2 KB gzipped client
-(5.2 KB raw) typed from the panel's own routes, with the live event stream
+Building in TypeScript? `import { createClient } from 'home-hosted/client'` — a ~3.5 kB gzipped client
+(8.5 kB raw) typed from the panel's own routes, with the live event stream
 ([API.md](./docs/API.md#the-typescript-client)).
 Any other language: `GET /openapi/spec.json` documents every API route and its bodies (browse at
 `/openapi/ui`), so an OpenAPI generator gives you a typed client. `GET /healthz` needs no credential

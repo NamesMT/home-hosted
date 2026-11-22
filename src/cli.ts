@@ -547,7 +547,32 @@ const rootCommand = defineCommand({
 
 const commandNames = Object.keys(COMMANDS)
 
+/**
+ * The **runtime** floor, checked before anything else runs.
+ *
+ * `package.json`'s `engines` is advisory: npm warns, and `npx`/`pnpm dlx` do not check it at all — so
+ * `npx home-hosted …` on an older Node used to get however far the syntax allowed and then fail somewhere
+ * unhelpful. The README promised *"the CLI refuses to start on an older one and says which version it
+ * found"*, which was not true of any code in this file.
+ *
+ * Runs first because the check itself must not depend on the rest: no `#src` import that might already use
+ * a newer syntax, no colour, no flag parsing — plain `process` and `process.stdout`.
+ */
+function assertNodeFloor(): void {
+  const required = 24
+  const found = Number(process.versions.node.split('.')[0])
+  if (Number.isFinite(found) && found >= required)
+    return
+  process.stderr.write(
+    `home-hosted needs Node ${required} or newer, and this is Node ${process.versions.node}.\n`
+    + `  install one (https://nodejs.org), or run it through a manager that can: \`npx -p node@${required} home-hosted …\`\n`,
+  )
+  process.exit(1)
+}
+
 async function main(): Promise<void> {
+  assertNodeFloor()
+
   // Before the first byte is written: a reader that hangs up (`| head -1`, `grep -q`) closes the pipe,
   // and an unhandled EPIPE would print an engine stack trace and exit 1. One install, every command.
   treatClosedReaderAsDone()

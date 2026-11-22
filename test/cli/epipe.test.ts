@@ -69,3 +69,26 @@ describe('a reader that hangs up early', () => {
     expect(result.code, result.stderr).toBe(0)
   })
 })
+
+/**
+ * The runtime floor is in the CLI, not only in `package.json`.
+ *
+ * `engines` is advisory: npm warns and `npx`/`pnpm dlx` do not check it at all, so `npx home-hosted …` on
+ * an older Node got however far the syntax allowed and then failed somewhere unhelpful. The README
+ * promised a refusal that named the version found — and no code in `src/cli.ts` did it, verified by
+ * grepping both the source and the built bundle for `process.versions.node` and finding nothing.
+ *
+ * Asserted from **source** rather than by running an old Node, which no CI runner has: the check must parse
+ * a major version from `process.versions.node`, compare it, and exit non-zero. Lowering or removing any of
+ * those fails here.
+ */
+describe('the CLI checks the runtime version', () => {
+  it('refuses a Node below the floor, naming the version found', () => {
+    const source = fs.readFileSync(path.join(root, 'src', 'cli.ts'), 'utf8')
+    expect(source, 'the floor must be read from the running Node, not assumed').toContain('process.versions.node')
+    expect(source, 'a refusal has to exit non-zero').toMatch(/process\.exit\(1\)/)
+    expect(source, 'the message must name the version found').toMatch(/needs Node \$\{|and this is Node/)
+    // Anti-vacuity: the check must actually run, not merely exist in a function nobody calls.
+    expect(source, 'the guard is never invoked').toMatch(/^\s+assertNodeFloor\(\)$/m)
+  })
+})
