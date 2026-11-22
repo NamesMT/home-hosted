@@ -80,6 +80,21 @@ reporting is the useful kind.
 **One routing note for the reviewer, not a defect:** there is no per-server logs control on the servers page;
 logs are the workspace route `/w/<id>/logs`. If a finding is "I cannot find the logs", look there.
 
+## Global settings save — verified (root agent, same pass)
+
+**A panel-wide setting saves, persists and lands in the file.** Changed *Panel name* (`#v-38`, the last text
+field on `/global/settings`) to `Renamed panel`, pressed **Save settings**, reloaded the page: the field reads
+`Renamed panel`, and `settings.json` carries `control.label: "Renamed panel"`. No console errors. The page
+also marks itself dirty correctly — *Discard changes* appears once a field is edited and *No unsaved changes*
+once the save returns.
+
+**One probe of mine was meaningless, and it is the shape to avoid.** My first attempt picked `#v-11` — the
+fourth number input, which I *assumed* was the session TTL — filled `1234`, saved, and found `sessionTtlMs`
+absent from `settings.json`. That reads exactly like "the save silently dropped my change". It did not:
+`sessionTtlMs` lives under `auth`, not `control`, and `#v-11` was some other field entirely. The fields carry
+**generated ids** (`v-7`, `v-11`, `v-38`, …) and no `name`, so the only way to know which is which is to read
+the label beside it — which is what the last run does, and what any future probe must do first.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
