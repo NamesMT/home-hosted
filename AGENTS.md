@@ -45,6 +45,11 @@ Releasing: [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md), with upgrade no
 | change the published client | `src/client.ts` (runtime, imports the server for types only) | `vite.client.config.ts` (bundle), `scripts/build-types.mjs` (declarations, `#src` rewritten); `test/api/client.test.ts`; `docs/API.md` |
 | add a UI string | a row in `uis/stock/i18n/sheets/<key-prefix>.csv` with **all 9 language columns** | `pnpm run build:locales`; noc-console is English-only and inline |
 | add a whole UI | `uis/<name>/` with a `vite.config.ts` from `uis/vite.shared.ts` and `public/ui.json` | `node scripts/build-uis.mjs <name> --zip`; contract in `docs/UI_CREATION.md` |
+| add or change a job | `src/services/jobs.ts` (the store and the run), `src/services/scheduler.ts` (the 1 Hz tick and the due-minute memo) | `src/shared/cron.ts` (the 5-field parser), `src/api/jobs.ts`; the Jobs page in both UIs; `docs/JOBS.md` |
+| touch accounts or scopes | `src/config/secrets.ts` (records, hashing, lookup), `src/services/auth.ts` (sessions), `src/middleware/token-scope.ts` (the workspace limit) | `src/shared/api-scopes.ts`, the `/api/auth/accounts` routes; `test/middleware/token-scopes.test.ts` |
+| touch secrets or the first-run password | `src/config/secrets.ts` (the 0600 store), `src/cli/secret.ts`, `src/shared/contracts.ts` (`secretEnv`) | `docs/SECURITY.md`; the secret-value block in both UIs' forms |
+| add a deploy step | `src/services/deploy.ts`, `src/cli/run-deploy.ts` | `deploy` on `serverSchema`; the config page in both UIs |
+| touch import (pm2 / compose) | `src/cli/import.ts`, `import-plan.ts` (read), `import-write.ts` (write) | `src/providers/docker.ts` (compose parse); `--confirm`, `--allow-js` |
 
 A provider that is a **directory** needs its own `package.json#imports` entry (`#src/*` maps files,
 and Node refuses a directory import).
@@ -85,25 +90,9 @@ pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated 
 pnpm run smoke                 # boot the BUILT panel and walk every route in Chromium
 ```
 
-- **`pnpm run smoke` is not part of `check`, and that is deliberate — but it does run in CI.** It needs
-  a Chromium binary `pnpm install` does not fetch (`pnpm exec playwright install chromium`, ~150 MB) and
-  it boots a real panel, which together cost more than the whole unit suite. Adding that to every
-  developer's gate would be the wrong trade. Leaving it to whoever remembered to type the command was
-  worse: every UI defect this project has shipped was invisible to `check` and obvious to a browser, so
-  `.github/workflows/smoke.yml` runs it on every push and pull request (one Linux runner, ~4 min, the
-  browser cached). Run it locally too before a release and after any change under `uis/`.
-  It hit-tests controls (an overlaying *element*) **and** compares pixels per control (a CSS
-  background painted over one — the `scroll-hint-x` shape, which no hit-test can see), and checks for
-  sideways document scroll (a table cut off), and measures every `input[placeholder]` against its own
-  box with `canvas.measureText` — a hint that does not fit is a hint nobody finishes reading, and no
-  scroll-width comparison sees it. It opens the command palette on each route, because that is a lazy
-  modal: the one fixed-width box holding a translatable string does not exist until the shortcut is
-  pressed. It **saves a settings form and reads the value back from the panel**, because a route walk
-  proves a page renders and nothing more: a form whose Save silently failed, or whose refusal answered with
-  the client's internals ("contract mismatch"), was invisible to every check until someone drove it by
-  hand in a browser. It walks **both UIs** — `stock` and `noc-console` have
-  different route tables, and it picks the right one from the panel's own `ui.json` — and does it
-  **twice per route**, at 1280x800 and 390x844, because the layout checks only bite at a phone width.
+- **`pnpm run smoke` drives the built panel and both UIs in Chromium at two viewports
+  (`scripts/smoke.mjs`). Not part of `check`; CI runs it (`smoke.yml`). Run it after any change under
+  `uis/`.**
 - **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.
   CI on a push runs only the tests its changes reach since the last green run (`test.yml`); the
   whole suite with coverage runs on a manual dispatch of `test.yml` and in every release. `check:fast` follows imports, so a change only a spawned CLI or a source scan
@@ -187,11 +176,7 @@ These are the ones that prevent real defects. Break one only with a reason in th
   scans over every `.ts`/`.vue` in `src/` and `uis/` — **not** for all ~28 modules: the newer ones
   (`live-store`, `server-form`, `patch-diff`, `backup-scope`, `ui-format`, …) are unpinned, so a
   re-declaration there is caught by nothing. Adding a module to `src/shared` means adding it to that
-  test, or accepting the gap knowingly. **Measured once, when the gap was last audited: no duplicates
-  exist** — every exported body in all 35 modules compared against every same-named function in
-  `src/` and both UIs found zero identical copies, and all 17 name collisions were different functions
-  sharing a name (a wrapper delegating to the shared one, a provider's own HTTP helper). So the gap is
-  in the guard, not in the code; it is worth closing before it is worth worrying about.
+  test, or accepting the gap knowingly.
 
 **Readings**
 - A metric or reading with no sample is **absent**, never `0`, on the scrape and in every UI. No

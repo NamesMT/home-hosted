@@ -157,8 +157,6 @@ than it looks.
 only the second one reaches a user. `pnpm pack`, then install the `.tgz` into an empty project
 (`npm install /tmp/pk/home-hosted-<version>.tgz`), and check three things from the installed copy:
 `./node_modules/.bin/home-hosted --version` answers, `up` serves the stock UI at `/`, and
-`/openapi/spec.json` answers `200`. Done that way for the version this branch is heading for: 22
-packages installed in 4 s, the CLI answered, and both routes came back `200` with the stock
-`<title>`. A missing `uis/stock/dist` or a `files` entry that excluded `bin/` shows up here and nowhere
-earlier — `prepack` builds into the working tree, so the repo looks complete either way. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
+`/openapi/spec.json` answers `200`. A missing `uis/stock/dist` or a `files` entry that excluded `bin/`
+shows up here and nowhere earlier — `prepack` builds into the working tree, so the repo looks complete either way. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
 devDependencies because the UIs are prebuilt.
