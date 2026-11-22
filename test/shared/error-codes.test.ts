@@ -127,6 +127,40 @@ describe('the error-code catalogue', () => {
     expect(sites.some(site => site.code === 'UNKNOWN_BACKUP')).toBe(false)
   })
 
+  /**
+   * Every catalogued code is **reachable** — thrown by some route, or named as an alias of one that is.
+   *
+   * The tests above check one direction: a code the API throws must be catalogued. Nothing checked the
+   * other, and three codes had drifted out of use while staying in the catalogue and in `docs/API.md`:
+   * `TOKEN_EXISTS` and `UNKNOWN_TOKEN` were superseded by `ACCOUNT_EXISTS`/`UNKNOWN_ACCOUNT` when tokens
+   * became accounts, and `JOB_START_FAILED` was never thrown at all — a failed job spawn answers `200`
+   * with `exitCode: null`, because the run happened and failing is its outcome.
+   *
+   * A client generated from the catalogue cannot act on a code that never arrives, and two codes for one
+   * condition is the defect this file exists to prevent — `BACKUP_NOT_FOUND` has its own case above.
+   *
+   * `statusOfCode`-only entries are allowed: a code may be catalogued because a *response schema* names it
+   * rather than a `throw`, so the rule is "appears outside this file", not "is thrown".
+   */
+  it('leaves no catalogued code unreachable', () => {
+    const root = fileURLToPath(new URL('../..', import.meta.url))
+    const sources: string[] = []
+    for (const dir of ['src', 'test']) {
+      for (const entry of fs.readdirSync(path.join(root, dir), { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.ts'))
+          continue
+        const full = path.join(entry.parentPath, entry.name)
+        const rel = path.relative(root, full).replaceAll('\\', '/')
+        if (rel === 'src/shared/error-codes.ts' || rel === 'test/shared/error-codes.test.ts')
+          continue
+        sources.push(fs.readFileSync(full, 'utf8'))
+      }
+    }
+    const haystack = sources.join('\n')
+    const unreachable = Object.keys(ERROR_CODES).filter(code => !new RegExp(`\\b${code}\\b`).test(haystack))
+    expect(unreachable, 'a catalogued code nothing can ever send is a promise the API does not keep').toEqual([])
+  })
+
   /** The catalogue is published, so the docs and a generated client read the same list. */
   it('is listed in docs/API.md', () => {
     const doc = fs.readFileSync(path.join(root, 'docs', 'API.md'), 'utf8')

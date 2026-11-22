@@ -135,8 +135,6 @@ arrives with.
 | `UNKNOWN_ACCOUNT` | 404 | no account has that id |
 | `CANNOT_REVOKE_SELF` | 400 | that is the account making the request |
 | `LAST_ACCOUNT` | 400 | the last account that can sign in; revoking it would lock the panel |
-| `TOKEN_EXISTS` | 409 | an API token with that name already exists |
-| `UNKNOWN_TOKEN` | 404 | no API token has that id |
 | `CURRENT_PASSWORD_REQUIRED` | 400 | changing an existing password needs `currentPassword` |
 | `CURRENT_PASSWORD_WRONG` | 401 | `currentPassword` was incorrect |
 | `PASSWORD_TOO_SHORT` | 400 | a password below the 12-character bar while the panel is exposed |
@@ -158,7 +156,6 @@ arrives with.
 | `DEPENDENCY_FAILED` | 409 | an entry in `dependsOn` could not be started |
 | `JOB_RUNNING` | 409 | a run of this job is already in flight |
 | `JOB_FAILED` | 409 | the run happened and failed; its exit code is the outcome and its log says why |
-| `JOB_START_FAILED` | 400 | the run could not be spawned at all (an unusable `command` or `cwd`) |
 | `ACTION_FAILED` | 409 | a lifecycle refusal none of the more specific codes describes |
 | `UNKNOWN_ORPHAN` | 404 | no orphaned process is running under that id |
 | `ORPHAN_SURVIVED` | 409 | an orphaned process ignored the stop |

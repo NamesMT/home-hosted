@@ -82,15 +82,12 @@ export const ERROR_CODES = {
   UNKNOWN_ACCOUNT: { status: 404, meaning: 'no account has that id' },
   CANNOT_REVOKE_SELF: { status: 400, meaning: 'that is the account making the request — sign in as another one to revoke it, or the caller signs itself out mid-action' },
   LAST_ACCOUNT: { status: 400, meaning: 'that is the last account that can sign in; revoking it would leave the panel with no way in' },
-  TOKEN_EXISTS: { status: 409, meaning: 'an API token with that name already exists — two tokens with one name cannot be told apart' },
-  UNKNOWN_TOKEN: { status: 404, meaning: 'no API token has that id' },
 
   // ── Server lifecycle ─────────────────────────────────────────────────────────────────────────────
   UNKNOWN_SERVER: { status: 404, meaning: 'no server has that id in the workspace' },
   SERVER_DISABLED: { status: 409, meaning: 'the entry is switched off (`enabled: false`)' },
   SERVER_BUSY: { status: 409, meaning: 'a stop, or the same action, is already in flight' },
   JOB_FAILED: { status: 409, meaning: 'the run happened and failed — its exit code is the outcome, and its log says why' },
-  JOB_START_FAILED: { status: 400, meaning: 'the run could not be spawned at all (an unusable `command` or `cwd`)' },
   PORT_IN_USE: { status: 409, meaning: 'the entry\'s port is held and could not be freed' },
   DEPENDENCY_FAILED: { status: 409, meaning: 'an entry in `dependsOn` could not be started' },
   ACTION_FAILED: { status: 409, meaning: 'a lifecycle refusal none of the more specific codes describes' },
