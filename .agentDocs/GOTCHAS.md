@@ -159,6 +159,21 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **`down` refuses while a persistent entry runs, and that is the intended answer.**
+  `home-hosted down` on a panel holding one exits with *"stop one with `home-hosted stop <id>`, or pass
+  `--with-persistent`"* and leaves the panel up — so a script that treats `down` as unconditional will
+  hang on it. `stop <id>` first, or pass the flag.
+
+  Driven end to end: a `persistent: true` entry starts under a nanny (`__nanny --id keep --spec …`), and
+  after `down` the **nanny and its child both keep running** — `keep.json` records `nannyPid` and
+  `childPid`, and `pgrep -P <nanny>` finds the child. On the next `up` the panel **reports the nanny's pid**
+  and starts no second copy. `supervisor-persistent.test.ts` already covers reattach, log replay,
+  stop-all semantics and the orphan-spec sweep, so this is a documented behaviour rather than a gap.
+
+  One caution when checking by hand: `pgrep -f setInterval` matches unrelated processes on a busy machine,
+  and `pgrep -c` counts lines rather than confirming anything. `pgrep -P <nannyPid>` is the check that
+  actually answers "is one server running".
+
 - **The schema sweep continued past the five defects, and the rest of the surface holds.**
   After `expectStatus: 999` (this round's precedent), the neighbouring numeric and identifier schemas
   were swept the same way and are sound:
