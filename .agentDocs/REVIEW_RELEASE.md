@@ -108,6 +108,25 @@ Three candidates from the accessibility seam, driven in Chromium. **All three ar
   `[role="dialog"]`), Escape closes it, and focus returns to the button that opened it (`Add a server`).
   That is the whole focus contract, working.
 
+## Translations are complete and clean (root agent, same pass)
+
+The last candidate on the accessibility axis, and the one most likely to hide a quiet failure: a missing
+translation falls back to English, so it *looks* fine to an English reader.
+
+Measured across all 30 stock sheets:
+
+- **1 511 non-plural rows, zero empty cells** — every string present in all 9 languages.
+- **Plural rows carry exactly the CLDR categories each language uses** and no more. The 80 "empty cells" a
+  naive count reports are `[few]` on German, `[many]` on Japanese — categories those languages do not have.
+  Checking each language against its own required set: **zero gaps**.
+- **1 349 keys referenced from templates, zero undeclared** — no `t('…')` reaches a key the sheets lack.
+- **Zero dead keys.** 36 looked unused on a first pass; all but 9 were referenced as data (`labelKey: …`
+  in `src/services/backups.ts`) or built by concatenation (`t(\`job.weekday.${day}\`)`,
+  `tc(\`proxy.retry.in${unit}\`)`).
+
+That third point is the one worth repeating: **a literal-only grep for `t('key')` reports 177 dead keys
+that are all live.** Check the data-style and template-literal references before deleting a string.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
