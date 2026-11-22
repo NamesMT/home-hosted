@@ -258,6 +258,28 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
   `apiTokenRecord`) — much easier to fixture than the password record above.
 
+- **A rule written as two clauses is often enforced on one of them, and the passing test reads as
+  coverage for both.** `AGENTS.md` said *"cache host/process reads on their own clock, **and** never call
+  `execFileSync` from a request or frame path"*; `frame-budget.test.ts` checked the disk half only. Fixed by
+  adding the spawn half. The same shape was behind the accessible-name guard missing text inputs and the
+  `src/cli/` coverage exclusion.
+
+  **The other two-clause rules in `AGENTS.md` were then checked, and hold:**
+
+  - *"Secrets never enter a config file; secret files are 0600 and written with `writeFileAtomic`."*
+    Both halves: five tests assert `mode & 0o777 === 0o600`, the secrets store has **zero** raw
+    `writeFileSync`, and a `botToken` in a destination is refused `400` because the schema declares no such
+    key — the rule is enforced *structurally*, not by a check that could be forgotten.
+  - *"Only free a port from a fresh lookup, never a pid quoted in a message, and refuse anything the panel
+    supervises. Decide liveness with `runtimeLiveness`/`processLiveness` (pid + start time), never
+    `isProcessAlive` alone."* `pidLiveness` prefers the birth stamp and falls back to `isProcessAlive` only
+    for a record with no `startedAt`; the tick's adopted-process check keeps the cheap form **on purpose**,
+    with the cost (`ps` on macOS, PowerShell on Windows, at 1 Hz) and the mitigation (a probe or the restart
+    policy catches a recycled pid) written beside it. That is a stated exception, not a drift.
+
+  The method: take each two-clause sentence in `AGENTS.md` and ask which clause the test actually asserts.
+  The answer is usually the first.
+
 - **A command with no same-named test file is usually tested under another name — check by content, not by
   filename.** Auditing `src/cli/` for untested modules listed twelve, and driving four of them found no
   defect:
