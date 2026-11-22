@@ -152,6 +152,26 @@ Four guards, 39 tests, all green:
 So the i18n axis was covered before this audit began. What last round's commit adds is still worth having —
 it is a record of the measurements — but it is not a fix, and it should not be read as one.
 
+## The platform-premise audit is clean — one test was the only gap (root agent)
+
+After `nanny.test.ts` went red on Windows for relying on POSIX pipe inheritance, the obvious question was
+whether another test carries a platform-sensitive premise without the guard its neighbour has.
+
+Swept every test touching a POSIX-shaped mechanism (`SIGKILL`, `SIGTERM`, `/proc/`, `chmod`, `symlink`,
+`detached`, `stdio: 'inherit'`) — ten files. **The nanny test was the only one missing a guard**, and it is
+fixed. What the rest actually do:
+
+- `supervisor-survivor.test.ts`, `supervisor.test.ts`, `supervisor-persistent.test.ts` — detached children with
+  **`stdio: 'ignore'`**, which inherits no pipes, so the Windows handle-duplication problem does not arise.
+  They exercise `processLiveness`, which branches per platform in `src/providers/identity.ts`.
+- `supervisor-health.test.ts` — sends a real `SIGTERM`, which on Windows is `TerminateProcess` and works. Its
+  own comment records that the exit is **driven from the test rather than by a timer in the child**, because a
+  fixed delay raced the first probe on Windows: *"measured on Windows"*.
+- `dev-path.test.ts`, `tls.test.ts`, `proxy.test.ts` — already branch on `process.platform`.
+- `panel.test.ts` — mentions `SIGKILL` only in comments describing what `stopEntry` returns.
+
+CI history since the fix: every run green on Windows, macOS and Linux.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
