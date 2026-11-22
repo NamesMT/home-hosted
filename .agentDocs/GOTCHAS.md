@@ -159,6 +159,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **The compose import carries no `environment`, deliberately — and that is not the same leak pm2 had.**
+  `composeEntry` builds one entry, `docker compose -f <file> up`, and lets compose read the YAML itself; it
+  never parses `environment`, so a `POSTGRES_PASSWORD` in a compose file stays where the person put it and
+  the panel's config never sees it. The pm2 importer had the opposite shape — it *maps* `env` onto an entry
+  — which is why that one leaked. Checked by driving both: a compose import with a password in it writes
+  nothing but the file path, and the pm2 path now routes secrets to `secretEnv`.
+
 - **A `load` hook runs only once the entry is _answering_, and a server that never binds its port
   therefore never loads.** Driven end to end: `dump` runs at backup time and its `{dumpDir}` is captured
   in the archive as `dumps/<workspace>/<id>/…` (verified by reading `db.sql` out of the zip), and restore
