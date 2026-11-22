@@ -457,6 +457,26 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   That leaves the conclusion unchanged and the candidate list shorter. **Do not look a fifth time** unless
   it becomes the only red line.
 
+  **A fifth look established the shape of it, and one hard number.** The noise appears in **every**
+  cross-platform run — 56 occurrences per run, in all five runs I sampled — and **no run has failed because
+  of it**: one failure in the last twenty, and that was the `nanny.test.ts` Windows guard. Each occurrence
+  surfaces immediately after `test/providers/ui-release.test.ts` completes, whose `afterEach` calls
+  `vi.unstubAllGlobals()`, so an unstubbed `fetch` lands in the window between tests and is reported as an
+  unhandled `AggregateError` rather than a test failure.
+
+  Four mechanisms tested and eliminated, each on its own:
+
+  - **A relative `fetch('/api/…')`** (`src/shared/api-client.ts`) does **not** produce it: in Node it throws
+    `Failed to parse URL from /api/probe`, with no connection attempt at all.
+  - **A portless URL** defaults to **:80**, not :3000 — `http://localhost/api` resolves `::1:80` and
+    `127.0.0.1:80`.
+  - **`PLAYWRIGHT`/Vite**: there is no Playwright config and `smoke.mjs` launches Chromium directly; the
+    Vite configs set no port.
+  - **No `3000` literal exists in `src/`** at all — only in fixtures.
+
+  So it is a **fallback host:port somewhere in a dependency**, reached only by a real `fetch` that escaped
+  its stub. Treat it as noise: it has never failed a job, and five looks have cost more than it does.
+
 - **An SSE stream looks dead under a 3-second probe, and that is not a bug.**
   `PING_INTERVAL_MS` is 15 s (`src/helpers/event-stream.ts`), and a quiet panel publishes nothing in
   between, so a 3 s read captures exactly one frame (`hello`) and reads as "the stream is broken". I
