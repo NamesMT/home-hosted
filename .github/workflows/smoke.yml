@@ -79,8 +79,24 @@ jobs:
       - name: Build the panel and the stock UI
         run: pnpm run build
 
-      - name: Walk every route in Chromium
+      - name: Walk every route in the stock UI
         run: pnpm run smoke
+
+      # The other half of what ships. `noc-console` is a release asset — the one a person installs
+      # deliberately — and it has its own route table and its own markup. Until this step existed, CI
+      # only ever walked stock, so every noc-console route went unchecked: measured locally, all seven
+      # failed, six on a case-sensitive heading comparison (its `<h1>servers</h1>` against the catalog's
+      # "Servers") and the settings form check on a selector that only knew stock's `type="number"`.
+      # Both are fixed; this step is what keeps the next such difference from hiding behind a green run.
+      - name: Walk every route in noc-console
+        run: |
+          pnpm exec -- node scripts/build-uis.mjs noc-console --zip
+          HHOSTED_HOME="$RUNNER_TEMP/hh-noc" HHOSTED_SECRET=smoke-secret-12 pnpm exec -- node dist/cli.js account create smoke --scope read,lifecycle,config,proxy,admin
+          HHOSTED_HOME="$RUNNER_TEMP/hh-noc" pnpm exec -- node dist/cli.js ui-switch --file "$(ls uis/dist/home-hosted-ui-noc-console.zip)"
+          HHOSTED_HOME="$RUNNER_TEMP/hh-noc" pnpm exec -- node dist/cli.js up --port 6979 > /dev/null 2>&1 &
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:6979/healthz > /dev/null 2>&1 && break; sleep 1; done
+          HHOSTED_SMOKE_URL=http://127.0.0.1:6979 HHOSTED_SMOKE_USER=smoke HHOSTED_SMOKE_SECRET=smoke-secret-12 pnpm run smoke
+          HHOSTED_HOME="$RUNNER_TEMP/hh-noc" pnpm exec -- node dist/cli.js down || true
 
       - name: Keep the state directory on a failure
         if: failure()

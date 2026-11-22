@@ -581,9 +581,17 @@ async function exerciseFormSave(page, base) {
 
   await page.goto(`${base}/w/${workspace}/settings`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1500)
-  const field = page.locator('input[type="number"]').first()
+  /**
+   * The `logBufferLines` field, found by what it *is* rather than by one UI's spelling of it.
+   *
+   * Stock renders it `input[type="number"]`; noc-console renders `inputmode="numeric"` on a plain text
+   * input. The first version of this check used the stock selector alone, so it passed on stock and
+   * failed on noc-console with "no number field to drive" — the same single-UI blindness the check exists
+   * to prevent. `inputmode` and `type` are both asked for, and either answers.
+   */
+  const field = page.locator('input[type="number"], input[inputmode="numeric"]').first()
   if (await field.count() === 0) {
-    fail('form', 'the workspace settings page has no number field to drive')
+    fail('form', 'the workspace settings page has no numeric field to drive in either UI')
     return
   }
 
@@ -739,7 +747,15 @@ async function main() {
        * own route table carries the same strings its shell renders.
        */
       const heading = await page.evaluate(() => (document.querySelector('h1')?.textContent ?? '').trim())
-      if (heading !== label)
+      /**
+       * Compared **case-insensitively**, because the label is the catalog string and the DOM is not.
+       *
+       * noc-console writes `<h1>servers</h1>` and uppercases it in CSS; stock writes the catalog string
+       * as-is. An `===` here reported every noc-console route as "the route exists and shows another
+       * page" — a whole-UI false failure from two UIs choosing different letter cases, and exactly the
+       * kind of thing a check that only ever ran against stock could not reveal.
+       */
+      if (heading.toLowerCase() !== label.toLowerCase())
         fail(where, `rendered "${heading || '(no heading)'}" but this route is "${label}" — the route exists and shows another page`)
 
       for (const problem of [...await inspectPage(page), ...await placeholderOverflow(page), ...await namelessControls(page)])
