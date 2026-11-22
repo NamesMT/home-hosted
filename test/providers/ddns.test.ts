@@ -14,7 +14,7 @@ import { godaddyProvider } from '#src/providers/ddns/godaddy'
 import { henetProvider } from '#src/providers/ddns/henet'
 import { detectPublicAddress, isPublicAddress, parseAddressResponse } from '#src/providers/ddns/ip'
 import { namecheapProvider } from '#src/providers/ddns/namecheap'
-import { namecheapApiProvider, parseHosts } from '#src/providers/ddns/namecheap-api'
+import { describeErrors, namecheapApiProvider, parseHosts } from '#src/providers/ddns/namecheap-api'
 import { noipProvider } from '#src/providers/ddns/noip'
 import { porkbunProvider } from '#src/providers/ddns/porkbun'
 import { spaceshipProvider } from '#src/providers/ddns/spaceship'
@@ -879,5 +879,32 @@ describe('every ddns provider validates credentials', () => {
     }
     // Anti-vacuity: the registry is the thing being covered, so it must not be empty.
     expect(DDNS_PROVIDERS.length).toBeGreaterThanOrEqual(14)
+  })
+
+  /**
+   * Both XML error shapes Namecheap uses are read, and the number is kept.
+   *
+   * `<Errors><Error Number="1017105">…</Error></Errors>` is the **documented** form — `docs/DDNS.md`
+   * tells a person that code means their client IP is not whitelisted — and it was not parsed at all:
+   * only `<Err1>…</ErrN>` was, so a reply carrying just the numbered shape answered "the API refused the
+   * request" with no reason. The fixture further up carries both shapes, which is exactly why this
+   * survived: the `<Err1>` half kept the assertion green.
+   */
+  it('reads the numbered Error element, not only ErrN', () => {
+    expect(
+      describeErrors('<ApiResponse Status="ERROR"><Errors><Error Number="1017105">Parameter ClientIP is disabled or locked</Error></Errors></ApiResponse>'),
+      'the documented shape must yield its message and its code',
+    ).toBe('Parameter ClientIP is disabled or locked (error 1017105)')
+
+    // The other spelling still works, unchanged.
+    expect(describeErrors('<ApiResponse Status="ERROR"><Errors><Err1>API Key is invalid</Err1></Errors></ApiResponse>')).toBe('API Key is invalid')
+
+    // Anti-vacuity: a reply with no error element at all still says something.
+    expect(describeErrors('<ApiResponse Status="ERROR"></ApiResponse>')).toBe('the API refused the request')
+
+    // Both present: the two are reported once each, not deduplicated into nonsense.
+    const both = describeErrors('<ApiResponse Status="ERROR"><Errors><Error Number="1017105">ClientIP not whitelisted</Error><Err1>ClientIP is not whitelisted</Err1></Errors></ApiResponse>')
+    expect(both).toContain('1017105')
+    expect(both).toContain('is not whitelisted')
   })
 })

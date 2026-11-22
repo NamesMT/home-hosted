@@ -83,16 +83,34 @@ export function parseHosts(body: string): NamecheapRecord[] {
   return records
 }
 
-/** The first `<Err1>`…`<ErrN>` a failed reply carries, as one sentence. */
+/**
+ * The errors a failed reply carries, as one sentence — **both** shapes the XML API uses.
+ *
+ * `<Errors><Error Number="1017105">…</Error></Errors>` is the documented form, and it was not read at
+ * all: only `<Err1>…</ErrN>` was, so a reply carrying just the numbered shape answered *"the API refused
+ * the request"* with no reason. `docs/DDNS.md` tells a person that error `1017105` means their client IP
+ * is not whitelisted — a code they could only see if this kept the number.
+ *
+ * The existing test's fixture carries `<Error Number>` **and** `<Err1>`, which is why the gap survived it.
+ */
 export function describeErrors(body: string): string {
   const errors: string[] = []
+  // `<Error Number="1017105">text</Error>`, with the number kept: it is what the docs name.
+  const numbered = /<Error[^>]*\sNumber\s*=\s*"([^"]*)"[^>]*>([\s\S]*?)<\/Error>/gi
+  for (const match of body.matchAll(numbered)) {
+    const text = (match[2] ?? '').trim()
+    if (text.length === 0)
+      continue
+    const code = (match[1] ?? '').trim()
+    errors.push(code.length > 0 && !text.includes(code) ? `${text} (error ${code})` : text)
+  }
+  // `<Err1>…</ErrN>`: the same API's other spelling, and still worth reading.
   const pattern = /<Err\d+>([\s\S]*?)<\/Err\d+>/gi
-  let match = pattern.exec(body)
-  while (match !== null) {
+  for (const match of body.matchAll(pattern)) {
     const text = (match[1] ?? '').trim()
-    if (text.length > 0)
+    // The numbered pass may already have reported the same sentence.
+    if (text.length > 0 && !errors.some(existing => existing.includes(text)))
       errors.push(text)
-    match = pattern.exec(body)
   }
   return errors.length > 0 ? errors.join('; ') : 'the API refused the request'
 }
