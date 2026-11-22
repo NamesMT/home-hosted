@@ -565,10 +565,9 @@ export interface LogQuery {
 
 export interface WorkspaceRemoved {
   ok: boolean
-  removed: unknown
+  removed: { id: string, label: string }
 }
 
-const workspacesViewSchema = type({ workspaces: workspaceViewSchema.array() })
 const workspaceAnswerSchema = type({ workspace: workspaceViewSchema })
 const workspaceRemovedSchema = type({ ok: 'boolean', removed: 'unknown' })
 
@@ -581,12 +580,6 @@ export async function fetchState(): Promise<AppStateView> {
     throw new Error('state contract mismatch')
   // The schema accepts both `port` forms; the control plane always sends the normalized one.
   return parsed as AppStateView
-}
-
-/** Every workspace the panel serves, in panel order; the first is the default. */
-export async function fetchWorkspaces(): Promise<WorkspaceState[]> {
-  const parsed = boundary(workspacesViewSchema, await request<unknown>('/api/workspaces'), 'workspaces')
-  return parsed.workspaces as WorkspaceState[]
 }
 
 async function workspaceAnswer(payload: unknown): Promise<WorkspaceState> {
@@ -614,8 +607,8 @@ export async function renameWorkspace(id: string, label: string): Promise<Worksp
  * answer as `WorkspaceRemoved`, the other as an inline duplicate of the same object literal — and
  * only this one was validated.
  */
-export async function deleteWorkspace(id: string): Promise<{ ok: boolean, removed: { id: string, label: string } }> {
-  return boundary(workspaceRemovedSchema, await request<unknown>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }), 'workspace removal') as { ok: boolean, removed: { id: string, label: string } }
+export async function deleteWorkspace(id: string): Promise<WorkspaceRemoved> {
+  return boundary(workspaceRemovedSchema, await request<unknown>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }), 'workspace removal') as WorkspaceRemoved
 }
 
 /**

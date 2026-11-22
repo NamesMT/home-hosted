@@ -1,5 +1,3 @@
-import type { ServerConfig } from '#src/shared/contracts'
-
 /**
  * Turning another manager's declaration into this panel's entries — a **pure** mapping.
  *
@@ -245,6 +243,3 @@ export function looksLikeCompose(parsed: unknown): boolean {
     && typeof (parsed as { services?: unknown }).services === 'object'
     && (parsed as { services?: unknown }).services !== null
 }
-
-/** A field the panel accepts, so a plan can be checked before anything is written. */
-export type PlannedEntry = Partial<ServerConfig> & { id: string }
