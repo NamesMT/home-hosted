@@ -131,8 +131,6 @@ export default defineConfig({
         'src/cli/nanny.ts',
         'src/cli/restart.ts',
         'src/cli/server.ts',
-        'src/cli/set-password.ts',
-        'src/cli/set-token.ts',
         'src/cli/status.ts',
         'src/cli/ui-revert.ts',
         'src/cli/up.ts',
