@@ -365,6 +365,17 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   is noise, not a failure**, and chasing it three times has cost more than it is worth until it is the
   only red line. `vitest run` is what CI invokes, the same as locally, and it does not reproduce here.
 
+  **A fourth look ruled out the last project-side candidate.** `uis/stock/src/components/server/
+  serverPresets.ts` really does default two presets (`node`, `gitea`) to port **3000**, which is the only
+  place in the repo where that number is a *live* port rather than a fixture string — so it looked like the
+  answer. It is not: the only test that imports presets (`uis/stock/test/server-presets.test.ts`) asserts
+  the preset data and opens no socket, and it passes in isolation with no `ECONNREFUSED`. `test/support/ports.ts`
+  also allocates test ports from **20000+**, deliberately below every OS's ephemeral floor, so nothing the
+  suite starts can land on 3000.
+
+  That leaves the conclusion unchanged and the candidate list shorter. **Do not look a fifth time** unless
+  it becomes the only red line.
+
 - **An SSE stream looks dead under a 3-second probe, and that is not a bug.**
   `PING_INTERVAL_MS` is 15 s (`src/helpers/event-stream.ts`), and a quiet panel publishes nothing in
   between, so a 3 s read captures exactly one frame (`hello`) and reads as "the stream is broken". I
