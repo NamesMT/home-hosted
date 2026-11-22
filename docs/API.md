@@ -440,8 +440,9 @@ throughout reads `1`, not `0.0069`.
 
 ## The TypeScript client
 
-`home-hosted/client` ships in the package: a ~2 KB gzipped runtime over `hono/client`, typed from the
-panel's own route table — every path, parameter, body and response — plus the event stream.
+`home-hosted/client` ships in the package: a **~3.5 kB** gzipped runtime over `hono/client`, typed from
+the panel's own route table — every path, parameter, body and response — plus the event stream. (Measured:
+8 671 bytes, 3 615 gzipped with `gzip -9`; the figure said "~2 KB" and was stale.)
 
 ```ts
 import { createClient, HomeHostedError } from 'home-hosted/client'
