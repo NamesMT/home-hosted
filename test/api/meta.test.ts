@@ -182,10 +182,21 @@ describe('panel metadata', () => {
     expect(body.errorCodes).toContain('CURSOR_OUT_OF_RANGE')
   })
 
-  it('reports the SSE event names its streams send', async () => {
+  it('reports the SSE event names its streams send, derived from the frames', async () => {
     const created = await fixture({ views: [makeView('web')] })
     const body = await (await created.app.request('/api/meta')).json() as Meta
-    expect(body.events).toEqual(['hello', 'state', 'server', 'log', 'ping'])
+
+    /**
+     * Compared against `SSE_EVENT_NAMES`, not a literal, so a fifth frame type cannot be delivered to
+     * clients the panel never announced. A literal here would have to be updated by hand in step with
+     * the union — the drift the derivation exists to remove.
+     */
+    const { SSE_EVENT_NAMES } = await import('#src/shared/contracts')
+    expect(body.events).toEqual([...SSE_EVENT_NAMES])
+    // Anti-vacuity: the derivation must have found every frame type, not one.
+    expect(SSE_EVENT_NAMES, 'a frame schema lost its literal `type`, so the announcement misses it').toEqual(
+      expect.arrayContaining(['hello', 'state', 'server', 'log', 'ping']),
+    )
   })
 
   it('refuses an undeclared query key, like every other panel-wide route', async () => {

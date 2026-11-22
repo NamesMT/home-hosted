@@ -10,7 +10,7 @@ import { appVersion } from '#src/helpers/version'
 import { workspaceLimit } from '#src/helpers/workspace'
 import { requestIdentity } from '#src/middleware/auth'
 import { narrowStateFor } from '#src/services/state'
-import { appStateSchema, metaViewSchema } from '#src/shared/contracts'
+import { appStateSchema, metaViewSchema, SSE_EVENT_NAMES } from '#src/shared/contracts'
 import { ERROR_CODES } from '#src/shared/error-codes'
 import { lazy } from '#src/shared/lazy'
 import { credentialOf, credentialRefusals } from '#src/shared/meta'
@@ -26,8 +26,8 @@ import { credentialOf, credentialRefusals } from '#src/shared/meta'
  */
 const stateQuery = lazy(() => type({}).onUndeclaredKey('reject'))
 
-/** The SSE `event:` names the panel's streams send — the same list `docs/API.md` documents. */
-const EVENT_NAMES = ['hello', 'state', 'server', 'log', 'ping'] as const
+/** The SSE `event:` names the panel's streams send, derived from the frame schemas — see `SSE_EVENT_NAMES`. */
+const EVENT_NAMES = SSE_EVENT_NAMES
 
 /**
  * `GET /api/meta`: what this panel is, who is asking, and what that credential may not do.

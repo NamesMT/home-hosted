@@ -2659,6 +2659,32 @@ export const ssePingFrameSchema = lazy(() => type({
   type: '"ping"',
   ts: 'number',
 }).onDeepUndeclaredKey('ignore'))
+/**
+ * Every `event:` name this build's streams can send, **derived from the frame schemas**.
+ *
+ * `GET /api/meta` publishes this list so a client knows what to listen for. It used to be a hand-written
+ * literal in `src/api/state.ts`, which is correct only while somebody remembers to update it: a fifth
+ * frame type would have been delivered to clients that the panel never announced. Reading the union
+ * means the announcement cannot drift from the frames.
+ *
+ * The `type` field of each member is a union of literals (`"hello" | "state"`), so the list is collected
+ * from all four rather than assuming one name per frame.
+ */
+export const SSE_EVENT_NAMES: readonly string[] = [
+  ...new Set([sseStateFrameSchema, sseServerFrameSchema, sseLogFrameSchema, ssePingFrameSchema]
+    .flatMap((schema) => {
+      /**
+       * A single-literal field renders as `const`, a union as `enum` — and the frames use both
+       * (`'"server"'` against `'"hello" | "state"'`). Reading only `enum` collected two of five names,
+       * which is exactly the drift this derivation exists to prevent.
+       */
+      const type = (schema.toJsonSchema() as { properties?: { type?: { const?: string, enum?: string[] } } })
+        .properties
+        ?.type
+      return type?.enum ?? (type?.const === undefined ? [] : [type.const])
+    })),
+].sort()
+
 export const sseMessageSchema = lazy(() => sseStateFrameSchema.or(sseServerFrameSchema).or(sseLogFrameSchema).or(ssePingFrameSchema))
 export type SseMessage = typeof sseMessageSchema.infer
 
