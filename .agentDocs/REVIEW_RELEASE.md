@@ -283,6 +283,24 @@ That last point is the one a person could trip on: `-e "setInterval(()=>{},1000)
 with literal quotes, so the child receives a broken `-e` value. An args line with no spaces in any argument
 — `-e process.exit(1)` — is fine.
 
+## stock's inline editor works — the last surface a route walk could not reach (root agent)
+
+The per-server page is now walked by `pnpm run smoke`, but stock's **editor** opens from a button, not a
+URL. Driven by hand: detail page → **Edit** → an inline form (not a dialog) with **30 visible fields** →
+changed the label → **Save to servers.config.json** → reload → the label survives → and the file carries
+`ed: label='Edited label'`.
+
+Two things worth knowing, both design differences rather than defects:
+
+- **It is a page section, not a dialog.** `Edit` replaces the detail view with the form, so a
+  `[role="dialog"]` probe answers "no dialog" and reads like a broken button. Clicking it and then counting
+  *visible* fields is the check that works: `0` before, `30` after.
+- **The detail page has a `Configuration` tab** beside `Live output` and `History`, which shows the config
+  as JSON — separate from the editor. Both render without console errors.
+
+With this, every signed-in surface in both UIs has been loaded and its primary action exercised at least
+once. The remaining unverified paths are the ones that need a docker daemon or a public name.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
