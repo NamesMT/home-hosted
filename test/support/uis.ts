@@ -56,3 +56,23 @@ export function uiTemplates(): Array<{ ui: string, file: string, body: string }>
   }
   return out.sort((left, right) => left.file.localeCompare(right.file))
 }
+
+/**
+ * Every line of the contract sources: the barrel and each module under `src/shared/contracts/`.
+ *
+ * A scan that read only `contracts.ts` silently stopped covering whatever had been moved out of it — the
+ * schemas' floors and trailers went unchecked while the tests stayed green. A split must widen the scan,
+ * not shrink it.
+ */
+export function contractsSource(root: string): string {
+  const dir = path.join(root, 'src', 'shared')
+  const files = [path.join(dir, 'contracts.ts')]
+  const sub = path.join(dir, 'contracts')
+  if (fs.existsSync(sub)) {
+    for (const entry of fs.readdirSync(sub)) {
+      if (entry.endsWith('.ts'))
+        files.push(path.join(sub, entry))
+    }
+  }
+  return files.map(file => fs.readFileSync(file, 'utf8')).join('\n')
+}

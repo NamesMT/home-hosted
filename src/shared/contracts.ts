@@ -2671,152 +2671,6 @@ export type BackupPlanResponse = typeof backupPlanResponseSchema.infer
 /** The local channel's answer: a plan, or the archive it wrote once confirmed. */
 export const backupLocalResponseSchema = lazy(() => backupPlanResponseSchema.or(backupCreatedResponseSchema))
 
-/** Buffered or persisted log lines, the shape every log-reading route returns. */
-/** `GET /api/servers/:id/logs` — the buffered lines, straight from memory: no window, no rotation. */
-export const bufferedLogsResponseSchema = lazy(() => type({
-  lines: logLineSchema.array(),
-}))
-
-/**
- * One job's own log lines, plus what the page needs to explain an empty answer: `enabled` is the
- * workspace's `logs.persist`, and a page must say "nothing kept" rather than "nothing printed".
- */
-export const jobLogViewSchema = lazy(() => type({
-  jobId: 'string',
-  enabled: 'boolean',
-  sizeBytes: 'number',
-  files: 'string[]',
-  lines: logLineSchema.array(),
-}))
-export type JobLogView = typeof jobLogViewSchema.infer
-
-export const logLinesResponseSchema = lazy(() => type({
-  serverId: 'string',
-  enabled: 'boolean',
-  sizeBytes: 'number',
-  /** The rotated files this entry has, newest first. */
-  files: 'string[]',
-  /** How many lines the search looked at, or null when the request carried no `search`. */
-  searched: 'number | null',
-  lines: logLineSchema.array(),
-}))
-
-/**
- * One server's live resource reading, for `home-hosted usage`.
- *
- * `cpuPercent` and `rssBytes` are `number | null` because a reading can be absent — a process the
- * sampler has not seen yet, or one that just exited. Absent is **not** zero: a `0` here would read as
- * "idle" and hide a server that is not being measured at all.
- */
-const usageEntrySchema = lazy(() => type({
-  'id': 'string',
-  'workspaceId': 'string',
-  'label': 'string',
-  'status': serverStatusSchema,
-  /** Absent when nothing is running or the sampler has no sample yet. */
-  'cpuPercent?': 'number',
-  'rssBytes?': 'number',
-  /** Processes in this entry's tree, including an adopted successor's. */
-  'processes?': 'number',
-  'sampledAt?': 'number',
-  /**
-   * How the entry has behaved over the panel's history window, so `usage` can answer "is this
-   * restarting every few minutes" and not only "what is it using right now". Copied from the same
-   * `ServerView.history` the page reads; absent when nothing is known yet.
-   */
-  'restarts?': 'number',
-  'crashes?': 'number',
-  'uptimeRatio?': 'number',
-  'lastExitAt?': 'number',
-}))
-
-export const usageViewSchema = lazy(() => type({
-  'servers': usageEntrySchema.array(),
-  /** When the host-level sample was taken, so a caller can tell live numbers from a frozen frame. */
-  'sampledAt?': 'number',
-}))
-
-/**
- * What a `free-port` attempt did. The pids are reported so the UI can say which
- * process left, and which listeners were deliberately left alone because this
- * panel supervises them.
- */
-export const freePortResultSchema = lazy(() => type({
-  ok: 'boolean',
-  port: 'number | null',
-  /** Asked to leave with SIGTERM, and the ones that ignored it. */
-  terminated: 'number[]',
-  forced: 'number[]',
-  /** Listeners this panel supervises; never signalled. */
-  skipped: 'number[]',
-  /** The port answers no more after the attempt. */
-  free: 'boolean',
-}))
-export type FreePortResult = typeof freePortResultSchema.infer
-
-export const logHistoryQuerySchema = lazy(() => type({
-  /**
-   * How many lines to show: a whole number, 50–5000.
-   *
-   * Both bounds are the route's own (`MIN_TAIL`/`MAX_TAIL` in `src/api/logs.ts`) and a value outside
-   * them is a `400`, not a silent clamp — `tail=3` used to be raised to 50 and `tail=abc` fell back
-   * to the default, so a typo changed what a page reported it had searched.
-   */
-  'tail?': integerParam(50, 5000),
-  /**
-   * Case-insensitive substring filter. Both this and `stream` are filters, so the route reads a
-   * wider window than `tail` and applies them to that: filtering only the display tail would
-   * report an older match as "no results", and "the last N stderr lines" as whatever happened
-   * to fall in a window sized for all streams. `searched` reports how many lines were read.
-   */
-  'search': 'string?',
-  'stream': '"stdout" | "stderr" | "system"?',
-  /**
-   * Return the lines **after** this cursor, for a client that keeps one and polls forward.
-   *
-   * A cursor is a line's `ts` — the one identity a log line has across a rotation, and what the SSE
-   * `log` frames already carry per line. `since` and `before` are the two halves of one window: a
-   * caller that names neither gets the tail, as it always did.
-   *
-   * A negative cursor is refused at the boundary rather than clamped to zero: it names nothing, and
-   * silently reading it as "from the beginning" would answer a question the caller did not ask.
-   */
-  'since?': integerParam(0, 9_999_999_999_999),
-  /** Return the lines **before** this cursor — the other direction, for backfill. */
-  'before?': integerParam(0, 9_999_999_999_999),
-}))
-
-const logFileInfoSchema = lazy(() => type({
-  name: 'string',
-  sizeBytes: 'number',
-}))
-
-const logServerViewSchema = lazy(() => type({
-  serverId: 'string',
-  label: 'string',
-  status: serverStatusSchema,
-  enabled: 'boolean',
-  sizeBytes: 'number',
-  files: logFileInfoSchema.array(),
-}))
-export type LogServerView = typeof logServerViewSchema.infer
-
-export const logServersViewSchema = lazy(() => type({
-  servers: logServerViewSchema.array(),
-}))
-
-/** One entry's log **from disk**, with its rotation and search window — the shape the UIs parse. */
-export const logHistoryViewSchema = lazy(() => type({
-  serverId: 'string',
-  enabled: 'boolean',
-  sizeBytes: 'number',
-  files: type('string[]'),
-  /** How many lines the search looked at, or null when not searching. */
-  searched: 'number | null',
-  lines: logLineSchema.array(),
-}))
-export type LogHistoryView = typeof logHistoryViewSchema.infer
-
 export const notificationActionSchema = lazy(() => type({
   /** Optional override, so the token can be tried before it is saved. */
   botToken: 'string?',
@@ -2924,3 +2778,66 @@ export const workspaceSettingsSavedSchema = workspaceSettingsViewSchema
 
 export { sseEventNames, sseLogFrameSchema, sseMessageSchema, ssePingFrameSchema, sseServerFrameSchema, sseStateFrameSchema } from './contracts/frames'
 export type { SseMessage } from './contracts/frames'
+
+/**
+ * One server's live resource reading, for `home-hosted usage`.
+ *
+ * `cpuPercent` and `rssBytes` are `number | null` because a reading can be absent — a process the
+ * sampler has not seen yet, or one that just exited. Absent is **not** zero: a `0` here would read as
+ * "idle" and hide a server that is not being measured at all.
+ */
+const usageEntrySchema = lazy(() => type({
+  'id': 'string',
+  'workspaceId': 'string',
+  'label': 'string',
+  'status': serverStatusSchema,
+  /** Absent when nothing is running or the sampler has no sample yet. */
+  'cpuPercent?': 'number',
+  'rssBytes?': 'number',
+  /** Processes in this entry's tree, including an adopted successor's. */
+  'processes?': 'number',
+  'sampledAt?': 'number',
+  /**
+   * How the entry has behaved over the panel's history window, so `usage` can answer "is this
+   * restarting every few minutes" and not only "what is it using right now". Copied from the same
+   * `ServerView.history` the page reads; absent when nothing is known yet.
+   */
+  'restarts?': 'number',
+  'crashes?': 'number',
+  'uptimeRatio?': 'number',
+  'lastExitAt?': 'number',
+}))
+
+export const usageViewSchema = lazy(() => type({
+  'servers': usageEntrySchema.array(),
+  /** When the host-level sample was taken, so a caller can tell live numbers from a frozen frame. */
+  'sampledAt?': 'number',
+}))
+
+/**
+ * What a `free-port` attempt did. The pids are reported so the UI can say which
+ * process left, and which listeners were deliberately left alone because this
+ * panel supervises them.
+ */
+export const freePortResultSchema = lazy(() => type({
+  ok: 'boolean',
+  port: 'number | null',
+  /** Asked to leave with SIGTERM, and the ones that ignored it. */
+  terminated: 'number[]',
+  forced: 'number[]',
+  /** Listeners this panel supervises; never signalled. */
+  skipped: 'number[]',
+  /** The port answers no more after the attempt. */
+  free: 'boolean',
+}))
+export type FreePortResult = typeof freePortResultSchema.infer
+
+export {
+  bufferedLogsResponseSchema,
+  jobLogViewSchema,
+  logHistoryQuerySchema,
+  logHistoryViewSchema,
+  logLinesResponseSchema,
+  logServersViewSchema,
+} from './contracts/logs'
+export type { JobLogView, LogHistoryView, LogServerView } from './contracts/logs'

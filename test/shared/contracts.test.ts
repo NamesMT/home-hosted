@@ -57,6 +57,7 @@ import {
   workspaceSettingsPatchSchema,
   workspaceViewSchema,
 } from '#src/shared/contracts'
+import { contractsSource } from '../support/uis'
 
 const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -520,7 +521,8 @@ describe('view contracts', () => {
   })
 
   it('gives every response schema the deep ignore, so a nested addition never blanks a client', () => {
-    const source = fs.readFileSync(path.join(packageRoot, 'src/shared/contracts.ts'), 'utf8')
+    // The barrel and every submodule, so a split cannot shrink the scan.
+    const source = contractsSource(packageRoot)
 
     /**
      * Every `export const X = lazy(() => type({…}))` declaration, with its own body and its own trailer.
@@ -550,6 +552,14 @@ describe('view contracts', () => {
     const all = declarations()
     const strict = new Set(all.filter(decl => decl.trailer.startsWith('\n}).onUndeclaredKey(\'reject\')')).map(decl => decl.name))
     expect(strict.size, 'the parser must find the config schemas, or this scan guards nothing').toBeGreaterThan(10)
+    /**
+     * The scan must cover **every** contract module, not only `contracts.ts`.
+     *
+     * It read one file until the schemas were split out of it, at which point the moved ones silently
+     * stopped being checked while this test stayed green. A floor on the declaration count is what makes
+     * a future split widen the scan instead of shrinking it.
+     */
+    expect(all.length, 'the scan must cover the whole contracts directory, not only the barrel').toBeGreaterThan(100)
 
     const VIEW = /(?:View|State|Saved|Status|Message|Response)Schema$/
     const offenders: string[] = []

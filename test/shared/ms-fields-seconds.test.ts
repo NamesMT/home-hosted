@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { shownInSeconds } from '#src/shared/ui-format'
-import { uiNames } from '../support/uis'
+import { contractsSource, uiNames } from '../support/uis'
 
 /**
  * A millisecond setting whose floor is a second is edited in seconds, in **both** UIs, and the
@@ -76,7 +76,8 @@ const BOTH_UIS: Array<{ key: string, seen: RegExp }> = [
  * collapses them and answers `0` — the mistake the `noc-console` pages made.
  */
 function schemaFloors(): Map<string, number> {
-  const contracts = readFileSync(path.join(root, 'src/shared/contracts.ts'), 'utf8')
+  // The barrel and every submodule: a scan over one file stops covering what moved out of it.
+  const contracts = contractsSource(root)
   const found = new Map<string, number>()
   for (const declared of contracts.matchAll(/^export const (\w+)Schema = lazy\(\(\) => type\(\{/gm)) {
     const open = declared.index + declared[0].length - 1
