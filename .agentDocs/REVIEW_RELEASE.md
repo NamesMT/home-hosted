@@ -95,6 +95,19 @@ absent from `settings.json`. That reads exactly like "the save silently dropped 
 **generated ids** (`v-7`, `v-11`, `v-38`, …) and no `name`, so the only way to know which is which is to read
 the label beside it — which is what the last run does, and what any future probe must do first.
 
+## Switch state, error association and dialog focus — verified (root agent, same pass)
+
+Three candidates from the accessibility seam, driven in Chromium. **All three are correct.**
+
+- **Six switches on `/global/settings`** carry `role="switch"`, are named by their own label text through
+  `aria-labelledby`, and report an `aria-checked` that matches the setting — and it *updates on click*:
+  measured `false → true → false` across two clicks, with no console errors. (`SwitchRoot` from reka-ui
+  supplies the role and the state pair; the code only had to name it, which it does.)
+- **`aria-labelledby` is used once**, in `ToggleSwitch.vue`, and the id it names exists.
+- **Dialog focus** — the add-server dialog moves focus *into* it on open (`activeElement` inside
+  `[role="dialog"]`), Escape closes it, and focus returns to the button that opened it (`Add a server`).
+  That is the whole focus contract, working.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
