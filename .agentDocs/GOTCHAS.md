@@ -258,6 +258,26 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
   `apiTokenRecord`) — much easier to fixture than the password record above.
 
+- **The dead-code sweep after a migration is a *whole-corpus* diff, not a per-file read, and this repo is
+  clean after one.** Removing five `apiToken*` declarations from `contracts.ts` (all superseded when tokens
+  became accounts) prompted the obvious follow-up: did the jobs move and the notifications fold — both in
+  this same release — leave the same residue?
+
+  Measured over the whole tree in one pass, scanning `src`, `test`, `uis` and `scripts` together:
+
+  - **224 modules, 0 never imported.**
+  - **0 non-exported functions with no reference anywhere.**
+  - **0 `TODO`/`FIXME`/`XXX`/`HACK`** in `src/` or `test/`.
+  - **0 test files with no cases**, and **0 unconditional skips** — every `skipIf`/`runIf` carries a platform
+    or environment reason (Windows pipes, macOS `vm_stat`, a stripped `PATH`).
+
+  So the islands were specific to the token migration. The reason a whole-corpus diff matters, rather than
+  a file-by-file read: the five dead declarations **referenced each other**, so each looked used from
+  inside its own file. Only counting the set against everything else shows the island.
+
+  The scan is four lines of regex over `glob('src/**/*.ts')` plus every other file that could import — worth
+  running after any rename or domain move, and cheap enough to run instead of reasoning about it.
+
 - **A rule written as two clauses is often enforced on one of them, and the passing test reads as
   coverage for both.** `AGENTS.md` said *"cache host/process reads on their own clock, **and** never call
   `execFileSync` from a request or frame path"*; `frame-budget.test.ts` checked the disk half only. Fixed by
