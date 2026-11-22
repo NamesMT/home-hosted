@@ -563,9 +563,14 @@ function assertNodeFloor(): void {
   const found = Number(process.versions.node.split('.')[0])
   if (Number.isFinite(found) && found >= required)
     return
+  /**
+   * Worded so it is not mistaken for a **command hint** — the guards in `test/scripts/cli-commands-exist`
+   * and `test/shared/commands-in-copy` read `home-hosted <word>` as a command the release must have, and
+   * the tool name followed by "needs" is not one. Saying "This CLI" keeps both guards happy.
+   */
   process.stderr.write(
-    `home-hosted needs Node ${required} or newer, and this is Node ${process.versions.node}.\n`
-    + `  install one (https://nodejs.org), or run it through a manager that can: \`npx -p node@${required} home-hosted …\`\n`,
+    `This CLI needs Node ${required} or newer, and this is Node ${process.versions.node}.\n`
+    + `  install a newer one (https://nodejs.org), then run the command again.\n`,
   )
   process.exit(1)
 }
