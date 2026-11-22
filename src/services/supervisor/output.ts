@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import path from 'node:path'
+import { ensureStateDir } from '#src/helpers/paths'
 import { Utf8Chunks } from '#src/helpers/utf8-chunks'
 
 /**
@@ -82,7 +83,9 @@ export interface OpenedOutput {
  * which would leave a run of NUL bytes at the head of the file.
  */
 export function openOutput(files: OutputFiles): OpenedOutput {
-  fs.mkdirSync(path.dirname(files.stdout), { recursive: true })
+  // `ensureStateDir`, not a bare call: a log directory under `.hh` created this way was making
+  // `.hh` itself 0755 whenever a server started before `up` had made it.
+  ensureStateDir(path.dirname(files.stdout))
   const fds = {} as Record<Stream, number>
   for (const stream of STREAMS) {
     // Empty before opening for append, so the descriptor never sees a stale length.

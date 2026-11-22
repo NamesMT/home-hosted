@@ -52,12 +52,21 @@ export const DEFAULT_WORKSPACE_ID = 'default'
  * here, so the mode does not depend on which command ran first. A directory outside `.hh` is
  * created as asked.
  */
-export function ensureStateDir(dir: string = hhDir): void {
+export function ensureStateDir(dir: string = hhDir, mode?: number): void {
   const relative = path.relative(hhDir, dir)
   const inside = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
   if (inside && !fs.existsSync(hhDir))
     fs.mkdirSync(hhDir, { recursive: true, mode: 0o700 })
-  fs.mkdirSync(dir, { recursive: true })
+  /**
+   * `mode` is for the directories whose own contents are secret — the proxy's `bin/`, its engine data
+   * and the `.proxy/state` holding `admin.json` and `challenge.json`. They used to call
+   * `fs.mkdirSync(..., { mode: 0o700 })` directly, which is **not** the same thing: a bare
+   * `mkdirSync` with `recursive: true` creates every missing parent at the umask default, so `.hh` came
+   * out `0755` — world-readable — whenever the proxy got there before `up` did. Measured: the bare call
+   * leaves `.hh` `755`, and `ensureStateDir` leaves it `700`. This argument keeps the child's `0700`
+   * too, so neither half is traded for the other.
+   */
+  fs.mkdirSync(dir, mode === undefined ? { recursive: true } : { recursive: true, mode })
 }
 
 /**

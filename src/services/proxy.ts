@@ -30,7 +30,7 @@ import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { dialHost } from '#src/helpers/bind'
 import { logger } from '#src/helpers/logger'
-import { dataRoot, projectDir, proxyChallengeAuthPath } from '#src/helpers/paths'
+import { dataRoot, ensureStateDir, projectDir, proxyChallengeAuthPath } from '#src/helpers/paths'
 import { nannyArgv } from '#src/helpers/runtime'
 import { ddnsProvider } from '#src/providers/ddns'
 import { normalizeHost } from '#src/providers/ddns/types'
@@ -311,7 +311,7 @@ export class ProxyService {
       username: 'hh',
       password: randomBytes(24).toString('base64url'),
     }
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+    ensureStateDir(path.dirname(file), 0o700)
     writeFileAtomic(file, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 })
     return auth
   }
@@ -497,7 +497,7 @@ export class ProxyService {
    * server entry it was never the panel's child, so it is still serving.
    */
   async initialize(): Promise<void> {
-    fs.mkdirSync(this.options.stateDir, { recursive: true, mode: 0o700 })
+    ensureStateDir(this.options.stateDir, 0o700)
     // A spec on disk belongs to a nanny that never read it.
     const swept = sweepNannySpecs(this.options.stateDir)
     if (swept > 0)
@@ -1256,7 +1256,7 @@ export class ProxyService {
       throw new DetailedError(`${engine.info.label} has no build for ${process.platform}/${process.arch}`, { statusCode: 400, code: 'UNSUPPORTED_PLATFORM' })
     }
 
-    fs.mkdirSync(this.options.binDir, { recursive: true, mode: 0o700 })
+    ensureStateDir(this.options.binDir, 0o700)
     // Keeps the binary's own extension, because it is run before the swap and Windows starts a `.exe`.
     const target = path.join(path.dirname(this.enginePath), `download-${path.basename(this.enginePath)}`)
     fs.rmSync(target, { force: true })
@@ -1473,7 +1473,7 @@ export class ProxyService {
     this.admin = admin
     const signature = this.syncSignature()
     const rendered = this.render()
-    fs.mkdirSync(this.options.engineDir, { recursive: true, mode: 0o700 })
+    ensureStateDir(this.options.engineDir, 0o700)
     // The engine boots from this file, so it is written now — but `previous.json` only advances
     // once the engine accepted it, and a failed start puts back what was there: two failed starts
     // used to rotate the last good revision out.
