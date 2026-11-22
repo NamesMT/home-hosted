@@ -207,6 +207,23 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
   so the next attempt does not rediscover that.
 
+- **The authentication section of `UPGRADING.md` is now verified end to end, claim by claim.** Driven against
+  a panel on this build:
+  - `/api/auth/token` and `/api/auth/tokens` are **gone** from the spec; `/api/auth/accounts`,
+    `/api/auth/accounts/{id}` and `/api/auth/accounts/me/secret` exist. `/api/auth/password` keeps
+    **`DELETE` only**.
+  - `POST /api/auth/login` with `{ password }` is `400 INVALID_INPUT` naming `id` — the pair is required.
+  - **`DELETE /api/auth/password` really does keep the accounts**: after it, `authRequired` is `false`,
+    `passwordSet` stays `true`, and `account ls` still lists the account with every scope. That is the claim
+    worth having checked — "disabling authentication is not the same act as destroying your way back in" is
+    the sentence a worried person reads before pressing it.
+  - **Rotating one account's secret ends only that account's sessions.** Two sessions signed in, then
+    `account secret other`: `admin` still answered `200`, `other` answered `401`. The old behaviour signed
+    everyone out, and this is the one claim in the section whose failure would be silent.
+
+  Nothing in that section is stale any more. The two `set-password` references were fixed in the previous
+  round.
+
 - **All three rows of `UPGRADING.md`'s credential table are verified against a live panel, and none of
   them inflates authority.**
   Built each legacy home by hand and signed in through `POST /api/auth/login` / `Authorization: Bearer`:
