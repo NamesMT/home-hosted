@@ -220,27 +220,36 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
     return
   }
 
-  // The move is part of the same consent: it rewrites the file the schema plan then stamps, and a
-  // person who said yes to "make this release understand my config" meant both halves.
-  if (!dryRun && (yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow')) {
-    for (const move of moves) {
-      applyJobMove(move)
-      process.stdout.write(`${green(`moved ${move.ids.length} job(s) to jobs.config.json`)} in workspace ${move.workspaceId}\n`)
-    }
-  }
-
   // Consent covers the schema steps, asked once for all of them. A restamp needs none — it changes
   // `meta.writtenBy` and nothing else — but it waits for the answer, so "no" writes nothing at all.
   const consented = yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow'
-  if (lifts.length > 0 && !consented) {
+  /**
+   * A **job move asks the same question**, because it is the same consent.
+   *
+   * The write used to sit in a block gated on `consented` alone, while the question below was gated on
+   * `lifts.length > 0`. A home whose only pending work was a `kind: "job"` entry therefore had **nothing
+   * to answer**: no question was asked, `applyJobMove` never ran, and the summary still counted the move
+   * from the *plan* — so it printed "1 job(s) moved", wrote nothing, and a re-run then said "nothing to
+   * migrate". The job was gone and the command would not offer again.
+   */
+  if ((lifts.length > 0 || jobCount > 0) && !consented) {
     const steps = lifts.reduce((sum, entry) => sum + entry.plan.steps.length, 0)
+    const wants = [
+      steps > 0 ? `${steps} migration(s) to ${lifts.length} file(s)` : null,
+      jobCount > 0 ? `move ${jobCount} job(s) into jobs.config.json` : null,
+    ].filter(part => part !== null).join(' and ')
     if (process.stdin.isTTY !== true)
-      fail(`${lifts.map(entry => entry.target.file).join(', ')} need${lifts.length === 1 ? 's' : ''} ${steps} migration(s) and this session cannot ask.\n  re-run with --yes, or set HHOSTED_MIGRATE=allow for unattended runs`)
-    const answer = await prompt(`Apply ${steps} migration(s) to ${lifts.length} file(s)? [y/N] `)
+      fail(`${wants} and this session cannot ask.\n  re-run with --yes, or set HHOSTED_MIGRATE=allow for unattended runs`)
+    const answer = await prompt(`Apply ${wants}? [y/N] `)
     if (!/^yes$|^y$/i.test(answer.trim())) {
       process.stdout.write('cancelled — nothing was written\n')
       return
     }
+  }
+
+  for (const move of moves) {
+    applyJobMove(move)
+    process.stdout.write(`${green(`moved ${move.ids.length} job(s) to jobs.config.json`)} in workspace ${move.workspaceId}\n`)
   }
 
   // `docs/` and `README.md` promise a `.bak` beside **each** file this command rewrites, restamps

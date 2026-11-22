@@ -74,4 +74,48 @@ describe('migrate consent', () => {
       expect(fs.existsSync(`${file}.bak`), `${file}.bak`).toBe(false)
     }
   })
+
+  /**
+   * A home whose **only** pending work is a `kind: "job"` entry must not be told its job moved.
+   *
+   * The write sat in a block gated on `consented` alone, while the question was gated on
+   * `lifts.length > 0`. With no schema steps there was nothing to ask, so `applyJobMove` never ran —
+   * and the summary still counted the move from the *plan*, printing "1 job(s) moved" over a file it
+   * never wrote. A re-run then said "nothing to migrate", so the job was gone and the command would
+   * not offer again. Measured against a built CLI: `servers.config.json` emptied, no `jobs.config.json`
+   * created, exit 0.
+   *
+   * A session that cannot be asked must **refuse**, naming the flag, rather than succeed at nothing.
+   */
+  it('refuses, rather than claiming a job moved, when it cannot ask', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-jobs-consent-'))
+    dirs.push(home)
+    const hh = path.join(home, '.hh')
+    const servers = path.join(hh, 'default', 'servers.config.json')
+    const jobs = path.join(hh, 'default', 'jobs.config.json')
+    fs.mkdirSync(path.dirname(servers), { recursive: true })
+    fs.writeFileSync(path.join(hh, 'workspaces.json'), `${JSON.stringify({ workspaces: [{ id: 'default', label: 'Default' }] }, null, 2)}\n`)
+    const original = `${JSON.stringify({ meta: { writtenBy: '0.13.0', schema: 2 }, servers: [{ id: 'nightly', command: 'node', args: ['x.js'], kind: 'job', schedule: '0 3 * * *' }] }, null, 2)}\n`
+    fs.writeFileSync(servers, original)
+
+    process.env.HHOSTED_HOME = home
+    process.stdin.isTTY = false
+    delete process.env.HHOSTED_MIGRATE
+    vi.resetModules()
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    // `fail()` exits the process; the message is the assertion.
+    vi.doMock('#src/cli/io', async importOriginal => ({
+      ...await importOriginal<typeof import('#src/cli/io')>(),
+      fail: (message: string): never => { throw new Error(message) },
+    }))
+    const { runMigrate } = await import('#src/cli/migrate')
+
+    await expect(runMigrate(false, false)).rejects.toThrow(/--yes|HHOSTED_MIGRATE/)
+
+    // Nothing was written: the servers file still declares the job, and no jobs file appeared.
+    expect(fs.readFileSync(servers, 'utf8'), 'the servers file must be untouched').toBe(original)
+    expect(fs.existsSync(jobs), 'a move that did not happen must not leave a jobs file').toBe(false)
+    expect(stdout.mock.calls.map(call => String(call[0])).join('')).not.toContain('job(s) moved')
+  })
 })
