@@ -756,23 +756,6 @@ export async function checkDdns(workspace?: string | null): Promise<DdnsView> {
   return ddnsView(await request<unknown>(scoped('/api/ddns/check', workspace), { method: 'POST' }))
 }
 
-/**
- * One lifecycle call: start, stop or restart an entry.
- *
- * Plain `fetch`, not the typed RPC client `stock` had adopted. `rpc` is inferred from `AppType` in
- * the server's `src/app.ts`, which `src/shared` may not import — that layering is what lets the
- * server and both UIs build on this module. Nothing is lost by it here: a lifecycle refusal answers
- * `{ ok: false, error }` rather than the `{ message }` envelope, and `failureMessage` reads both, so
- * "port 3000 is already in use" still reaches the toast instead of "request failed with 409".
- */
-/**
- * Runs an entry's deploy steps. **Waits** for the outcome, because that is what the caller asked for;
- * the steps' output goes to the entry's log, not to this answer.
- *
- * A refusal is a `DetailedError` the caller shows as it is: `NO_DEPLOY` says the entry has no steps,
- * `DEPLOY_RUNNING` that one is already going, and `DEPLOY_FAILED` that a step failed and the old
- * process is still what runs.
- */
 export function deployServer(id: string, workspace?: string | null): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(scoped(`/api/servers/${encodeURIComponent(id)}/deploy`, workspace), { method: 'POST' })
 }
@@ -907,6 +890,23 @@ export function setJobSecrets(
   })
 }
 
+/**
+ * One lifecycle call: start, stop or restart an entry.
+ *
+ * Plain `fetch`, not the typed RPC client `stock` had adopted. `rpc` is inferred from `AppType` in
+ * the server's `src/app.ts`, which `src/shared` may not import — that layering is what lets the
+ * server and both UIs build on this module. Nothing is lost by it here: a lifecycle refusal answers
+ * `{ ok: false, error }` rather than the `{ message }` envelope, and `failureMessage` reads both, so
+ * "port 3000 is already in use" still reaches the toast instead of "request failed with 409".
+ */
+/**
+ * Runs an entry's deploy steps. **Waits** for the outcome, because that is what the caller asked for;
+ * the steps' output goes to the entry's log, not to this answer.
+ *
+ * A refusal is a `DetailedError` the caller shows as it is: `NO_DEPLOY` says the entry has no steps,
+ * `DEPLOY_RUNNING` that one is already going, and `DEPLOY_FAILED` that a step failed and the old
+ * process is still what runs.
+ */
 export async function serverAction(id: string, action: 'start' | 'stop' | 'restart', workspace?: string | null): Promise<ActionResult> {
   const response = await fetch(scoped(`/api/servers/${encodeURIComponent(id)}/${action}`, workspace), {
     method: 'POST',

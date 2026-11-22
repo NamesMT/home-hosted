@@ -7,14 +7,6 @@ const session = ref<SessionView | null>(null)
 const error = ref<string | null>(null)
 
 /**
- * Session state for the whole SPA. `requireLogin` lets any failed request flip
- * the UI back to the login view without every caller knowing about 401s.
- *
- * Everything here is a plain closure rather than a method on the returned
- * object: callers destructure it (`const { setMySecret } = useSession()`), and a
- * `this.refresh()` inside would then be `undefined.refresh()`.
- */
-/**
  * What the shell should do about the live event stream.
  *
  * This is a value rather than two flags on purpose: the session lands
@@ -31,6 +23,14 @@ export function streamDecision(session: SessionView | null): StreamDecision {
   return session.authRequired && !session.authenticated ? 'login' : 'connect'
 }
 
+/**
+ * Session state for the whole SPA. `requireLogin` lets any failed request flip
+ * the UI back to the login view without every caller knowing about 401s.
+ *
+ * Everything here is a plain closure rather than a method on the returned
+ * object: callers destructure it (`const { setMySecret } = useSession()`), and a
+ * `this.refresh()` inside would then be `undefined.refresh()`.
+ */
 export function useSession() {
   async function refresh(): Promise<void> {
     try {

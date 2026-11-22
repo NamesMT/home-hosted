@@ -16,10 +16,6 @@ async function refresh(): Promise<void> {
 }
 
 /**
- * Session state for the whole SPA. Methods are plain functions rather than
- * object methods so a caller can destructure them without losing `this`.
- */
-/**
  * What the shell should do about the live event stream.
  *
  * This is a value rather than two flags on purpose: the session lands
@@ -36,6 +32,10 @@ export function streamDecision(session: SessionView | null): StreamDecision {
   return session.authRequired && !session.authenticated ? 'login' : 'connect'
 }
 
+/**
+ * Session state for the whole SPA. Methods are plain functions rather than
+ * object methods so a caller can destructure them without losing `this`.
+ */
 export function useSession() {
   return {
     session: readonly(session),

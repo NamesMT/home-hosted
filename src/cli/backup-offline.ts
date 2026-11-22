@@ -120,13 +120,6 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
     dataRoot: hhDir,
     getConfig: () => settings.backups,
     /**
-     * Register a workspace the archive brought.
-     *
-     * A panel-only hook in the running case, because the panel creates the runtime itself. With no
-     * panel there is nobody to do it, so the registry is written here — otherwise a restored
-     * workspace's files land on disk unreachable, and the next `up` never looks at them.
-     */
-    /**
      * Record the staged dump so the entry's next `up` loads it.
      *
      * Nothing is running to hold it in memory, so this is the only path that matters offline: the
@@ -150,6 +143,13 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
         pendingLoad: dumpDir,
       })
     },
+    /**
+     * Register a workspace the archive brought.
+     *
+     * A panel-only hook in the running case, because the panel creates the runtime itself. With no
+     * panel there is nobody to do it, so the registry is written here — otherwise a restored
+     * workspace's files land on disk unreachable, and the next `up` never looks at them.
+     */
     ensureWorkspace: (input) => {
       if (registry.has(input.id))
         return

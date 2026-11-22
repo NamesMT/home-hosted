@@ -161,24 +161,15 @@ export class JobScheduler {
     }
 
     /**
-     * The occurrence that is due now: the scheduled minute at or before `now`. Deriving it from the
-     * clock rather than from the tick interval is what makes "exactly once" true at any tick rate.
+     * The due-minute memo: the answer cannot change within a minute and the tick runs at 1 Hz, so a
+     * rare expression would otherwise pay for the same look-back scan sixty times over (measured
+     * ~80 ms for `0 0 31 4 *` before the day-skip, still tens of ms after).
      *
-     * **Memoised per minute, per schedule.** The answer cannot change within a minute, and the tick
-     * runs at 1 Hz: a rare expression costs a scan of the look-back window (measured ~80 ms for
-     * `0 0 31 4 *` before the day-skip, still tens of ms after), so sixty calls a minute would spend
-     * a large share of the loop on an answer that is the same each time. Keyed by the expression, so
-     * two jobs with one schedule share it and editing a schedule misses the cache naturally.
-     */
-    /**
-     * Keyed by **expression**, in a map, for the current minute only.
-     *
-     * The answer cannot change within a minute and the tick is 1 Hz, so sixty calls a minute would
-     * otherwise repeat the same scan. A **single** slot was not enough: with two jobs on *different*
-     * rare expressions, each overwrote the other's entry, so neither ever hit and both paid a full
-     * scan every tick (measured 390 ms/tick for two distinct impossible schedules on the reviewer's
-     * machine, 18 ms on mine). "A handful of schedules" — the argument the single slot rested on — is
-     * exactly the case that breaks it.
+     * **Keyed by expression, in a map, for the current minute only.** A single slot was not enough:
+     * with two jobs on *different* rare expressions each overwrote the other's entry, so neither ever
+     * hit and both paid the full scan every tick (measured 390 ms/tick for two distinct impossible
+     * schedules on the reviewer's machine, 18 ms on mine). "A handful of schedules" — the argument the
+     * single slot rested on — is exactly the case that breaks it. Editing a schedule misses naturally.
      */
     const minute = Math.floor(now / 60_000)
     if (this.dueMinute !== minute) {

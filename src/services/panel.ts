@@ -382,14 +382,6 @@ export class PanelService {
   }
 
   /**
-   * Re-reads every workspace and the global settings, e.g. after a restore.
-   *
-   * `store.load()` resets the byte baseline the config watcher compares against, so the
-   * poll that follows sees "no change" and never reaches its autostart pass. The entries
-   * an archive brought therefore waited for a panel restart — which is why the start of
-   * newly appeared autostart entries belongs here, the one place that knows what was new.
-   */
-  /**
    * Record a dump a restore staged, so this entry's next start loads it.
    *
    * Written to the entry's own state file rather than memory: the restore usually happens before the
@@ -417,6 +409,14 @@ export class PanelService {
     this.runtimes.get(workspaceId)?.supervisor.stagePendingLoad(serverId, dumpDir)
   }
 
+  /**
+   * Re-reads every workspace and the global settings, e.g. after a restore.
+   *
+   * `store.load()` resets the byte baseline the config watcher compares against, so the
+   * poll that follows sees "no change" and never reaches its autostart pass. The entries
+   * an archive brought therefore waited for a panel restart — which is why the start of
+   * newly appeared autostart entries belongs here, the one place that knows what was new.
+   */
   reloadAll(): void {
     // Through the same guard a hand edit meets, not a bare `load()`: a restored settings file that
     // would newly expose the panel (a panel route, auth off) is refused and the running settings
