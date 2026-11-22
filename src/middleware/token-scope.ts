@@ -7,17 +7,12 @@ import { PUBLIC_API_PATHS } from '#src/middleware/auth'
 /**
  * What an API token needs for each route — **declared once**, never inside a handler.
  *
- * A token used to be full admin, so a monitor that only reads held the same credential as a deploy
- * hook, and nothing could tell them apart. Named scopes fix that only if the requirement is not a
- * scattering of `if`s across forty handlers: this is a map keyed by method and path pattern, and
- * `test/middleware/token-scopes.test.ts` walks every `/api` route in the published spec and fails on
- * one that is missing here. A new route therefore cannot ship without a scope.
+ * A map keyed by method and path pattern, matched with `:param` segments as `src/app.ts` mounts them.
+ * `test/middleware/token-scopes.test.ts` walks every `/api` route in the published spec and fails on one
+ * missing here, so a new route cannot ship without a scope.
  *
- * Patterns are the panel's own spelling (`/api/servers/:id/start`), matched with `:param` segments
- * standing for any one segment — the same shape `src/app.ts` mounts.
- *
- * The four scopes are cumulative: `admin` implies the rest, `config` implies `read` for the routes it
- * writes, and a GET is `read` unless reading it is itself an admin act (a token listing).
+ * The scopes are cumulative: `admin` implies the rest, and `config` implies `read` for the routes it
+ * writes.
  */
 
 /** The requirement for one route: what a token must have, and whether a workspace limit applies. */
@@ -65,16 +60,9 @@ const RULES: Record<string, TokenScopeRule> = {
   'GET /api/proxy': { scope: 'read', workspaceScoped: false },
   'GET /api/backups': { scope: 'read', workspaceScoped: 'all' },
   /**
-   * `config`, not `read`, even though it is a GET.
-   *
-   * The archive is not a reading: it holds every workspace's `secrets.json` and the panel's own
-   * `.control-secrets.json` **in the clear** — account hashes, the DDNS KDF salt, Telegram tokens,
-   * every server's secret environment values. Declared `read`, a monitor credential downloaded all of
-   * it, which walked around every rule that keeps a secret *value* off a route (`PUT …/secrets` is
-   * write-only, the views name only what is set). `config` is the scope that already owns backups —
-   * it is what `POST /api/backups` needs, and "server, workspace and settings writes, and backups" is
-   * how `docs/SECURITY.md` describes it — so an account that may take an archive may fetch it, and
-   * one that may only read may not.
+   * `config`, not `read`, even though it is a GET: the archive holds every workspace's `secrets.json`
+   * and the panel's `.control-secrets.json` in the clear, so a download is not a reading. `config` is
+   * the scope that already owns backups.
    */
   'GET /api/backups/:name/download': { scope: 'config', workspaceScoped: 'all' },
   'GET /api/host/temperature': { scope: 'read', workspaceScoped: false },
@@ -141,24 +129,9 @@ const RULES: Record<string, TokenScopeRule> = {
   'POST /api/notifications/destinations/:id/detect-chats': { scope: 'config', workspaceScoped: true },
   'POST /api/notifications/test-webhook': { scope: 'config', workspaceScoped: true },
   /**
-   * Backups reach **every** workspace, so a workspace limit refuses them rather than narrowing them.
-   *
-   * They were declared panel-wide (`workspaceScoped: false`), read as "no workspace to narrow" — and
-   * an archive names no `?workspace=` at all, so the limit never applied to one. Measured on a panel
-   * with `default` and `staging`, an account limited to `staging`:
-   *
-   * - `POST /api/backups` answered `200` and the archive it got held `workspaces/default/secrets.json`
-   *   verbatim, which is the workspace it may not read;
-   * - `POST /api/backups/restore {name, include: ["workspace:default"], confirm}` answered `200` and
-   *   rewrote `default`'s `servers.config.json` — the `marker` entry the admin had just added was
-   *   gone — which is a **write** to a workspace it may not act on;
-   * - `DELETE /api/backups/:name` removed the archive the admin had taken.
-   *
-   * `'all'` is the honest declaration: these routes are not panel-wide with nothing to narrow, they
-   * are panel-wide **because they span everything**, so only an account without a limit may have
-   * them. `GET /api/backups` too — it lists every archive and the capture tree of every workspace,
-   * including each one's on-disk paths. An unlimited `config` account keeps all four, which is what
-   * `docs/SECURITY.md` describes (`config`: "server, workspace and settings writes, and backups").
+   * Backups reach **every** workspace — an archive names no workspace, and a restore writes any — so a
+   * workspace limit refuses them rather than narrowing them. Only an account without a limit may hold
+   * these, which is what `docs/SECURITY.md` describes for the `config` scope.
    */
   'POST /api/backups': { scope: 'config', workspaceScoped: 'all' },
   'DELETE /api/backups/:name': { scope: 'config', workspaceScoped: 'all' },
@@ -325,18 +298,9 @@ export function createTokenScopeGuard(deps: TokenScopeGuardDeps) {
     }
     const rule = ruleFor(method, path)
     if (rule === null) {
-      // No rule names this path. `docs/API.md` promises that a path under `/api` matching no route is
-      // `404 NOT_FOUND`, but this guard runs **before** routing, so every typo answered
-      // `403 TOKEN_SCOPE … has no declared token scope` — a credential error for a URL that does not
-      // exist, sending a caller to check a token instead of their spelling. Only an authenticated
-      // caller ever saw it: the auth guard answers 401 first.
-      //
-      // `404` is the answer either way, and it stays fail-closed. The guard's job is that an
-      // undeclared route is never *reachable*, and a 404 reaches nothing. What is given up is the
-      // diagnostic: a route somebody adds without declaring it now looks like a missing route rather
-      // than saying "no declared token scope". That is the lesser harm, the spec walk in
-      // `test/middleware/token-scopes.test.ts` fails on the route before it ships, and
-      // `src/shared/error-codes.ts` already reserves `NOT_FOUND` for exactly this.
+      // No rule names this path. The guard runs before routing, so a typo would otherwise answer a
+      // credential error for a URL that does not exist; `404 NOT_FOUND` is what `docs/API.md` promises
+      // and it stays fail-closed. The spec walk in the test catches an undeclared route before ship.
       throw new DetailedError(`no route for ${method} ${path}`, { statusCode: 404, code: 'NOT_FOUND' })
     }
     if (!tokenAllows(account.scopes, rule.scope)) {

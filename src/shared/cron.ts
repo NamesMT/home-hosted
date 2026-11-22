@@ -1,32 +1,10 @@
 /**
- * A 5-field cron expression, parsed once and asked two questions: is it due now, and when does it
- * next run.
+ * A 5-field cron expression in the host's local timezone, parsed once and asked two questions: is it
+ * due now, and when does it next run.
  *
- * **Five fields only, and the host's local timezone.** `minute hour day-of-month month
- * day-of-week`, no seconds field and no `@reboot`/`@daily` macros: a 6-field expression accepted as
- * 5 would run on a schedule nobody typed (the leading field read as minutes), and a macro is a
- * different language. Both are refused by name in the message.
- *
- * Reading the wall clock in the host's own zone is deliberate. This panel runs on a home server
- * whose owner thinks in that machine's time ("every night at 03:00"), and a job that silently
- * shifted by an hour after a DST change would be worse than one documented as local.
- *
- * **Daylight saving, measured rather than assumed** (`TZ=Europe/Berlin`, 2026 transitions):
- * - a local time that does not exist — 02:30 on the spring-forward day — is **skipped for that day**.
- *   `nextCronRun('30 2 * * *', 2026-03-28T23:00)` answers 2026-03-30T02:30, and `cronDueAt` is false
- *   at 01:59 and 03:00 alike. This matches Vixie cron, and firing at an arbitrary instant once a
- *   year would be worse than missing one run;
- * - a local time that occurs **twice** — 02:30 on the autumn day — runs on the **first** only, which
- *   is what the search naturally finds: it stops at the first matching wall-clock minute, and the
- *   second 02:30 is an hour of real time later.
- *
- * An earlier version of this comment claimed the spring-forward case "runs at the instant the clock
- * jumps past it". It never did. The comment was wrong, not the code.
- *
- * No date library: the module is imported by both the panel and the UIs (the preview under the
- * schedule field), so it may not reach for `node:` or a dependency.
+ * Five fields only, no macros. It is imported by both the panel and the UIs (the schedule preview), so
+ * it may not reach for `node:` or a dependency.
  */
-
 /** The numbers one expression selects, as sets — membership is what every question asks. */
 export interface CronSpec {
   minutes: Set<number>
@@ -216,18 +194,9 @@ export function cronProblem(expression: string): string | null {
  */
 function dayMatches(spec: CronSpec, date: Date): boolean {
   /**
-   * Both sets **always** filter; the star flags choose AND vs OR, exactly as Vixie's own comment says:
-   *
-   * > `'* * 1,15 * Sun'` runs on the first and fifteenth AND every Sunday; `'* * * * Sun'` runs *only*
-   * > on Sundays; `'* * 1,15 * *'` runs *only* the 1st and 15th.
-   *
-   * Its code is `(DOM_STAR || DOW_STAR) ? (dow_match && dom_match) : (dow_match || dom_match)` — both
-   * `*_match` are always bit tests.
-   *
-   * **A caution for the next reader**: making a star-leading field stop *filtering* as well looked
-   * like the same rule and is not. It made a step of 10 over the days run every single day instead of
-   * the 1st, 11th, 21st and 31st — a step over the range restricts under AND precisely because Vixie
-   * takes the AND branch when either field begins with a star.
+   * Both sets always filter; the star flags only choose AND vs OR, as in Vixie cron. A star-leading
+   * field must keep filtering: dropping it makes a step of 10 over the days run every day instead of
+   * the 1st, 11th, 21st and 31st.
    */
   const dom = spec.daysOfMonth.has(date.getDate())
   const dow = spec.daysOfWeek.has(date.getDay())
@@ -282,18 +251,9 @@ function advance(candidate: Date, unit: 'minute' | 'hour' | 'day' | 'month'): Da
 /**
  * The **first** real instant at which this wall-clock minute happens.
  *
- * On the autumn DST change a wall time occurs twice, an hour apart. Both are "the same occurrence" to
- * a person reading a cron expression, and returning the later one is what made the scheduler start a
- * job twice: it saw 01:30 EDT and 01:30 EST as two occurrences, because the dedup guard can only
- * remember one instant.
- *
- * So a matched minute is reported at its **earlier** instant. Probing backwards by the offsets zones
- * actually use (a whole hour, or the half hour Lord Howe uses) and comparing the local fields is
- * enough: a wall minute can repeat at most once, and the shift is never more than an hour.
- *
- * This also makes both searches monotonic, which the previous version was not — measured across the
- * 2026 fall-back under `TZ=America/New_York`, `previousCronRun` stepped from 01:30 EDT back to
- * yesterday's* 01:30, discarding the occurrence it had just found.
+ * A wall time repeats once on an autumn DST change, and the two instants are one occurrence to a person
+ * reading a cron expression — reporting the later one starts the job twice. Probing back by the shifts
+ * zones use and comparing local fields keeps both searches monotonic.
  */
 function firstInstantOfMinute(when: Date): number {
   const fields = localFields(when)
@@ -315,14 +275,11 @@ function localFields(date: Date): string {
 }
 
 /**
- * How far ahead the search looks before giving up. **Eight** years, not four.
+ * How far ahead the search looks before giving up: **eight** years, not four. A century year is not a
+ * leap year, so from 2096-03-01 the next 29 February is seven years out.
  *
- * Four covers an ordinary leap day, but 1900 and 2100 are not leap years: from 2096-03-01 the next
- * 29 February is 2104, seven years out, so a four-year limit answered `null` and the panel told its
- * owner the schedule "never comes due" — measured. Eight years reaches past the century boundary.
- *
- * `null` means "not within this limit", not "never". `0 0 31 4 *` names a date that genuinely cannot
- * occur and no limit can tell the two apart, so the message that reports it says which it is.
+ * `null` means "not within this limit", not "never" — `0 0 31 4 *` names a date that genuinely cannot
+ * occur, and no limit can tell the two apart.
  */
 const SEARCH_LIMIT_MS = 8 * 366 * 24 * 60 * 60 * 1000
 
