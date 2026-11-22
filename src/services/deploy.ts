@@ -156,7 +156,18 @@ export async function runDeploy(
         settle()
       })
       child.once('error', (error) => {
-        spawnError = (error as Error).message
+        /**
+         * Node reports a bad **`cwd`** and a missing **command** with the same words.
+         *
+         * `spawn('node', …, { cwd: '/nope' })` emits `spawn node ENOENT` with `path: 'node'` — measured
+         * directly. Passed through, that tells someone with a working `node` on PATH that their command
+         * is missing, and sends them to fix the wrong field. Deploy steps carry both, so the message
+         * says which one was checked.
+         */
+        const detail = (error as Error).message
+        spawnError = /^spawn \S+ ENOENT$/.test(detail) && step.cwd !== undefined
+          ? `${detail} — the command "${step.command}" or the step's cwd "${step.cwd}" does not exist`
+          : detail
         settle()
       })
     })

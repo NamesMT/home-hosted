@@ -104,6 +104,21 @@ describe('running a deploy', () => {
     expect(outcome.error).toMatch(/hh-definitely-not-a-program|ENOENT|not found/i)
   })
 
+  /**
+   * A step whose **`cwd`** is missing must not be reported as a missing command.
+   *
+   * Node uses one message for both: `spawn('node', …, { cwd: '/nope' })` emits `spawn node ENOENT` with
+   * `path: 'node'`, measured directly. Passed through, that tells someone whose `node` is on PATH to fix
+   * their command. Deploy steps carry both fields, so the message names both.
+   */
+  it('says a missing cwd may be the cause, not only the command', async () => {
+    const dir = await scratch()
+    const { config } = configWith(dir, [{ command: process.execPath, args: ['-e', '0'], cwd: path.join(dir, 'no-such-dir') }])
+    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: () => {}, env: () => ({}) })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.error, 'a valid command with a bad cwd must not read as a missing command').toMatch(/cwd|directory/i)
+  })
+
   it('stops when the deploy is cancelled, even between steps', async () => {
     const dir = await scratch()
     const out = path.join(dir, 'never.txt')
