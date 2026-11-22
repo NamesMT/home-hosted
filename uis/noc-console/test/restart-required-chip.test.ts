@@ -1,44 +1,73 @@
-/* eslint-disable no-template-curly-in-string -- the plant is source text, not a template: the
-   `${…}` in it is the shape under test. */
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+// @vitest-environment happy-dom
+import type { ServerConfig, ServerView } from '@shared/contracts'
+import { serverSchema } from '@shared/contracts'
+import { mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
+import { computed, ref } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 /**
- * noc-console shows the same "restart to apply" state stock does.
+ * noc-console renders the panel's `restartRequired` badge — and only when the panel says so.
  *
- * `PUT`/`PATCH /api/servers/:id` writes config only, and the server view's optional `restartRequired`
- * is the panel saying the running process predates a change to a field a restart re-reads. The whole
- * point of the badge is that a person who changed the program and read "saved" is not left believing
- * the change is live — so a UI that never renders the field is telling half the story, which is the
- * defect this release exists to fix.
+ * `PUT`/`PATCH /api/servers/:id` writes config only, so a person who changed the program and read "saved"
+ * would otherwise believe the change is live. The badge is the whole correction.
  *
- * A source scan rather than a mount: noc-console's config and detail views both pull a live control
- * plane, and the assertion that matters is that **both surfaces read the field**. The rendered half
- * is `uis/stock/test/restart-required-badge.test.ts`.
+ * Mounted rather than scanned: `ServerDetail.vue` takes its server as a prop, so the field can be set
+ * both ways and the badge's *presence and absence* both asserted. A source scan can only check that the
+ * string appears somewhere in the file, which is true of a badge that never renders.
  */
-const root = fileURLToPath(new URL('..', import.meta.url))
 
-function read(file: string): string {
-  return fs.readFileSync(path.join(root, file), 'utf8')
+vi.mock('@/composables/useControlPlane', () => ({
+  unwatchLogs: () => {},
+  watchLogs: () => [],
+  useControlPlane: () => ({
+    host: computed(() => null),
+    now: computed(() => 1),
+    seriesOf: () => ({ cpu: [], rss: [], probe: [] }),
+    act: vi.fn(async () => ({ ok: true as const, value: {} })),
+  }),
+}))
+vi.mock('@/composables/useUi', () => ({
+  flash: () => {},
+  addOpen: ref(false),
+  helpOpen: ref(false),
+  drawerOpen: ref(false),
+  useUi: () => ({ drawerOpen: ref(false), selectedId: ref(''), filter: ref('') }),
+}))
+
+function entry(restartRequired?: boolean): ServerView {
+  return {
+    id: 'app',
+    status: 'running',
+    pid: 1234,
+    ...(restartRequired === undefined ? {} : { restartRequired }),
+    config: serverSchema({ id: 'app', command: 'node', args: [], port: 4000, bind: 'local', enabled: true, autostart: false }) as ServerConfig,
+    history: { events: [], crashes: 0, lastCrashAt: null, uptimeRatio: 1, restarts: 0 },
+    lastError: null,
+    nextRetryAt: null,
+    unhealthySince: null,
+    bindHost: '127.0.0.1',
+    bufferedLines: 0,
+    responseMs: 1,
+    resources: null,
+    adopted: false,
+  } as unknown as ServerView
+}
+
+async function mountDetail(server: ServerView) {
+  const ServerDetail = (await import('../src/components/ServerDetail.vue')).default
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+  return mount(ServerDetail, { props: { server, workspaceId: 'default', now: 1 }, global: { plugins: [router] } })
 }
 
 describe('noc-console and a config change that needs a restart', () => {
-  it.each([
-    ['config view', 'src/views/ServerConfigView.vue'],
-    ['detail panel', 'src/components/ServerDetail.vue'],
-  ])('says so on the %s', (_name, file) => {
-    const source = read(file)
-    expect(source, `${file} must read the server view's restartRequired`).toContain('restartRequired')
-    expect(source, `${file} must render the wording`).toContain('restart to apply')
+  it('says so when the panel reports the running process is behind', async () => {
+    const wrapper = await mountDetail(entry(true))
+    expect(wrapper.text(), 'the badge must render when restartRequired is set').toContain('restart to apply')
   })
 
-  /** The save toast is where a person learns it first, so it says which state they are in. */
-  it('tells the save apart from the restart', () => {
-    const source = read('src/views/ServerConfigView.vue')
-    expect(source, 'a save that needs a restart says so').toContain('restart to apply')
-    // And a plain save keeps its old wording, rather than every save nagging.
-    expect(source).toContain('`saved ${props.id}`')
+  it('says nothing when the process is current', async () => {
+    const wrapper = await mountDetail(entry())
+    expect(wrapper.text(), 'a current process must not nag').not.toContain('restart to apply')
   })
 })
