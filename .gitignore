@@ -72,6 +72,9 @@ state/
 
 # audit scratch: persona reports and screenshots, never part of the package
 .audit/
+# A review pass writes its findings here. Same reason: an artifact about a release is not
+# part of it, and a report that lands in the tree outlives the version it describes.
+.review/
 # ...but a state directory can be named anything, so the two files that must never
 # be committed are ignored wherever they land. `servers.config.json` stays
 # trackable on purpose: versioning your server definitions is a real workflow.
