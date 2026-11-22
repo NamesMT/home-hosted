@@ -125,11 +125,22 @@ function credentials(store: Record<string, string>): { apiUser: string, apiKey: 
   return { apiUser, apiKey, userName, clientIp }
 }
 
+/**
+ * The numeric codes a failed reply carries, from `<Error Number="…">` elements.
+ *
+ * Namecheap documents its failures by number — `1011102` is "API Key is invalid", `1017105` is an
+ * unwhitelisted client IP — and neither the code nor the fact that they are **permanent** reached a caller
+ * before: `call` returned a bare sentence, so `ddns.ts` retried a rejected key every interval forever.
+ */
+export function errorCodes(body: string): string[] {
+  return [...body.matchAll(/<Error[^>]*\sNumber\s*=\s*"([^"]*)"/gi)].map(match => (match[1] ?? '').trim()).filter(code => code.length > 0)
+}
+
 /** One XML call. Namecheap answers HTTP 200 whatever happened, so the body decides. */
-async function call(command: string, params: Record<string, string>, context: DdnsContext): Promise<ApiReply | string> {
+async function call(command: string, params: Record<string, string>, context: DdnsContext): Promise<ApiReply | CallFailure> {
   const auth = credentials(context.credentials)
   if (auth === null)
-    return 'namecheap needs the API user, the API key and the whitelisted client IP'
+    return { message: 'namecheap needs the API user, the API key and the whitelisted client IP', codes: [] }
 
   const query = new URLSearchParams({
     ApiUser: auth.apiUser,
@@ -144,14 +155,14 @@ async function call(command: string, params: Record<string, string>, context: Dd
     const response = await context.fetch(`${ENDPOINT}?${query.toString()}`, { signal: context.signal })
     const body = await response.text()
     if (!response.ok && !body.includes('<ApiResponse'))
-      return `namecheap answered HTTP ${response.status}`
+      return { message: `namecheap answered HTTP ${response.status}`, codes: [] }
     const status = /<ApiResponse[^>]*Status="([^"]*)"/i.exec(body)?.[1] ?? ''
     if (status.toUpperCase() !== 'OK')
-      return describeErrors(body)
+      return { message: describeErrors(body), codes: errorCodes(body) }
     return { status, errors: [], body }
   }
   catch (error) {
-    return errorMessage(error)
+    return { message: errorMessage(error), codes: [] }
   }
 }
 
@@ -164,16 +175,44 @@ function apexParts(zone: string): { SLD: string, TLD: string } {
   return { SLD: apex.slice(0, dot), TLD: apex.slice(dot + 1) }
 }
 
-/** The zone's records, or a sentence saying why they could not be read. */
-async function readHosts(zone: string, context: DdnsContext): Promise<NamecheapRecord[] | string> {
+/** A failed call: the sentence a person reads, and the codes Namecheap named. */
+interface CallFailure {
+  message: string
+  codes: string[]
+}
+
+const isFailure = (reply: unknown): reply is CallFailure => typeof reply === 'object' && reply !== null && 'message' in reply
+
+/**
+ * A failed call as a result, with **permanence** decided by Namecheap's own error numbers.
+ *
+ * `ddns.ts` reads `permanent` to end a record; without it a rejected key was retried every interval
+ * forever. The codes come from the reply (`errorCodes`), and the ones that mean "this credential will
+ * never work" are the documented auth failures.
+ */
+/**
+ * A failed call as a result, carrying Namecheap's number in the sentence.
+ *
+ * **No `permanent` here, deliberately.** This provider is DNS-01 only — its own comment says address
+ * updates belong to the Dynamic DNS entry — so its one path is the ACME challenge, and
+ * `acme-challenge.ts` answers `502` and lets the CA retry; it reads `ok` and `message`, never a
+ * permanence flag. `DdnsChallengeResult` has no such field either. Adding one would have been code
+ * nothing reads, which is worse than leaving it out.
+ */
+function refuse(failure: CallFailure): DdnsChallengeResult {
+  return { ok: false, message: failure.message }
+}
+
+/** The zone's records, or why they could not be read. */
+async function readHosts(zone: string, context: DdnsContext): Promise<{ records: NamecheapRecord[] } | CallFailure> {
   const reply = await call('namecheap.domains.dns.getHosts', { ...apexParts(zone) }, context)
-  if (typeof reply === 'string')
+  if (isFailure(reply))
     return reply
-  return parseHosts(reply.body)
+  return { records: parseHosts(reply.body) }
 }
 
 /** Writes the whole record set back. */
-async function writeHosts(zone: string, records: NamecheapRecord[], context: DdnsContext): Promise<string | null> {
+async function writeHosts(zone: string, records: NamecheapRecord[], context: DdnsContext): Promise<CallFailure | null> {
   const params: Record<string, string> = { ...apexParts(zone) }
   records.forEach((record, index) => {
     const at = index + 1
@@ -187,7 +226,7 @@ async function writeHosts(zone: string, records: NamecheapRecord[], context: Ddn
   })
 
   const reply = await call('namecheap.domains.dns.setHosts', params, context)
-  return typeof reply === 'string' ? reply : null
+  return isFailure(reply) ? reply : null
 }
 
 /** The record name Namecheap expects for a challenge, relative to the zone. */
@@ -229,10 +268,11 @@ export const namecheapApiProvider: DdnsProvider = {
    */
   async challenge(record: DdnsChallengeRecord, context: DdnsContext): Promise<DdnsChallengeResult> {
     const { zone } = splitHost(record.fqdn)
-    const hosts = await readHosts(zone, context)
-    if (typeof hosts === 'string')
-      return { ok: false, message: hosts }
+    const read = await readHosts(zone, context)
+    if (isFailure(read))
+      return refuse(read)
 
+    const hosts = read.records
     const name = challengeName(record.fqdn, zone)
     const isChallenge = (host: NamecheapRecord) => host.type.toUpperCase() === 'TXT' && host.name.toLowerCase() === name.toLowerCase()
     // Scoped by value, not just by name: a second challenge for the same hostname
@@ -256,7 +296,7 @@ export const namecheapApiProvider: DdnsProvider = {
         ttl: String(CHALLENGE_TTL),
       }], context)
       if (failure !== null)
-        return { ok: false, message: failure }
+        return refuse(failure)
       return { ok: true, message: `added a TXT record for ${record.fqdn} (rewrote ${hosts.length} others)` }
     }
 
@@ -265,7 +305,7 @@ export const namecheapApiProvider: DdnsProvider = {
       return { ok: true, message: `${record.fqdn} had no challenge record to remove` }
     const failure = await writeHosts(zone, kept, context)
     if (failure !== null)
-      return { ok: false, message: failure }
+      return refuse(failure)
     return { ok: true, message: `removed the TXT record for ${record.fqdn} (rewrote ${kept.length} others)` }
   },
 }

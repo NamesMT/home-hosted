@@ -941,4 +941,31 @@ describe('every ddns provider validates credentials', () => {
       expect(result.permanent, 'a transient failure must stay retryable').not.toBe(true)
     }
   })
+
+  /**
+   * A Namecheap failure reaches the person with the number the docs name.
+   *
+   * `call()` once returned a bare sentence built from `<Err1>` only; the `<Error Number="…">` element —
+   * the documented shape — was unread, so a rejected key reported *"the API refused the request"* with no
+   * reason at all. `docs/DDNS.md` tells a person that `1017105` means their client IP is not whitelisted.
+   *
+   * **No permanence assertion here**, and that is deliberate: this provider is DNS-01 only (its own
+   * comment says address updates belong to the Dynamic DNS entry), so its one path is the ACME challenge,
+   * and `acme-challenge.ts` answers `502` and lets the CA retry rather than reading a flag.
+   * `DdnsChallengeResult` has no `permanent` field. I wrote a classification here first and it was code
+   * nothing consumes.
+   */
+  it('carries Namecheap\'s error number through to the message', async () => {
+    const xml = (code: string) => `<?xml version="1.0"?><ApiResponse Status="ERROR"><Errors><Error Number="${code}">auth problem</Error></Errors></ApiResponse>`
+    const call = async (code: string) => namecheapApiProvider.challenge!(
+      { fqdn: 'home.example.com', value: 'v', zone: 'example.com' } as never,
+      { credentials: { apiUser: 'me', apiKey: 'k', clientIp: '1.2.3.4' }, fetch: (async () => new Response(xml(code), { status: 200 })) as never } as never,
+    )
+
+    for (const code of ['1011102', '1017105', '2019166']) {
+      const result = await call(code)
+      expect(result.ok, code).toBe(false)
+      expect(result.message, 'the number must survive, it is what the docs name').toContain(code)
+    }
+  })
 })
