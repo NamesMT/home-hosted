@@ -3,11 +3,11 @@ settings.backup.createTitle,Create a backup,Tạo bản sao lưu,创建备份,�
 settings.backup.createDescription,Pick what this archive captures. Nothing is written until you create it.,Chọn những gì bản lưu này sẽ ghi lại. Không có gì được ghi cho đến khi bạn tạo nó.,选择此归档要捕获的内容。在你创建之前不会写入任何内容。,このアーカイブに含めるものを選びます。作成するまで何も書き込まれません。,Elige qué captura este archivo. No se escribe nada hasta que la crees.,이 아카이브가 담을 항목을 선택하세요. 만들기 전까지는 아무것도 기록되지 않습니다.,"Выберите, что захватывает этот архив. Ничего не записывается, пока вы его не создадите.",Choisissez ce que cette archive capture. Rien n'est écrit tant que vous ne la créez pas.,"Wählen Sie, was dieses Archiv erfasst. Nichts wird geschrieben, bis Sie es erstellen."
 settings.backup.entriesCount[one],{count} entry,{count} mục,{count} 个条目,{count} 件のエントリ,{count} entrada,항목 {count}개,{count} запись,{count} entrée,{count} Eintrag
 settings.backup.entriesCount[few],,,,,,,{count} записи,,
-settings.backup.entriesCount[many],,,,,,,{count} записей,,
+settings.backup.entriesCount[many],,,,,{count} entradas,,{count} записей,{count} entrées,
 settings.backup.entriesCount[other],{count} entries,{count} mục,{count} 个条目,{count} 件のエントリ,{count} entradas,항목 {count}개,{count} записи,{count} entrées,{count} Einträge
 settings.backup.itemsSelected[one],{count} item selected,đã chọn {count} mục,已选择 {count} 项,{count} 件を選択,{count} elemento seleccionado,{count}개 선택됨,выбран {count} элемент,{count} élément sélectionné,{count} Element ausgewählt
 settings.backup.itemsSelected[few],,,,,,,выбрано {count} элемента,,
-settings.backup.itemsSelected[many],,,,,,,выбрано {count} элементов,,
+settings.backup.itemsSelected[many],,,,,{count} elementos seleccionados,,выбрано {count} элементов,{count} éléments sélectionnés,
 settings.backup.itemsSelected[other],{count} items selected,đã chọn {count} mục,已选择 {count} 项,{count} 件を選択,{count} elementos seleccionados,{count}개 선택됨,выбрано {count} элемента,{count} éléments sélectionnés,{count} Elemente ausgewählt
 settings.backup.chooseItems,Choose items,Chọn các mục,选择项目,項目を選択,Elegir elementos,항목 선택,Выбрать элементы,Choisir les éléments,Elemente wählen
 settings.backup.partialCapture,Only the chosen items are captured.,Chỉ những mục được chọn mới được ghi lại.,只捕获所选项目。,選択した項目だけが取り込まれます。,Solo se capturan los elementos elegidos.,선택한 항목만 담깁니다.,Захватываются только выбранные элементы.,Seuls les éléments choisis sont capturés.,Nur die gewählten Elemente werden erfasst.

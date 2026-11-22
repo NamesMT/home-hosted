@@ -28,7 +28,7 @@ settings.ddns.accountsTitle,Provider accounts,Tài khoản nhà cung cấp,提�
 settings.ddns.accountsDescription,One entry per API token. Credentials are stored on the server and never come back.,Mỗi API token một mục. Thông tin đăng nhập được lưu trên máy chủ và không bao giờ trả về.,每个 API 令牌一个条目。凭据存储在服务器上，且永不回传。,API トークンごとに 1 エントリ。資格情報はサーバーに保存され、二度と返ってきません。,Una entrada por token de API. Las credenciales se guardan en el servidor y nunca vuelven.,API 토큰마다 항목 하나. 자격 증명은 서버에 저장되며 다시 돌아오지 않습니다.,Одна запись на API-токен. Учётные данные хранятся на сервере и никогда не возвращаются.,Une entrée par token d'API. Les identifiants sont stockés sur le serveur et ne reviennent jamais.,Ein Eintrag pro API-Token. Zugangsdaten werden auf dem Server gespeichert und kommen nie zurück.
 settings.ddns.hostnameCount[one],{count} hostname,{count} hostname,{count} 个主机名,{count} 個のホスト名,{count} nombre de host,호스트 이름 {count}개,{count} имя хоста,{count} nom d'hôte,{count} Hostname
 settings.ddns.hostnameCount[few],,,,,,,{count} имени хоста,,
-settings.ddns.hostnameCount[many],,,,,,,{count} имён хостов,,
+settings.ddns.hostnameCount[many],,,,,{count} nombres de host,,{count} имён хостов,{count} noms d'hôte,
 settings.ddns.hostnameCount[other],{count} hostnames,{count} hostname,{count} 个主机名,{count} 個のホスト名,{count} nombres de host,호스트 이름 {count}개,{count} имени хоста,{count} noms d'hôte,{count} Hostnamen
 settings.ddns.credentialsSet,credentials saved,đã lưu thông tin đăng nhập,凭据已保存,資格情報を保存済み,credenciales guardadas,자격 증명 저장됨,учётные данные сохранены,identifiants enregistrés,Zugangsdaten gespeichert
 settings.ddns.noCredentials,no credentials,chưa có thông tin đăng nhập,没有凭据,資格情報なし,sin credenciales,자격 증명 없음,нет учётных данных,aucun identifiant,keine Zugangsdaten

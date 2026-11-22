@@ -1,5 +1,5 @@
 KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
-palette.placeholder,"Search servers, actions, settings…","Tìm máy chủ, thao tác, cài đặt…","搜索服务器、操作、设置…","サーバー・操作・設定を検索…","Buscar servidores, acciones, ajustes…","서버, 작업, 설정 검색…","Поиск серверов, действий, настроек…","Rechercher serveurs, actions, réglages…","Server, Aktionen, Einstellungen suchen…"
+palette.placeholder,"Search servers, actions, settings…","Tìm máy chủ, thao tác, cài đặt…",搜索服务器、操作、设置…,サーバー・操作・設定を検索…,"Buscar servidores, acciones, ajustes…","서버, 작업, 설정 검색…","Поиск серверов, действий, настроек…","Rechercher serveurs, actions, réglages…","Server, Aktionen, Einstellungen suchen…"
 palette.openServer,Open {label},Mở {label},打开 {label},{label} を開く,Abrir {label},{label} 열기,Открыть {label},Ouvrir {label},{label} öffnen
 palette.serverLogs,Logs for {label},Nhật ký của {label},{label} 的日志,{label} のログ,Registros de {label},{label}의 로그,Журналы {label},Journaux de {label},Protokolle von {label}
 palette.startServer,Start {label},Khởi động {label},启动 {label},{label} を起動,Iniciar {label},{label} 시작,Запустить {label},Démarrer {label},{label} starten
@@ -27,6 +27,6 @@ palette.run,run,chạy,运行,実行,ejecutar,실행,запуск,exécuter,ausf
 palette.noMatches,Nothing matches “{query}”.,Không có kết quả cho “{query}”.,没有匹配“{query}”的结果。,「{query}」に一致するものはありません。,Nada coincide con «{query}».,“{query}”와 일치하는 항목이 없습니다.,Ничего не найдено по «{query}».,Rien ne correspond à « {query} ».,Nichts passt zu „{query}“.
 palette.results[one],{count} result,,,,{count} resultado,,{count} результат,{count} résultat,{count} Ergebnis
 palette.results[few],,,,,,,{count} результата,,
-palette.results[many],,,,,,,{count} результатов,,
+palette.results[many],,,,,{count} resultados,,{count} результатов,{count} résultats,
 palette.results[other],{count} results,{count} kết quả,{count} 个结果,{count} 件の結果,{count} resultados,결과 {count}개,{count} результата,{count} résultats,{count} Ergebnisse
 palette.goJobs,Go to Jobs,Tới Tác vụ,前往任务,ジョブへ移動,Ir a Tareas,작업으로 이동,Перейти к заданиям,Aller aux tâches,Zu Aufgaben

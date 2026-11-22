@@ -110,6 +110,51 @@ describe('the sheets', () => {
     expect(duplicates).toEqual([])
   })
 
+  /**
+   * Every cell a language actually needs is filled.
+   *
+   * The file's own docblock calls this out — *"one missing cell there is what silently falls back to
+   * English"* — and nothing asserted it. Measured: **30 cells** were empty where the language has the
+   * category, all of them `[many]` for Spanish and French, which `Intl.PluralRules` selects at counts of
+   * 1 000 000 (a million log lines, a million palette results). `pluralRules()` falls back to `[other]`,
+   * so nothing rendered a raw key; the reader just got the `other` phrasing in a language that has a
+   * distinct form.
+   *
+   * An empty cell is **legitimate** when the language has no such CLDR category: Russian has `few` and
+   * `many`, Chinese has only `other`, English has no `few`. The table below is what keeps this from
+   * demanding a translation nobody can write.
+   */
+  it('fills every cell the language actually has a form for', () => {
+    // CLDR plural categories per locale: a key ending `[few]` needs no cell in a language without `few`.
+    const PLURAL_CATEGORIES: Record<string, readonly string[]> = {
+      'en': ['one', 'other'],
+      'vi': ['other'],
+      'zh-CN': ['other'],
+      'ja': ['other'],
+      'es': ['one', 'many', 'other'],
+      'ko': ['other'],
+      'ru': ['one', 'few', 'many', 'other'],
+      'fr': ['one', 'many', 'other'],
+      'de': ['one', 'other'],
+    }
+    const codes = LOCALES.map(locale => locale.code)
+    expect(codes.length, 'the locale list must be read, not guessed').toBe(9)
+
+    const missing: string[] = []
+    for (const row of readSheet()) {
+      const raw = String(row.KEY ?? '')
+      if (raw.length === 0)
+        continue
+      const category = /\[(\w+)\]$/.exec(raw)?.[1]
+      for (const code of codes) {
+        const needs = category === undefined || (PLURAL_CATEGORIES[code] ?? ['other']).includes(category)
+        if (needs && String(row[code] ?? '').trim().length === 0)
+          missing.push(`${row.__sheet}.csv: ${raw} has no "${code}"`)
+      }
+    }
+    expect(missing, 'an empty cell silently falls back to English').toEqual([])
+  })
+
   it('keeps every key in the sheet its own prefix names', () => {
     // The rule from `i18n/sheets/README.md`. Without this a key lands wherever it was typed, and
     // "which file is this string in" stops having an answer.

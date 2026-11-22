@@ -8,7 +8,7 @@ views.logs.clearTitle,Clear the persisted log file?,Xoá tệp nhật ký đã l
 views.logs.fileEmpty,The persisted file is empty.,Tệp đã lưu đang trống.,持久化的文件为空。,保存されたファイルは空です。,El archivo persistido está vacío.,저장된 파일이 비어 있습니다.,Сохранённый файл пуст.,Le fichier conservé est vide.,Die gespeicherte Datei ist leer.
 views.logs.filesOnDisk[one],{count} file,{count} tệp,{count} 个文件,{count} ファイル,{count} archivo,파일 {count}개,{count} файл,{count} fichier,{count} Datei
 views.logs.filesOnDisk[few],,,,,,,{count} файла,,
-views.logs.filesOnDisk[many],,,,,,,{count} файлов,,
+views.logs.filesOnDisk[many],,,,,{count} archivos,,{count} файлов,{count} fichiers,
 views.logs.filesOnDisk[other],{count} files,{count} tệp,{count} 个文件,{count} ファイル,{count} archivos,파일 {count}개,{count} файла,{count} fichiers,{count} Dateien
 views.logs.loadedLines,loaded {count} lines,đã nạp {count} dòng,已加载 {count} 行,{count} 行を読み込みました,{count} líneas cargadas,{count}줄을 불러왔습니다,загружено {count} строк,{count} lignes chargées,{count} Zeilen geladen
 views.logs.modeLive,Live stream,Luồng trực tiếp,实时流,ライブストリーム,Flujo en vivo,실시간 스트림,Живой поток,Flux en direct,Live-Stream

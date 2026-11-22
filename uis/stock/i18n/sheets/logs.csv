@@ -1,7 +1,7 @@
 KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
 logs.lines[one],{count} line,,,,{count} línea,,{count} строка,{count} ligne,{count} Zeile
 logs.lines[few],,,,,,,{count} строки,,
-logs.lines[many],,,,,,,{count} строк,,
+logs.lines[many],,,,,{count} líneas,,{count} строк,{count} lignes,
 logs.lines[other],{count} lines,{count} dòng,{count} 行,{count} 行,{count} líneas,{count}줄,{count} строки,{count} lignes,{count} Zeilen
 logs.emptyHint,No output yet.,Chưa có đầu ra.,暂无输出。,まだ出力はありません。,Aún no hay salida.,아직 출력이 없습니다.,Вывода пока нет.,Aucune sortie pour l'instant.,Noch keine Ausgabe.
 logs.noMatches,Nothing matches that search or stream filter.,Không có gì khớp với tìm kiếm hoặc bộ lọc luồng đó.,没有匹配该搜索或流筛选条件的内容。,この検索やストリームフィルターに一致するものはありません。,Nada coincide con esa búsqueda ni con ese filtro de flujo.,이 검색이나 스트림 필터와 일치하는 항목이 없습니다.,Ничего не соответствует этому поиску или фильтру потоков.,Rien ne correspond à cette recherche ni à ce filtre de flux.,Nichts passt zu dieser Suche oder diesem Stream-Filter.
