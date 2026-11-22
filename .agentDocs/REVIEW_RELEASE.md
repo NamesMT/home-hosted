@@ -10,6 +10,20 @@ code, and `RELEASING.md` requires that review's findings to be accounted for bef
 An independent reviewer should treat the section below as a baseline to check, not as done work, and add
 findings above it.
 
+## Browser tooling for the reviewer: Playwright, not bsk
+
+`task-1` originally said *"bsk tools are available and verified working"*. **They are not usable here**, and
+the task has been corrected. Measured twice:
+
+- `bsk status` answers *"cannot start an independent Windows daemon; the Job Object of this process does not
+  allow breakaway … Access is denied (os error 5)"*.
+- `bsk.exe daemon start --foreground` **does** bring a daemon up from a background job, and `bsk status
+  --json` then answers — but `bsk_session start` still fails with **"no browser is currently connected"**.
+  Attaching one needs a human to open the browser-skill extension and wait for "connected".
+
+**Playwright is installed and works** (`chromium.launch()` succeeds), and it is what `pnpm run smoke` uses,
+so a finding reproduces in CI. That is the supported path.
+
 ## Mechanical pass (root agent, built panel, Playwright)
 
 Panel: `HHOSTED_HOME=/tmp/hh-mech node dist/cli.js up --port 6993`, stock UI from the package.
