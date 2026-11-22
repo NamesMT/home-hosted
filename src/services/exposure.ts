@@ -245,30 +245,14 @@ export async function primeUpstreamResolutions(proxy: ProxyConfig): Promise<void
 /**
  * True when `upstream` names this machine on one of `panelPorts` — the panel's own listener.
  *
- * **The rule: a route points at the panel when its destination can be established as loopback.**
- * Two answers count as loopback — a literal loopback spelling, and a hostname whose resolution
- * includes a loopback address — and a third, deliberately, also counts: a name that does **not**
- * resolve. A destination the panel cannot establish is not evidence that it is harmless, and the
- * cost of the two mistakes is not symmetric: publishing a route that turns out to dial the panel
- * serves the whole panel to the internet with no credential, while refusing a route the person meant
- * to add is one save they retry once DNS is back.
+ * A literal loopback spelling counts, a name whose resolution includes a loopback address counts, and a
+ * name that does not resolve counts **too**: the two mistakes are not symmetric — publishing a route
+ * that dials the panel serves it to the internet with no credential, while refusing one is a save the
+ * person retries once DNS is back. So the question is "where does this go", not "what is it called".
  *
- * That inversion is the fix for the measured bypass. This predicate used to recognise literal
- * loopback only, so `http://panel.attacker.example:3999` with an A record of `127.0.0.1` — or
- * `127.0.0.1.nip.io` — was an ordinary `external` route: `checkProxyExposure` saw no panel route, the
- * engine published it, and the engine then dialled the panel from `127.0.0.1` with no forwarding
- * headers, which is exactly what `isLoopbackRequest` reads as this machine. Chasing names is not the
- * fix — a blocking list of spellings loses to the next spelling — so the question asked is "where
- * does this go", not "what is it called".
- *
- * `new URL` still normalizes the numeric spellings that need no resolver (`127.1`, `0`,
- * `2130706433`, `0x7f000001`, `[::1]`, `[::ffff:127.0.0.1]`), so those answer without DNS at all.
- * A non-loopback bind is already held to the listener rule (`checkExposure`), which is why an
- * interface address is not enumerated here.
- *
- * The lookup is served from the cache `primeUpstreamResolutions` fills; a name that has not been
- * resolved yet is treated as pointing at the panel, so this can read as over-strict for one reconcile
- * after a route is added — never as permissive.
+ * `new URL` normalizes the numeric spellings that need no resolver. The lookup reads the cache
+ * `primeUpstreamResolutions` fills, so an unresolved name reads as pointing at the panel — over-strict
+ * for one reconcile, never permissive.
  */
 export function dialsPanel(upstream: string, panelPorts: readonly number[]): boolean {
   if (panelPorts.length === 0)

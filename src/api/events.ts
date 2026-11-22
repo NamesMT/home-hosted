@@ -45,10 +45,8 @@ const eventsQuery = lazy(() => type({
  * `hello`/`state`/`server` frames are snapshots and are never replayed: a replay of an older snapshot
  * would regress what the client was just handed.
  *
- * **Unknown ids are refused before the stream opens.** Both used to answer `200` and stream nothing:
- * a mistyped workspace id was silently subscribed to a key nothing publishes under, and a mistyped
- * server id with no workspace skipped the lookup entirely. A client reads silence as "nothing is
- * happening", which is the one thing a live stream must never say when its target does not exist.
+ * **Unknown ids are refused before the stream opens**, because a client reads silence as "nothing is
+ * happening" — the one thing a live stream must never say when its target does not exist.
  */
 export function createEventsRoute(deps: AppDeps) {
   return appFactory.createApp()

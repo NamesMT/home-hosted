@@ -19,19 +19,9 @@ export const CONFIG_SCHEMA = 2
 /**
  * The schema of a file that carries no `meta` stamp at all.
  *
- * A literal, **not** `CONFIG_SCHEMA`: an unstamped file predates the stamp, so it is the *oldest* shape,
- * and reading it as the current one would skip every migration the moment `CONFIG_SCHEMA` is bumped —
- * the file would then be stamped as the new schema without ever being lifted to it.
- *
- * **Schema 1 is the oldest stamped shape**, but an unstamped file is not necessarily that one: the
- * seeds this release writes carry no `meta` at all, and they are written in the *current* shape. So
- * an unstamped file cannot be told apart from a pre-stamp one, and both are read as the shape that
- * predates the stamp — schema 1. That is what makes the distinction safe in the direction that
- * matters: a released file is lifted, and a seed is written in a shape schema 1 can describe,
- * because every field added since is optional with a default.
- *
- * (This was `1` with the note "a hypothetical `to: 2` step" — and then 2 arrived, which is how the
- * seeds started refusing to load. They now carry a stamp of their own; see `config/seed.ts`.)
+ * A literal, **not** `CONFIG_SCHEMA`: an unstamped file predates the stamp, so reading it as the current
+ * shape would skip every migration. An unstamped seed is read the same way, which is safe because every
+ * field added since is optional with a default.
  */
 export const UNSTAMPED_SCHEMA = 1
 

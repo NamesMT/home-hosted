@@ -26,20 +26,11 @@ export function formatClock(ts: number): string {
 /**
  * The panel's **one** calendar/timestamp spelling: `YYYY-MM-DD`, and `YYYY-MM-DD HH:MM:SS` with a time.
  *
- * Dates used to be rendered through `Intl` in each surface's own way, so the same moment read
- * `Nov 17, 2026, 10:11:43` on stock's jobs page, `11/17/2026, 10:11:43` in noc-console and
- * `11/17/26, 10:11 AM` in its accounts table — and in a localised UI `2026年11月17日 …`. Three
- * spellings of one value is a bug the moment somebody compares a log line with a row on screen, and a
- * localised* date is worse for a control panel: `03/04/2026` is a different day in two of the nine
- * languages the stock UI ships.
- *
- * So a date is **ISO 8601, in the host's timezone**, everywhere: sortable as a string, unambiguous
- * across locales, and the same characters in the panel, the CLI and a pasted bug report. `T` is
- * replaced by a space for reading; the machine-readable form with `T` belongs in a filename or an API
- * body, and those build their own (`archiveStamp`).
- *
- * Time-only values (`formatClock`, a log row's `HH:MM:SS.mmm`) keep their own helper: a bare time is
- * not a date, and the seconds a log needs are not what a "when did this happen" row wants.
+ * ISO 8601 in the host's timezone, everywhere: sortable as a string, unambiguous across the nine
+ * languages the stock UI ships (`03/04/2026` is a different day in two of them), and the same characters
+ * in the panel, the CLI and a pasted report. A machine-readable `T` form belongs in a filename or an API
+ * body, which build their own (`archiveStamp`). A bare time keeps its own helper — the seconds a log row
+ * needs are not what a "when did this happen" row wants.
  */
 export function formatDateIso(ts: number): string {
   const date = new Date(ts)

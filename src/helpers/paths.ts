@@ -164,15 +164,11 @@ export function workspaceLogsDir(id: string): string {
 }
 
 /**
- * A workspace's **job** logs: one JSONL file per job id, rotated by size.
+ * A workspace's **job** logs: one file per job id, rotated by size.
  *
- * A directory of its own, not `.logs/` beside the servers. The files there are named `<id>.log`, and a
- * job id is unique only among jobs — a job called `web` beside a server called `web` would append two
- * different streams, one tagged with the other's exit codes, into one file that neither page could
- * explain. The id charset is the same on both sides, so nothing prevents it.
- *
- * A subdirectory is also invisible to the servers' `LogFiles.prune()`, which derives its candidates
- * from `<id>.log*` names directly in its own directory.
+ * A directory of its own, not `.logs/` beside the servers: a job id is unique only among jobs, so a job
+ * and a server sharing a name would append two streams into one file. The subdirectory also keeps these
+ * out of `LogFiles.prune()`.
  */
 export function workspaceJobsLogsDir(id: string): string {
   return path.join(workspaceLogsDir(id), 'jobs')
