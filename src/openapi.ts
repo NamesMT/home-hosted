@@ -306,6 +306,17 @@ export function finishSpec(spec: Record<string, unknown>, rendered?: Record<stri
    * these application-defined scopes" — `security` only names a scheme.
    */
   for (const [route, methods] of Object.entries(paths)) {
+    /**
+     * A **public** operation needs no credential, so it declares no scope.
+     *
+     * `tokenScopesFor` classifies by method and path, and it answers `read` for `/api/auth/login`,
+     * `/api/auth/session` and `/api/auth/logout` — all `GET`-shaped or read-like. Those three are in
+     * `PUBLIC_API_PATHS`, so the branch above already wrote `security: []` for them; emitting
+     * `x-required-scope: read` beside that tells a generated client to send a credential to an endpoint
+     * that does not want one. The two fields have to agree.
+     */
+    if (PUBLIC_OPERATIONS.has(route))
+      continue
     for (const [method, operation] of Object.entries(methods)) {
       const scope = tokenScopesFor(method.toUpperCase(), route.replace(/\{[^}]+\}/g, ':param'))
       if (scope !== null)

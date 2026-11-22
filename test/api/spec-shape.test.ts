@@ -322,6 +322,24 @@ describe('the spec publishes each route\'s token scope', () => {
     expect(doc.paths['/api/auth/accounts']!.post!['x-required-scope']).toBe('admin')
   })
 
+  /**
+   * A **public** operation declares no scope, because it wants no credential.
+   *
+   * `tokenScopesFor` classifies by method and path, and answers `read` for the three `/api/auth/*`
+   * routes that `PUBLIC_API_PATHS` opens. They already carried `security: []`, so the document said
+   * "no credential" and "needs `read`" about the same operation — a generated client would be told to
+   * send one to an endpoint that does not want it. Measured before the fix: `POST /api/auth/login` had
+   * `security: []` beside `x-required-scope: read`.
+   */
+  it('declares no scope on a public operation, which needs no credential', async () => {
+    const doc = await spec() as unknown as { paths: Record<string, Record<string, { 'security'?: unknown[], 'x-required-scope'?: string }>> }
+    for (const [route, method] of [['/api/auth/login', 'post'], ['/api/auth/session', 'get'], ['/api/auth/logout', 'post'], ['/healthz', 'get']] as const) {
+      const operation = doc.paths[route]![method]!
+      expect(operation.security, `${method} ${route} must be open`).toEqual([])
+      expect(operation['x-required-scope'], `${method} ${route} needs no scope, so it must declare none`).toBeUndefined()
+    }
+  })
+
   it('leaves a local-channel route unmarked, since a token never reaches it', async () => {
     const doc = await spec() as unknown as { paths: Record<string, Record<string, { 'x-required-scope'?: string }>> }
     // `/_hh` is guarded by the run.json token plus loopback, not by an API token.
