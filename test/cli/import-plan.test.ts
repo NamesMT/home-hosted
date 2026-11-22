@@ -116,4 +116,29 @@ describe('the small parsers', () => {
       autostart: true,
     })
   })
+
+  /**
+   * A secret-looking `env` value is a **name** in the config, not a value.
+   *
+   * `AGENTS.md`: *"Secrets never enter a config file; secret files are 0600"*. Importing an ecosystem file
+   * carried every `env` entry across verbatim — measured against a real import, `API_KEY: "secret-value"`
+   * landed in `servers.config.json` in the clear. `secretEnv` is the mechanism that exists for it: the
+   * names stay in the config, the values go to the workspace's `.secrets.json`.
+   *
+   * The detection is by name and deliberately conservative. A false positive costs nothing (the value
+   * still works, it just lives in the 0600 file); a false negative puts a credential in the config.
+   */
+  it('routes a secret-looking env value to secretEnv instead of env', () => {
+    const [entry] = planPm2Apps([{
+      name: 'api',
+      script: 'api.js',
+      env: { API_KEY: 'secret-value', NODE_ENV: 'production', DATABASE_PASSWORD: 'hunter2', PORT: '8080' },
+    }] as never).entries as Array<Record<string, unknown>>
+
+    expect(entry!.secretEnv, 'a key and a password must be names, not values').toEqual(['API_KEY', 'DATABASE_PASSWORD'])
+    expect(entry!.env, 'an ordinary value stays in the config').toEqual({ NODE_ENV: 'production', PORT: '8080' })
+    // The value itself must appear nowhere in the plan — that is the whole point.
+    expect(JSON.stringify(entry)).not.toContain('secret-value')
+    expect(JSON.stringify(entry)).not.toContain('hunter2')
+  })
 })

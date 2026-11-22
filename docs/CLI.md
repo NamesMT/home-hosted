@@ -213,6 +213,7 @@ home-hosted import compose docker-compose.yml --id stack --confirm
 | `script`, `interpreter` | `command` (the interpreter, default `node`) and `args[0]` (the script) |
 | `args` | the rest of `args`, split on whitespace — a quoted argument is **reported**, not guessed |
 | `cwd`, `env` | `cwd`, `env` (a numeric value becomes a string) |
+| `env` whose **name** reads as a secret (`API_KEY`, `DATABASE_PASSWORD`, `*_TOKEN`, …) | `secretEnv` — the name only. The value goes to the workspace's `.secrets.json` (0600), never to `servers.config.json`; set it with `home-hosted secret set <id> <NAME> --stdin` |
 | `autorestart`, `max_restarts` | `restart.enabled`, `restart.maxRetries` |
 | `max_memory_restart` | `resources.maxRssBytes` (`200M`, `1G`, a bare number of bytes) |
 | `watch`, `cron_restart`, `instances`/`exec_mode: cluster` | **not carried** — each is reported by name |

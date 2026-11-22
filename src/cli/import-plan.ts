@@ -83,6 +83,17 @@ export function parseMemoryLimit(raw: unknown): number | null {
   return Number.isFinite(bytes) && bytes > 0 ? bytes : null
 }
 
+/**
+ * The keys of `env` whose **names** read as secrets, sorted so the plan is stable.
+ *
+ * Conservative by design — see the call site. `envFile` would be the other answer, but that is a file the
+ * person owns and this importer is creating entries, not asking them to write one.
+ */
+const SECRET_NAME = /(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE)(?:$|_)/i
+function envOfSecretNames(env: Record<string, string>): string[] {
+  return Object.keys(env).filter(key => SECRET_NAME.test(key)).sort()
+}
+
 /** A flat `Record<string, string>` from whatever pm2 put in `env`, dropping non-strings. */
 function envOf(raw: unknown): Record<string, string> {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
@@ -155,8 +166,26 @@ export function planPm2Apps(apps: readonly Pm2App[]): ImportPlan {
     if (typeof app.cwd === 'string' && app.cwd.trim().length > 0)
       entry.cwd = app.cwd.trim()
     const env = envOf(app.env)
-    if (Object.keys(env).length > 0)
-      entry.env = env
+    /**
+     * A **secret-looking** pm2 env value must not be written into `servers.config.json`.
+     *
+     * `AGENTS.md` is flat about it: *"Secrets never enter a config file; secret files are 0600"*. Importing
+     * an ecosystem file used to carry every `env` entry across verbatim — measured, `API_KEY:
+     * "secret-value"` landed in `servers.config.json` in the clear. `secretEnv` is the mechanism that
+     * exists for this: the **names** stay in the config and the values go to the workspace's
+     * `.secrets.json` (0600).
+     *
+     * The detection is by name, deliberately conservative: a key is treated as a secret when it reads as
+     * one (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL`, `PRIVATE`). A false positive costs
+     * nothing — the value still works, it just lives in the 0600 file — while a false negative puts a
+     * credential in the config, which is the outcome worth avoiding.
+     */
+    const secrets = envOfSecretNames(env)
+    const plain = Object.fromEntries(Object.entries(env).filter(([key]) => !secrets.includes(key)))
+    if (Object.keys(plain).length > 0)
+      entry.env = plain
+    if (secrets.length > 0)
+      entry.secretEnv = secrets
 
     // `enabled` is written whenever pm2 states it, in both directions: an imported entry should say
     // what pm2 said rather than inherit a default that a later default change could move. It is also
