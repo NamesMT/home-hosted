@@ -258,6 +258,25 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
   `apiTokenRecord`) — much easier to fixture than the password record above.
 
+- **The `src/shared` "unpinned modules" gap is real in principle and empty in fact — measured.** `AGENTS.md`
+  says a re-declaration in the newer shared modules (`live-store`, `server-form`, `patch-diff`,
+  `backup-scope`, `ui-format`, …) "is caught by nothing". That is true of the *guard*; I checked whether it
+  is true of the *code*.
+
+  Compared **every function body** exported by all 35 modules in `src/shared` (224 functions) against every
+  function of the same name anywhere in `src/`, `uis/*/src/**/*.ts` and `uis/*/src/**/*.vue`:
+
+  - **0 byte-identical duplicate bodies.**
+  - 17 names collide, and every one is a different thing wearing the same name: `src/providers/health-check.ts`
+    has its own `request()` for `GET`/`HEAD` with a cert option; `uis/noc-console`'s `startAll()` is a Vue
+    handler calling `workspace.startAll()`; `port-preflight.ts`'s `freePort(ctx, entry)` takes a different
+    signature than the client's; `uis/stock/src/lib/format.ts` re-exports `sharedFormatDuration` wrapped in
+    the i18n words — the *correct* pattern, and the one a name-only scan flags as a copy.
+
+  So the honest reading of that paragraph is "the guard does not cover these modules", not "copies are
+  lurking". A name-matching scan is what produces the false alarm; comparing bodies is what distinguishes a
+  wrapper from a copy.
+
 - **`prepare` never runs for a registry consumer, and npm 11 hides that behind a warning.** Verified
   against a real `npm pack` tarball: `npm install ./home-hosted-0.13.0.tgz` prints
   *"home-hosted@0.13.0 (prepare: node scripts/prepare.mjs) — install scripts not yet covered by

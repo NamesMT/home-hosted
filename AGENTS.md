@@ -187,7 +187,11 @@ These are the ones that prevent real defects. Break one only with a reason in th
   scans over every `.ts`/`.vue` in `src/` and `uis/` — **not** for all ~28 modules: the newer ones
   (`live-store`, `server-form`, `patch-diff`, `backup-scope`, `ui-format`, …) are unpinned, so a
   re-declaration there is caught by nothing. Adding a module to `src/shared` means adding it to that
-  test, or accepting the gap knowingly.
+  test, or accepting the gap knowingly. **Measured once, when the gap was last audited: no duplicates
+  exist** — every exported body in all 35 modules compared against every same-named function in
+  `src/` and both UIs found zero identical copies, and all 17 name collisions were different functions
+  sharing a name (a wrapper delegating to the shared one, a provider's own HTTP helper). So the gap is
+  in the guard, not in the code; it is worth closing before it is worth worrying about.
 
 **Readings**
 - A metric or reading with no sample is **absent**, never `0`, on the scrape and in every UI. No
