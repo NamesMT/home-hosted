@@ -1037,4 +1037,29 @@ describe('the API scope catalogue', () => {
     for (const scope of PANEL_WIDE_SCOPES)
       expect(byscope[scope], `${scope} is panel-wide`).toBe(false)
   })
+
+  /**
+   * A health check's status expectation has to be a status a server can return.
+   *
+   * `expectStatus: 999` was accepted, and a probe can never match it — so a server that answers `200`
+   * reported **unhealthy forever**. With `forceRestartAfterMs` set, persistent unhealthiness is exactly
+   * what triggers a restart, so a typo in one number turned into a restart loop against a working server.
+   * `expectStatusBelow: 0` is the same shape: nothing is below zero.
+   *
+   * `599` is the top of the registered block and `expectStatusBelow: 600` is "any status", both legal.
+   */
+  it('refuses a health status expectation no server can meet', () => {
+    // `ok` is declared inside the sibling describes, not at file scope: inline the check.
+    const accepts = (input: unknown): boolean => !(healthSchema(input) instanceof type.errors)
+
+    for (const value of [0, 99, 999, -1])
+      expect(accepts({ mode: 'http', http: { expectStatus: value } }), `expectStatus ${value}`).toBe(false)
+    for (const value of [0, 5000])
+      expect(accepts({ mode: 'http', http: { expectStatusBelow: value } }), `below ${value}`).toBe(false)
+
+    // Anti-vacuity: real statuses, and the inclusive top of the range, stay accepted.
+    for (const value of [200, 204, 404, 599])
+      expect(accepts({ mode: 'http', http: { expectStatus: value } }), `expectStatus ${value}`).toBe(true)
+    expect(accepts({ mode: 'http', http: { expectStatusBelow: 600 } }), 'any status below 600').toBe(true)
+  })
 })

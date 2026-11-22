@@ -82,9 +82,16 @@ const httpCheckSchema = lazy(() => type({
   /** Path on the server's own port, e.g. `/healthz`. */
   path: 'string = "/"',
   method: '"GET" | "HEAD" = "GET"',
-  /** Exact status to accept; `null` (or omitted) means any status below `expectStatusBelow`. */
-  expectStatus: 'number.integer | null?',
-  expectStatusBelow: 'number.integer = 400',
+  /**
+   * Exact status to accept; `null` (or omitted) means any status below `expectStatusBelow`.
+   *
+   * Bounded to a real HTTP status. `999` was accepted, and a probe can never match it, so a healthy
+   * server reported **unhealthy forever** — and with `forceRestartAfterMs` set that is a restart loop
+   * against a server that was working. The same applies to `expectStatusBelow: 0`, which nothing can be
+   * less than.
+   */
+  expectStatus: '100 <= number.integer <= 599 | null?',
+  expectStatusBelow: '101 <= number.integer <= 600 = 400',
   /** Substring that must appear in the response body. */
   expectBody: 'string = ""',
 }).onUndeclaredKey('reject'))
