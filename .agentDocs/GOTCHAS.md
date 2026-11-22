@@ -173,6 +173,22 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   **3 of 3**. When a live behaviour contradicts the reported config, check whether a per-object override
   is shadowing the shared block before suspecting the code.
 
+- **`features` in `/api/meta` means "switched on", not "runnable", and `proxy` is not a settings-patch key.**
+  Driven against a live panel: enabling the reverse proxy with no engine installed answers
+  `400 ENGINE_MISSING` — a correct refusal — yet `features.proxy` then reads **true**, because the field is
+  `settings.proxy.enabled` and the docblock says exactly that: *"`features` reports what is switched on"*.
+  Reading it as "the proxy works" is wrong, and a client that gates UI on it should also check the engine.
+  `ddns` is deliberately different: it is on when **any** workspace has it enabled, since the service is
+  per workspace and any one of them starts a pass.
+
+  `proxy` is **not** in `settingsPatchSchema` (that carries `control`, `host`, `backups` and the rest); it has
+  its own `PATCH /api/proxy` and its own store slot. `panel.settings.proxy` reads `resolvedConfig.proxy`,
+  so both agree — but a `PATCH /api/settings` carrying `proxy` is refused `proxy must be removed`, which
+  reads oddly until you know the block lives elsewhere.
+
+  Also checked while there: `errorCodes` serves **100** codes, unique, matching the catalogue exactly; and
+  `GET /api/meta` derives its fields per request, so a settings save is visible on the next call.
+
 - **The compose import carries no `environment`, deliberately — and that is not the same leak pm2 had.**
   `composeEntry` builds one entry, `docker compose -f <file> up`, and lets compose read the YAML itself; it
   never parses `environment`, so a `POSTGRES_PASSWORD` in a compose file stays where the person put it and
