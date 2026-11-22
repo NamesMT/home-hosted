@@ -56,7 +56,17 @@ export function coversHost(hosts: readonly string[], host: string): boolean {
     if (!entry.startsWith('*.'))
       return false
     const suffix = entry.slice(1)
-    return name.endsWith(suffix) && !name.slice(0, -suffix.length).includes('.')
+    const label = name.slice(0, -suffix.length)
+    /**
+     * The wildcard label must be **exactly one non-empty label**.
+     *
+     * Without the length check, `.example.com` was reported as covered by `*.example.com` — the label in
+     * front of the suffix was the empty string, which matches the "no dot in it" rule and is not a
+     * hostname. Not reachable from a route today (`proxyRouteSchema` refuses a leading dot) but
+     * `coversHost` is exported and `bestCover(host)` takes any string, so the guard belongs here rather
+     * than resting on a validation somewhere else.
+     */
+    return name.endsWith(suffix) && label.length > 0 && !label.includes('.')
   })
 }
 

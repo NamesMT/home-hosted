@@ -24,6 +24,16 @@ describe('coversHost', () => {
     expect(coversHost(['*.example.com'], 'example.com')).toBe(false)
     // Two labels deep is outside a single wildcard.
     expect(coversHost(['*.example.com'], 'a.b.example.com')).toBe(false)
+    /**
+     * And the label in front of the suffix must be **non-empty**.
+     *
+     * `.example.com` has one label's worth of suffix and nothing before it. The "no dot in it" rule alone
+     * accepted the empty string as that label, so a wildcard certificate reported itself as covering a
+     * name that is not a hostname. Not reachable from a route — `proxyRouteSchema` refuses a leading dot —
+     * but `coversHost` is exported and `bestCover(host)` takes any string, so the guard belongs in the
+     * predicate rather than resting on a validation in another module.
+     */
+    expect(coversHost(['*.example.com'], '.example.com'), 'an empty label is not a label').toBe(false)
   })
 
   it('does not let a wildcard match a lookalike domain', () => {
