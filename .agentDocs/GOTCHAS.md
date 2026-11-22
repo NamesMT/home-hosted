@@ -207,6 +207,22 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
   so the next attempt does not rediscover that.
 
+- **All three rows of `UPGRADING.md`'s credential table are verified against a live panel, and none of
+  them inflates authority.**
+  Built each legacy home by hand and signed in through `POST /api/auth/login` / `Authorization: Bearer`:
+
+  | Documented | Measured |
+  | --- | --- |
+  | a panel password becomes account `default`, every scope | `200` login; `scopes: read,lifecycle,config,proxy,admin` |
+  | a 0.14 token named `monitor` keeps the same value and scopes | `200` on `/api/state`; `read` only; `403` creating a server |
+  | the pre-0.14 single token becomes `default` with every scope | `200` on `/api/state`; `201` creating a server |
+
+  The middle row is the one worth having measured: a credential migration that widened a `read` token to
+  admin would be the worst possible bug here, and it does not. `monitor` stays `read`.
+
+  A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
+  `apiTokenRecord`) — much easier to fixture than the password record above.
+
 - **A legacy `.control-secrets.json` fixture must use **base64** for `salt` and `hash`, and the salt is
   decoded before use.** Two failed attempts to verify the credential migration were my fixture, not the
   code. `deriveKey` takes a `Buffer` salt (`hashPassword` does `salt.toString('base64')`), and the password
