@@ -51,22 +51,9 @@ export function createMetricsRoute(deps: AppDeps) {
       responses: { 200: { description: 'Prometheus text exposition', content: { 'text/plain': {} } } },
     }), validate('query', metricsQuery), (c) => {
       /*
-       * A workspace-limited account scrapes only its own workspaces.
-       *
-       * Every other panel-wide read narrows for a limit, and the live feed — the closest sibling,
-       * since both are panel-wide reads of every workspace — filters its `log` and `server` frames
-       * to the workspaces the account names (`src/api/events.ts`). This route declared
-       * `workspaceScoped: false` on the reasoning "there is no `?workspace=` to narrow", which is
-       * true of the *query* and false of the *data*: every sample carries a `workspace` label, so
-       * there was something to narrow, and not narrowing it handed a `staging`-limited `read`
-       * account the id, status, crash count, restarts, uptime, response time, RSS and CPU of
-       * `default`'s servers. Measured: the scrape answered
-       * `hh_server_up{server="secret-svc",workspace="default"} 0` and
-       * `hh_server_crashes_24h{...,workspace="default"} 0` for an account limited to `staging`,
-       * while `GET /api/servers?workspace=default` refused it `403 TOKEN_SCOPE`.
-       *
-       * `limit === null` (a session, this machine, an unlimited credential) keeps the whole panel,
-       * exactly as the feed does, so a person's dashboard is unchanged.
+       * A workspace-limited account scrapes only its own workspaces. "There is no `?workspace=` to
+       * narrow" is true of the query and false of the data: every sample carries a `workspace` label.
+       * `limit === null` keeps the whole panel, as the live feed does.
        */
       const limit = workspaceLimit(c)
       const servers = deps.panel.serverViews().filter(server => server.workspaceId !== undefined && limitAllows(limit, server.workspaceId))
@@ -111,11 +98,9 @@ export function createMetricsRoute(deps: AppDeps) {
         .filter(server => server.history.uptimeRatio !== null)
         .map(server => `hh_server_uptime_ratio_24h{${labels(server)}} ${server.history.uptimeRatio!.toFixed(4)}`)
       /*
-       * The denominator is the time this server was **observed**, not the whole window. A server added
-       * ten minutes ago and up the whole time reads `1`, which is what a person means by "up"; dividing
-       * by a fixed 24h made it read `0.0069`, indistinguishable from a dead one, and every new entry
-       * tripped a "< 99% up" alert for its first day. The HELP states the denominator because a scrape
-       * has no page to explain itself, and an alert written against the old sentence now needs to know.
+       * The denominator is the time this server was **observed**, not the whole window: a server added
+       * ten minutes ago and up throughout reads `1`, which is what "up" means. The HELP states it, so an
+       * alert written against the old sentence can see the change.
        */
       metric('hh_server_uptime_ratio_24h', 'Share of the last 24h the server was up, measured over the time it was observed (a server seen for ten minutes and up throughout reads 1)', uptime)
 

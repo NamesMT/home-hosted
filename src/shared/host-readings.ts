@@ -1,44 +1,18 @@
 /**
  * The host's measurements, and the one place that decides a sample exists.
  *
- * `emptyHostView()` is what `HostMonitor` starts from, and it is also the frame a panel keeps for
- * ever when host vitals are switched off: `sampledAt: null`, with **every value zero** because the
- * wire type says `number`. `/api/metrics` refuses to publish those zeros — a scrape has no page to
- * qualify a number, so a `0` it invents silences the alert rule that exists to catch a full disk.
- * The panel's own pages read the same frame and printed it: `0.0%` memory, `0.0%` swap, `0.00`
- * load, under a head that says "sampling off". On a homelab box being told memory is at 0% is the
- * same lie as a dashboard being told it, told to the person instead.
+ * `sampledAt === null` means nothing has been measured, and every reading here is `null`. The zeros
+ * stay on the wire because an older overridden UI calls `.toFixed()` on a `number`, so the absence is
+ * decided where it is rendered rather than by a nullable field.
  *
- * So `sampledAt === null` means "nothing has been measured" and every reading here is `null`.
- * The zeros stay on the wire: an older overridden UI under `.hh/.ui` reads `memoryUsedPercent` as a
- * `number` and calls `.toFixed()` on it, so a nullable field would crash it — the absence is decided
- * where it is rendered, once, instead.
- *
- * `cpus` and `uptimeMs` are **not** readings: they describe the machine, not a sample, and the
- * empty frame already reports them truthfully.
- *
- * `loadAlertPerCpu` is not a reading either: it is the threshold the panel *notifies* on, and it
- * travels with the frame so a surface can band the load against the number a person actually
- * chose. `AGENTS.md` names the rule — a verdict is measured against the configured threshold, and
- * one module decides it — after two surfaces hardcoded the default and kept calling a box a person
- * had raised the threshold on `danger`, for a notification that stayed silent.
+ * `cpus`, `uptimeMs` and the alert thresholds are not readings: they describe the machine or the
+ * configured bar, not a sample.
  */
 
-/**
- * The load per cpu a panel notifies on when nothing else is configured.
- *
- * One home: `hostSchema` defaults to it, and a surface reading a frame from a panel that predates
- * the field bands its load against the same number the older panel alerted on.
- */
+/** The load per cpu a panel notifies on when nothing else is configured. */
 export const LOAD_ALERT_PER_CPU_DEFAULT = 2
 
-/**
- * The alert thresholds a percentage reading is banded against, when the frame carries none.
- *
- * One home, the same rule as `LOAD_ALERT_PER_CPU_DEFAULT`: `hostSchema` defaults to these, and a
- * surface reading a frame from a panel that predates the fields bands against the numbers that
- * panel alerted on.
- */
+/** The alert thresholds a percentage reading is banded against, when the frame carries none. */
 export const HOST_ALERT_DEFAULTS = { diskUsedPercent: 90, memoryUsedPercent: 90, swapUsedPercent: 50, tempCelsius: 85 } as const
 
 /** A configurable alert threshold, as it travels on the frame. */
@@ -167,14 +141,8 @@ function present(value: number | null | undefined): number | null {
 }
 
 /**
- * The band for the host's own CPU share, which has no configurable alert.
- *
- * `host.cpuUsedPercent` is a share of the whole machine, and `hostSchema` has no threshold for it —
- * so there is nothing a person chose for a surface to follow, and a fixed band is a decision. The
- * decision is *this one*: the two UIs disagreed (noc-console painted 70/90, every stock dial 80/95),
- * so one 75% reading came back `warn` on one page and `ok` on the other — `AGENTS.md`'s "UIs move
- * together" broken by two literal pairs. A real alert would make this a `…Alert` field on the frame
- * like its neighbours; until then it is a constant here, not a pair at each call site.
+ * The band for the host's own CPU share, which has no configurable alert — one constant, not a
+ * literal pair at each surface.
  */
 export const HOST_CPU_BAND = { warnAt: 80, dangerAt: 95 } as const
 
@@ -192,17 +160,9 @@ export function hostCpuBand(percent: number | null): HostBand {
 }
 
 /**
- * The full scale of a temperature dial: the threshold the panel **notifies** on.
- *
- * There is no natural `100 °C`, so unlike a percentage a temperature has no scale of its own —
- * the alert is the only number a person configured for it, and it is what the dial is drawn
- * against. `0` disables the alert and leaves no scale to draw, so the default the older panels
- * alerted on is kept rather than dividing by zero.
- *
- * This exists because the *band* was moved onto the frame and the *scale* was not: one stock
- * surface scaled by `tempCelsiusAlert` while the other kept `(tempCelsius / 85) * 100`, so one
- * frame at 60 °C against an alert of 95 drew arcs of `101.19` and `113.10` — the same number
- * fuller on one page than the other. A tone test cannot see that; only the arc can.
+ * The full scale of a temperature dial: the threshold the panel **notifies** on, since a temperature
+ * has no natural `100`. `0` disables the alert and leaves no scale, so the older default is kept
+ * rather than dividing by zero.
  */
 export function tempScale(alertAt: number | undefined): number {
   return alertAt === undefined || !Number.isFinite(alertAt) || alertAt <= 0 ? HOST_ALERT_DEFAULTS.tempCelsius : alertAt
@@ -222,14 +182,9 @@ export function tempDialPercent(temp: number | null | undefined, alertAt: number
 }
 
 /**
- * How a reading sits against the threshold the panel notifies on.
- *
- * `danger` at the threshold is the whole point: the alert fires there, so a bar that stays `warn`
- * while a notification goes out disagrees with the panel's own verdict. `0` disables that alert in
- * `sampleHost`, so nothing can breach it and the band is `ok` — painting a box red for a
- * notification that will never arrive is the same defect as inventing a reading. One rule for the
- * per-cpu load, the three percentages and each disk — they differ only in what the number means, and
- * the mistake this replaced was four surfaces each deciding a band for itself.
+ * How a reading sits against the threshold the panel notifies on: `danger` *at* the threshold, because
+ * the alert fires there. `0` disables that alert, so the band is `ok` — a red box for a notification
+ * that never arrives is the same defect as inventing a reading.
  */
 function thresholdBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
   if (value === null || !Number.isFinite(value))
