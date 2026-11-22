@@ -256,13 +256,12 @@ export function useControlPlane() {
     },
 
     /**
-     * Runs an entry's deploy steps and waits. The refusal (`NO_DEPLOY`, `DEPLOY_RUNNING`,
-     * `DEPLOY_FAILED` naming the step) is **thrown**, not flashed: the detail view shows it beside the
-     * button, which is where the person is looking.
-     */
-    /**
-     * Runs a job now and waits. The refusal (`NOT_A_JOB`, `JOB_RUNNING`, `JOB_FAILED` carrying the
-     * exit code) is **thrown**, like a deploy's: the detail view shows it beside the button.
+     * Runs a job now and waits. The refusal (`JOB_RUNNING`, `JOB_FAILED` carrying the exit code) is
+     * **thrown**, like a deploy's: the detail view shows it beside the button.
+     *
+     * `NOT_A_JOB` used to be listed here. It cannot arrive any more — a `job run` looks its id up among
+     * jobs, so it can never land on a service — and the code was removed from the catalogue rather than
+     * left as a promise the panel does not keep.
      */
     async runJob(workspaceId: string, id: string): Promise<void> {
       const key = serverKey(workspaceId, id)
@@ -277,6 +276,11 @@ export function useControlPlane() {
       }
     },
 
+    /**
+     * Runs an entry's deploy steps and waits. The refusal (`NO_DEPLOY`, `DEPLOY_RUNNING`,
+     * `DEPLOY_FAILED` naming the step) is **thrown**, not flashed: the detail view shows it beside the
+     * button, which is where the person is looking.
+     */
     async deploy(workspaceId: string, id: string): Promise<void> {
       const key = serverKey(workspaceId, id)
       inFlight.add(key)
