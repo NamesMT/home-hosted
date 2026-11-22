@@ -158,7 +158,20 @@ describe('nanny', () => {
     expect(window, 'no await between the traps and the spawn').not.toMatch(/\bawait\b/)
   })
 
-  it('exits with its child, even when a successor kept its pipes open', async () => {
+  /**
+   * Not on Windows, for the same mechanism as the drain test below.
+   *
+   * The case is built by spawning a **detached, `stdio: 'inherit'`** successor and `unref()`-ing it, so it
+   * holds a copy of the nanny's pipe handles after the entry's own process exits. On POSIX that is a
+   * handle the event loop would wait on, which is exactly the hazard this pins. On Windows the handles are
+   * **duplicated per process**, so the successor is not holding this nanny's pipes and there is nothing to
+   * hold it open — the premise does not exist.
+   *
+   * Measured: it fails on Windows CI with `waitFor timed out` waiting for the nanny to exit, while the same
+   * suite is green on Linux and macOS. The neighbouring drain test already carries
+   * `it.runIf(process.platform !== 'win32')` for the identical reason, and this one was missed.
+   */
+  it.runIf(process.platform !== 'win32')('exits with its child, even when a successor kept its pipes open', async () => {
     // The pattern `follow` exists for: a program restarts itself by spawning a detached
     // successor with inherited stdio and exiting. That successor holds the write end of
     // this nanny's pipes, which is a handle the event loop would wait on — so a nanny
