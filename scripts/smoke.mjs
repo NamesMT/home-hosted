@@ -91,24 +91,24 @@ const UIS = {
    * exactly as noc-console's entries below already said.
    */
   'stock': [
-    ['/global/overview', 'Global overview'],
+    ['/global/overview', 'Global Overview'],
     ['/global/settings', 'Global settings'],
     // `workspacePath(id, 'overview')` is `/w/<id>` — the overview has no suffix of its own.
-    ['/w/default', 'Workspace overview'],
+    ['/w/default', 'Overview'],
     ['/w/default/servers', 'Servers'],
     ['/w/default/jobs', 'Jobs'],
     ['/w/default/logs', 'Logs'],
     ['/w/default/settings', 'Workspace settings'],
-    ['/proxy', 'Reverse proxy'],
+    ['/proxy', 'Reverse Proxy'],
   ],
   'noc-console': [
-    ['/global/overview', 'Global overview'],
+    ['/global/overview', 'Global Overview'],
     ['/global/settings', 'Global settings'],
     ['/w/default/servers', 'Servers'],
     ['/w/default/jobs', 'Jobs'],
     ['/w/default/logs', 'Logs'],
     ['/w/default/settings', 'Workspace settings'],
-    ['/proxy', 'Reverse proxy'],
+    ['/proxy', 'Reverse Proxy'],
   ],
 }
 
@@ -640,6 +640,21 @@ async function main() {
       const settled = new URL(page.url()).pathname.replace(/\/$/, '')
       if (settled !== route.replace(/\/$/, ''))
         fail(where, `landed on ${settled || '/'} — this UI does not declare that route, so the catch-all sent it elsewhere`)
+
+      /**
+       * And the heading must be the one that route names.
+       *
+       * The URL check above catches a path the router does not declare. This catches the other shape:
+       * two routes that both exist but render each other's page — a copy-pasted route entry, a component
+       * wired to the wrong view. The `label` column was documentation until now; each entry's text is
+       * the catalog string `TopBar` renders from `meta.titleKey`, so it is the page's real name.
+       *
+       * Matched loosely (`===` on the trimmed text) because the two UIs label differently — noc-console's
+       * own route table carries the same strings its shell renders.
+       */
+      const heading = await page.evaluate(() => (document.querySelector('h1')?.textContent ?? '').trim())
+      if (heading !== label)
+        fail(where, `rendered "${heading || '(no heading)'}" but this route is "${label}" — the route exists and shows another page`)
 
       for (const problem of [...await inspectPage(page), ...await placeholderOverflow(page), ...await namelessControls(page)])
         fail(where, problem)
