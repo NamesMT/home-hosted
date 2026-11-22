@@ -172,6 +172,27 @@ fixed. What the rest actually do:
 
 CI history since the fix: every run green on Windows, macOS and Linux.
 
+## `COMPATIBILITY.md` holds, claim by claim (root agent)
+
+The one in-repo doc that had never been read against the code. Every testable claim in it is accurate.
+
+**Migrations** — driven on scratch homes:
+
+- A **restamp** writes `.bak`, needs **no consent**, and succeeds with no TTY (`1 file(s) stamped`, exit 0).
+- A **schema step** refuses without consent and names the flag:
+  *"1 migration(s) to 1 file(s) and this session cannot ask. re-run with --yes…"* — then with `--yes` folds
+  `notifications.telegram` + `webhooks` into `destinations`, bumps `meta.schema` to 2 and keeps the `.bak`.
+  The consent distinction the doc describes is real, in both directions.
+- An **unreadable config** is refused rather than overwritten, and the message names the file and the parse
+  error. The bytes stay untouched.
+
+**The metrics scrape** — `GET /api/metrics` serves six series, **all `gauge`, zero `_total`**:
+`hh_control_up`, `hh_servers`, `hh_host_{disk,memory,swap}_used_percent`, `hh_host_load1_per_cpu`.
+
+**The UI frame** — `backups.entries` and `backups.files` are genuinely **absent from `/api/state`** and served
+by `GET /api/backups`; both are declared **optional** (`'entries?'`, `'files?'`) so a newer schema parses an
+older panel's payload. That is the exact shape the doc says keeps an old-UI pairing from being a defect.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
