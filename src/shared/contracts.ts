@@ -1375,7 +1375,6 @@ export type TlsStatus = typeof tlsStatusSchema.infer
  * field exists so a config written now keeps working if a second one lands.
  */
 const proxyEngineSchema = lazy(() => type.enumerated('caddy'))
-export type ProxyEngine = typeof proxyEngineSchema.infer
 
 /** What a route forwards to: a supervised entry, the panel itself, or a literal upstream. */
 const proxyTargetSchema = lazy(() => type.enumerated('server', 'panel', 'external'))

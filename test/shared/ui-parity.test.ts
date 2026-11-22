@@ -50,6 +50,68 @@ describe('the UIs share one proxy form', () => {
    *
    * `src/**` is the other consumer of `src/shared/`, so it needs the same rule.
    */
+  /**
+   * No module re-declares a **shared type** under the same name.
+   *
+   * `AGENTS.md` said only four members were pinned and the newer ones were "caught by nothing". This is the
+   * general form of that guard: every exported `type`/`interface` name in `src/shared`, checked against a
+   * `type`/`interface`/`const` of the same name anywhere else in `src/` or the UIs.
+   *
+   * A **function** of the same name in another layer is not a copy and is not checked: `request` in
+   * `providers/health-check.ts` and `startAll` in a Vue view are different things wearing one name, which a
+   * name-only scan cannot tell from duplication. A *type* name is different — two `interface UiStatus`
+   * declarations are one shape written twice, and they drift.
+   */
+  it('declares no shared type name twice', () => {
+    const shared = new Map<string, string>()
+    for (const file of fs.readdirSync(path.join(root, 'src', 'shared'))) {
+      if (!file.endsWith('.ts'))
+        continue
+      const text = stripComments(fs.readFileSync(path.join(root, 'src', 'shared', file), 'utf8'), file)
+      for (const m of text.matchAll(/^export (?:type|interface) (\w+)/gm))
+        shared.set(m[1]!, `src/shared/${file}`)
+    }
+
+    // Anti-vacuity: the walk must see the shared modules and a name in each.
+    expect(shared.size, 'the shared modules must be read').toBeGreaterThan(150)
+    expect(shared.get('UiStatus'), 'a known shared type must be found').toBe('src/shared/contracts.ts')
+
+    // A local walk rather than the shared `sources()` helper, which is declared in another describe.
+    const files: Array<{ rel: string, body: string }> = []
+    const collect = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist')
+            continue
+          collect(full)
+        }
+        else if (/\.(?:ts|vue)$/.test(entry.name)) {
+          files.push({
+            rel: path.relative(root, full).replaceAll('\\', '/'),
+            body: stripComments(fs.readFileSync(full, 'utf8'), entry.name),
+          })
+        }
+      }
+    }
+    collect(path.join(root, 'src'))
+    for (const ui of uiNames())
+      collect(path.join(root, 'uis', ui, 'src'))
+
+    const offenders: string[] = []
+    for (const file of files) {
+      if (file.rel.startsWith('src/shared/'))
+        continue
+      for (const m of file.body.matchAll(/^(?:export )?(?:type|interface|const) (\w+)/gm)) {
+        const owner = shared.get(m[1]!)
+        if (owner !== undefined)
+          offenders.push(`${file.rel} re-declares ${m[1]} (shared in ${owner})`)
+      }
+    }
+    expect(files.length, 'the walk must see both trees').toBeGreaterThan(200)
+    expect(offenders).toEqual([])
+  })
+
   it('keeps the panel from re-declaring a shared member', () => {
     const source = fs.readFileSync(path.join(root, 'src', 'services', 'proxy.ts'), 'utf8')
     expect(source, 'the panel must not re-declare isPublicHost').not.toMatch(/^export function isPublicHost/m)

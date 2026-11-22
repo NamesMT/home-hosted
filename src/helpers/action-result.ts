@@ -13,7 +13,7 @@ export const UNKNOWN_SERVER: unique symbol = Symbol('hh.unknownServer')
 export type ActionReason = 'disabled' | 'busy' | 'port-in-use' | 'dependency-failed'
 
 /** What a per-server action (`start`/`stop`/`restart`/`free-port`) answers with. */
-export interface ActionResult {
+export interface ActionOutcome {
   ok: boolean
   error?: string
   /** A stop that succeeded: the entries still running that declare `dependsOn` this one. */
@@ -38,7 +38,7 @@ export interface ActionResult {
 }
 
 /** The one shape a missing entry takes, so the marker and the message cannot drift apart. */
-export function missingServer(id: string): ActionResult {
+export function missingServer(id: string): ActionOutcome {
   return { ok: false, error: `unknown server "${id}"`, [UNKNOWN_SERVER]: true }
 }
 
@@ -63,7 +63,7 @@ export function unknownServerError(id: string): DetailedError {
  * apart — which is the thing a code exists to avoid. `code` is added beside `ok`/`error` rather than
  * replacing them, because an older UI reads those.
  */
-export function actionCode(result: ActionResult): string {
+export function actionCode(result: ActionOutcome): string {
   if (result[UNKNOWN_SERVER] === true)
     return 'UNKNOWN_SERVER'
   switch (result.reason) {
@@ -76,7 +76,7 @@ export function actionCode(result: ActionResult): string {
 }
 
 /** What a lifecycle route puts on the wire. A success carries no code — a code names a failure. */
-export function actionAnswer(result: ActionResult): ActionResult & { code?: string, message?: string } {
+export function actionAnswer(result: ActionOutcome): ActionOutcome & { code?: string, message?: string } {
   // A refusal carries the same `message`/`code` as every other failure; `ok`/`error` stay for older
   // clients, and `reason` is stripped — it selected the code, it is not part of the contract.
   if (result.ok)
@@ -86,7 +86,7 @@ export function actionAnswer(result: ActionResult): ActionResult & { code?: stri
 }
 
 /** Unknown ids are 404; a server that exists but cannot act is a 409. */
-export function statusForAction(result: ActionResult): 200 | 404 | 409 {
+export function statusForAction(result: ActionOutcome): 200 | 404 | 409 {
   if (result.ok)
     return 200
   return result[UNKNOWN_SERVER] === true ? 404 : 409

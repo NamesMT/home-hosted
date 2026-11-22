@@ -1,4 +1,5 @@
 import type { ApiTokenScope } from '#src/shared/api-scopes'
+import type { AccountView } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -141,20 +142,6 @@ export interface AccountRecord {
   initial?: string
   /** Below the exposure bar, so `checkExposure` can refuse a non-loopback bind. */
   short?: boolean
-  createdAt: number
-  updatedAt: number
-  lastUsedAt?: number
-}
-
-/** An account as a listing shows it: metadata only, never the hash. */
-export interface AccountView {
-  id: string
-  label: string
-  scopes: ApiTokenScope[]
-  workspaces?: string[]
-  enabled: boolean
-  isDefault: boolean
-  short: boolean
   createdAt: number
   updatedAt: number
   lastUsedAt?: number

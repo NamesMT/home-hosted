@@ -7,7 +7,7 @@
  * `src/shared` may not import Vue, so that ref cannot move into the shared client — this short
  * adapter is the seam instead.
  */
-import type { SettingsSaved, UiMeta, WorkspaceSettingsView } from '@shared/contracts'
+import type { SettingsSaved, WorkspaceSettingsView } from '@shared/contracts'
 import { useWorkspaceResolver } from '@shared/api-client'
 import { selectedWorkspaceId } from '@/lib/selection'
 
@@ -43,11 +43,6 @@ export type WorkspaceSettings = WorkspaceSettingsView
  * no `uploadedAt`/`files`); a panel that installs one always fills them in, and the settings page
  * reads them as present.
  */
-export interface UiStatus {
-  custom: boolean
-  dir: string
-  meta: (UiMeta & { name: string, version: string | null, uploadedAt: number, files: number }) | null
-}
 
 /** A data path a backup would capture, flattened out of the entry tree. */
 export interface BackupPathEntry {

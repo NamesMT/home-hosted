@@ -15,9 +15,9 @@ import ServersView from '@/views/ServersView.vue'
  */
 const ServerDetailView = () => import('@/views/ServerDetailView.vue')
 const LogsView = () => import('@/views/LogsView.vue')
-const SettingsView = () => import('@/views/SettingsView.vue')
+const SettingsViewPage = () => import('@/views/SettingsView.vue')
 const GlobalSettingsView = () => import('@/views/GlobalSettingsView.vue')
-const ProxyView = () => import('@/views/ProxyView.vue')
+const ProxyViewPage = () => import('@/views/ProxyView.vue')
 
 /** Pages that read the workspace in the URL. */
 /**
@@ -40,11 +40,11 @@ export const router = createRouter({
     { path: '/w/:workspaceId/servers/:id', name: 'server-detail', component: ServerDetailView, meta: { titleKey: 'views.route.server' } },
     { path: '/w/:workspaceId/jobs', name: 'jobs', component: JobsView, meta: { titleKey: 'nav.jobs' } },
     { path: '/w/:workspaceId/logs', name: 'logs', component: LogsView, meta: { titleKey: 'nav.logs' } },
-    { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsView, meta: { titleKey: 'nav.workspaceSettings' } },
+    { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsViewPage, meta: { titleKey: 'nav.workspaceSettings' } },
     { path: '/global/overview', name: 'global-overview', component: GlobalOverviewView, meta: { titleKey: 'nav.globalOverview' } },
     { path: '/global/settings', name: 'global-settings', component: GlobalSettingsView, meta: { titleKey: 'nav.globalSettings' } },
     // Panel-wide, under Others: one engine exposes every workspace's servers.
-    { path: '/proxy', name: 'proxy', component: ProxyView, meta: { titleKey: 'nav.reverseProxy' } },
+    { path: '/proxy', name: 'proxy', component: ProxyViewPage, meta: { titleKey: 'nav.reverseProxy' } },
     { path: '/login', name: 'login', component: LoginView, meta: { titleKey: 'login.signIn' } },
     // The bare root and anything unknown: the guard rewrites both to the panel-wide
     // overview, and the catch-all is what an unmatched path has to match at all.

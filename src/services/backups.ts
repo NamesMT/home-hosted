@@ -515,7 +515,7 @@ export interface BackupManifest {
   dumps?: Array<{ workspaceId: string, serverId: string }>
 }
 
-export interface RestoreOptions {
+export interface RestoreCommandOptions {
   confirm: boolean
   /** Required for, and ignored by, archives that are not password-protected. */
   password?: string
@@ -768,7 +768,7 @@ function readText(file: string): string | null {
  */
 interface RestoreContext {
   plan: AppRestorePlan
-  options: RestoreOptions
+  options: RestoreCommandOptions
   sources: BackupSources
   /** Where the archive was unpacked; removed by `applyRestore`'s `finally`. */
   staging: string
@@ -805,7 +805,7 @@ interface OpenedArchive {
 }
 
 /** The plan a restore starts from: every field filled, so a refusal is a plan and not a throw. */
-function newRestorePlan(options: RestoreOptions): AppRestorePlan {
+function newRestorePlan(options: RestoreCommandOptions): AppRestorePlan {
   return {
     dryRun: !options.confirm,
     encrypted: false,
@@ -1211,7 +1211,7 @@ export class BackupService {
    * a workspace's servers file that is itself being restored — never from the
    * archive's manifest alone.
    */
-  async restore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
+  async restore(archivePath: string, options: RestoreCommandOptions): Promise<RestorePlan> {
     // An **apply** takes the lock here, so every caller has it: the panel's route, its local control
     // channel, and the CLI working with no panel at all. A dry run writes nothing and needs none.
     // Holding it any higher up was three separate guards, and one of them was always going to be
@@ -1234,7 +1234,7 @@ export class BackupService {
 
   // ------------------------------------------------------------- restore
 
-  private async applyRestore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
+  private async applyRestore(archivePath: string, options: RestoreCommandOptions): Promise<RestorePlan> {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
     const plan = newRestorePlan(options)
 
@@ -1298,7 +1298,7 @@ export class BackupService {
   }
 
   /** The state every phase reads and writes, built once from the plan and the live sources. */
-  private restoreContext(plan: AppRestorePlan, options: RestoreOptions, manifest: BackupManifest, staging: string): RestoreContext {
+  private restoreContext(plan: AppRestorePlan, options: RestoreCommandOptions, manifest: BackupManifest, staging: string): RestoreContext {
     return {
       plan,
       options,
