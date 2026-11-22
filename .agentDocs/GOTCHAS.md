@@ -207,6 +207,26 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
   so the next attempt does not rediscover that.
 
+- **The five open items this audit carried for months are all closed — do not re-verify them from the
+  queue.** Each was checked this round rather than assumed:
+  1. *"A fifth table ships a silent scroller."* Guarded twice. `uis/stock/test/mobile-layout.test.ts`
+     scans every stock template and fails on any `overflow-x-auto` box lacking `scroll-hint-x`; verified by
+     planting `uis/stock/src/views/ZzProbe.vue` with a bare scroller, which failed naming that file.
+     `test/shared/ui-scroller-hint.test.ts` pins the other half for noc-console, where `.tblwrap` is the
+     only scroller, plus an anti-vacuity check that a wrapper still exists. No shared directive is needed:
+     the scan already makes the omission a test failure rather than a code-review question.
+  2. *"No automated E2E."* `scripts/smoke.mjs` runs in CI on every push; it walks both UIs at two
+     viewports, hit-tests, compares pixels, and (since this arc) **saves a settings form and reads it back**.
+  3. *`pnpm: command not found` under a bare background job.* `resolvePnpm()` in `scripts/dev.mjs` finds
+     pnpm beside `process.execPath`, and `childPath` puts that directory on every child's `PATH` — the
+     grandchild problem, where pnpm's own scripts call a bare `node`. Verified with
+     `env -i <abs-node> scripts/dev.mjs --help`, which prints the help and exits 0.
+  4. *"Dev and built UIs are served from different places."* `docs/UI_CREATION.md` documents it, including
+     the two settings that only matter in the dev server: `changeOrigin: false` (or the host guard answers
+     `421`) and proxying `/healthz` and `/openapi`, not just `/api` (or those two reads get `index.html`).
+  5. *"Release prep."* `check-release-version.mjs` and `release-notes.mjs` were exercised without
+     dispatching; see the entry above.
+
 - **`features` in `/api/meta` means "switched on", not "runnable", and `proxy` is not a settings-patch key.**
   Driven against a live panel: enabling the reverse proxy with no engine installed answers
   `400 ENGINE_MISSING` — a correct refusal — yet `features.proxy` then reads **true**, because the field is
