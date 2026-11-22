@@ -171,12 +171,10 @@ These are the ones that prevent real defects. Break one only with a reason in th
   `(workspaceId, serverId)`. Reach a workspace's services through `panel.requireWorkspace(id)`.
 - A core file never names a particular server. UIs are external clients: nothing in `src/` knows
   their markup, and UIs import `@shared/*` (and `@server` for types only).
-- `src/shared` has one declaration per member. `test/shared/ui-parity.test.ts` enforces that for the
-  modules it names — `proxy-form`, `shape`, `api-client`, `ddns-form` and the duplicate-detection
-  scans over every `.ts`/`.vue` in `src/` and `uis/` — **not** for all ~28 modules: the newer ones
-  (`live-store`, `server-form`, `patch-diff`, `backup-scope`, `ui-format`, …) are unpinned, so a
-  re-declaration there is caught by nothing. Adding a module to `src/shared` means adding it to that
-  test, or accepting the gap knowingly.
+- `src/shared` has one declaration per member. `test/shared/ui-parity.test.ts` enforces it: every
+  exported `type`/`interface` name in `src/shared` is checked against a `type`/`interface`/`const` of the
+  same name anywhere in `src/` or either UI. A **function** name may repeat across layers (a provider's own
+  `request`, a Vue handler calling a composable); a *type* name may not.
 
 **Readings**
 - A metric or reading with no sample is **absent**, never `0`, on the scrape and in every UI. No
