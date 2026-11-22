@@ -10,20 +10,12 @@ import { dim, fail, green, invocation, paint } from '#src/cli/io'
 /**
  * `service install|uninstall|status` — start the panel at boot with the OS's own service manager.
  *
- * Three generators, one per platform, are pure: they take the facts (node, the CLI entry, the
- * home, the project, PATH) and return the file. The installer writes that file into a directory it
- * is handed (so a test never touches systemd, launchd or Task Scheduler) and runs the manager only
- * outside `--print`. The unit runs `up --foreground`, because the manager is the supervisor here.
+ * Three pure generators, one per platform: they take the facts (node, CLI entry, home, project, PATH) and
+ * return the file; the installer writes it into a directory it is handed, so a test never touches
+ * systemd, launchd or Task Scheduler. The unit runs `up --foreground`, because the manager supervises.
  *
- * What every unit gets right, because the hand-written README unit did not:
- * - **only the panel is signalled on stop** (`KillMode=process`, launchd's `AbandonProcessGroup`):
- *   the panel stops its own servers, and a persistent entry is meant to outlive it — killing the
- *   whole cgroup on `systemctl stop` ended those too;
- * - **the PATH of the shell that installed it**, so a server's `node`/`pnpm` from nvm or fnm
- *   resolves the way it did when it was tested;
- * - **the absolute node binary and CLI entry** (`process.execPath`), never `home-hosted` on a PATH
- *   a boot-time manager does not have;
- * - **restart on failure only**: a `home-hosted down` exits 0 and stays down.
+ * Every unit: signals only the panel on stop (a persistent entry is meant to outlive it), carries the
+ * installing shell's PATH, uses the absolute node binary and CLI entry, and restarts on failure only.
  */
 
 export type ServicePlatform = 'linux' | 'darwin' | 'win32'
@@ -485,17 +477,10 @@ export async function currentSpec(entry: string, scope: ServiceScope): Promise<S
 /**
  * The account a unit should run as — the person, not whoever elevated the command.
  *
- * `sudo` and `pkexec` rewrite `USER`, `LOGNAME` and `HOME` to the target, so a panel started from a
- * root shell reads `USER=root` and `os.userInfo()` reports the **euid** — both would write
- * `User=root` for somebody who only meant to install a service. `SUDO_USER` is the instruction that
- * survives, and it is right in every ordinary case.
- *
- * It is an environment variable, though, so it can also be stale or simply wrong: a shell that
- * inherited `SUDO_USER=root` from an ancestor would collapse the unit to root. Its sibling
- * `SUDO_UID` is the fact, so the name is only trusted while the two agree — and the same for
- * `PKEXEC_USER`/`PKEXEC_UID`. A name stated alone is accepted (an elevating tool that rewrote
- * `$HOME` and set only the name is still an explicit statement about an account, and `--print` lets
- * a person see what would be written before anything runs).
+ * `sudo` and `pkexec` rewrite `USER`/`LOGNAME`/`HOME`, so `SUDO_USER`/`PKEXEC_USER` is the instruction
+ * that survives. A name is trusted only while its `*_UID` sibling agrees, since a stale name inherited
+ * from an ancestor would collapse the unit to root; a name stated alone is accepted, and `--print` shows
+ * what would be written before anything runs.
  */
 export function serviceUser(env: NodeJS.ProcessEnv = process.env): string {
   const own = os.userInfo().username

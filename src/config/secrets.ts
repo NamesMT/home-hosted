@@ -1127,36 +1127,12 @@ export class SecretsStore {
   }
 
   /**
-   * Whether the secret matches this account, in constant time for the algorithm it was stored with.
+   * Whether the secret matches this account, in constant-timeness terms the answer gives nothing away.
    *
-   * A **disabled** account never matches, and neither does an unknown id — the caller must not be able
-   * to tell "no such id" from "wrong secret" faster than by the answer it is given, so both spend the
-   * same work where the algorithm is known.
-   *
-   * "Where the algorithm is known" is the hole that sentence used to leave. A known id reaches scrypt
-   * (a typed secret) or sha256 (a generated one); an unknown id returned before **anything** was
-   * computed, so `login` answered an unknown id in ~1 ms and a wrong secret for a known id in ~37 ms —
-   * a 30× signal that names which ids exist, which is exactly what `docs/SECURITY.md` promises the
-   * login form does not do ("a wrong id and a wrong secret answer identically … not an
-   * account-enumeration oracle"). Measured on the fixture before this: median 1.2 ms vs 36.9 ms.
-   *
-   * The work now happens either way. An unknown, disabled or under-specified record still runs one
-   * scrypt against a throwaway salt, so the answer costs the same as a real mismatch.
-   *
-   * **A `false` always costs a scrypt, whichever shape the record has.** Choosing scrypt for the
-   * unknown case was right and not enough: the panel stores two algorithms, so the *miss* matched
-   * only the `scrypt` half. A secret the panel generated is `sha256` (256 bits of randomness needs no
-   * stretching), and verifying one returns in microseconds — so the cheap answer was not "no such
-   * account" but "a real account whose secret was generated", which is what `account create` mints by
-   * default and what the first-run `default` account is. Measured on a store holding both shapes:
-   * unknown 29.7 ms, generated 0.011 ms, typed 34.2 ms — the fast answer named the id, and it named
-   * the ones an attacker most wants.
-   *
-   * So the equalising cost is spent **on a failed answer**, and only there. A successful `sha256`
-   * verification stays microseconds, which is the whole reason generated secrets use it: it runs on
-   * every authenticated request. A wrong guess pays the same scrypt whether the id exists with a
-   * generated secret, exists with a typed one, or does not exist — so a *failed* attempt says nothing
-   * about the id. A success is the answer and needs no cover.
+   * A disabled or unknown account never matches, and a **failed** answer always spends one scrypt
+   * whether the id exists with a typed secret, with a generated (sha256) one, or not at all — otherwise
+   * the fast answer names which ids exist, which `docs/SECURITY.md` promises the login form does not
+   * do. A success needs no cover: it is the answer.
    */
   verifyAccountSecret(id: string, secret: string): boolean {
     const record = this.account(id)
