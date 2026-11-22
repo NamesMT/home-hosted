@@ -16,7 +16,7 @@ export const LOAD_ALERT_PER_CPU_DEFAULT = 2
 export const HOST_ALERT_DEFAULTS = { diskUsedPercent: 90, memoryUsedPercent: 90, swapUsedPercent: 50, tempCelsius: 85 } as const
 
 /** A configurable alert threshold, as it travels on the frame. */
-export interface HostAlertThresholds {
+interface HostAlertThresholds {
   /** `host.diskUsedPercent` — the threshold the panel notifies on, `0` disabling it. */
   diskUsedPercentAlert?: number
   /** `host.memoryUsedPercent` — the threshold the panel notifies on, `0` disabling it. */
@@ -26,7 +26,7 @@ export interface HostAlertThresholds {
 }
 
 /** One configured filesystem, with the band its own usage is painted in. */
-export interface HostDiskReading {
+interface HostDiskReading {
   path: string
   totalBytes: number
   freeBytes: number

@@ -1,14 +1,1 @@
 KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
-job.scheduleEveryMinutes,every {minutes} min,mỗi {minutes} phút,每 {minutes} 分钟,{minutes} 分ごと,cada {minutes} min,{minutes}분마다,каждые {minutes} мин,toutes les {minutes} min,alle {minutes} Min
-job.scheduleHourly,every hour at :{minute},mỗi giờ lúc :{minute},每小时第 {minute} 分,毎時 {minute} 分,cada hora en :{minute},매시간 {minute}분,каждый час в :{minute},chaque heure à :{minute},stündlich um :{minute}
-job.scheduleDaily,every day at {time},mỗi ngày lúc {time},每天 {time},毎日 {time},todos los días a las {time},매일 {time},каждый день в {time},chaque jour à {time},täglich um {time}
-job.scheduleWeekly,every {days} at {time},mỗi {days} lúc {time},每 {days} {time},毎週 {days} {time},cada {days} a las {time},매주 {days} {time},каждый {days} в {time},chaque {days} à {time},jeden {days} um {time}
-job.scheduleMonthly,day {day} of every month at {time},ngày {day} hàng tháng lúc {time},每月 {day} 日 {time},毎月 {day} 日 {time},día {day} de cada mes a las {time},매월 {day}일 {time},день {day} каждого месяца в {time},le {day} de chaque mois à {time},Tag {day} jeden Monats um {time}
-job.scheduleCustom,custom schedule,lịch tùy chỉnh,自定义计划,カスタムスケジュール,horario personalizado,사용자 지정 일정,особое расписание,planification personnalisée,eigener Zeitplan
-job.weekday.0,Sun,Dim,周日,日,Dom,일,Вс,Dim,So
-job.weekday.1,Mon,Thứ Hai,周一,月,Lun,월,Пн,Lun,Mo
-job.weekday.2,Tue,Thứ Ba,周二,火,Mar,화,Вт,Mar,Di
-job.weekday.3,Wed,Thứ Tư,周三,水,Mié,수,Ср,Mer,Mi
-job.weekday.4,Thu,Thứ Năm,周四,木,Jue,목,Чт,Jeu,Do
-job.weekday.5,Fri,Thứ Sáu,周五,金,Vie,금,Пт,Ven,Fr
-job.weekday.6,Sat,Thứ Bảy,周六,土,Sáb,토,Сб,Sam,Sa

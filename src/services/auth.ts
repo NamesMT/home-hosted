@@ -75,7 +75,7 @@ export type LoginOutcome
     | { ok: false, status: 401 | 409 | 429, error: string, retryAfterMs?: number }
 
 /** Which credential a request presented. */
-export type AuthMethod = 'cookie' | 'token'
+type AuthMethod = 'cookie' | 'token'
 
 export interface AuthIdentity {
   authenticated: boolean

@@ -287,9 +287,9 @@ const DDNS_IV_BYTES = 12
 const DDNS_AAD_PREFIX = 'hh-ddns-v1:'
 const DDNS_SEALED_ALGO = 'aes-256-gcm'
 
-export interface ScryptCost { N: number, r: number, p: number }
+interface ScryptCost { N: number, r: number, p: number }
 
-export function deriveKey(password: string, salt: Buffer, cost: ScryptCost, keylen: number): Buffer {
+function deriveKey(password: string, salt: Buffer, cost: ScryptCost, keylen: number): Buffer {
   return crypto.scryptSync(password.normalize('NFKC'), salt, keylen, { ...cost })
 }
 
@@ -309,7 +309,7 @@ export function hashPassword(password: string, options: { now?: number, isDefaul
 }
 
 /** The pre-0.12 boot password every install shared. Still recognised, never created. */
-export const LEGACY_DEFAULT_PASSWORD = 'hh'
+const LEGACY_DEFAULT_PASSWORD = 'hh'
 
 /** A random first-run password: 12 characters from an unambiguous alphabet, ~60 bits. */
 export function generateInitialPassword(): string {
@@ -356,7 +356,7 @@ function spendVerifyWork(secret: string): void {
 }
 
 /** Visible head of a generated token, so a token is recognisable on sight. */
-export const API_TOKEN_PREFIX = 'hh_'
+const API_TOKEN_PREFIX = 'hh_'
 const API_TOKEN_BYTES = 32
 const API_TOKEN_HINT_CHARS = 8
 
@@ -364,7 +364,7 @@ export function generateApiToken(): string {
   return `${API_TOKEN_PREFIX}${crypto.randomBytes(API_TOKEN_BYTES).toString('base64url')}`
 }
 
-export function hashApiToken(token: string): string {
+function hashApiToken(token: string): string {
   return crypto.createHash('sha256').update(token, 'utf8').digest('base64')
 }
 
@@ -470,7 +470,7 @@ export function accountIdProblem(id: string): string | null {
 }
 
 /** Visible head, so a person can tell a generated secret from one they chose. */
-export const ACCOUNT_SECRET_PREFIX = 'hh_'
+const ACCOUNT_SECRET_PREFIX = 'hh_'
 const ACCOUNT_SECRET_BYTES = 32
 
 /** 32 bytes of randomness: the whole point of a generated secret is that nothing needs to stretch it. */

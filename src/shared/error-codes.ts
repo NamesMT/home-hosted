@@ -151,7 +151,7 @@ export const ERROR_CODES = {
 } as const satisfies Record<string, ErrorCodeSpec>
 
 /** Every code this API may answer with. */
-export type ErrorCode = keyof typeof ERROR_CODES
+type ErrorCode = keyof typeof ERROR_CODES
 
 /** The status a code arrives with — the catalogue's own answer, for a test or a generated client. */
 export function statusOfCode(code: string): number | null {
