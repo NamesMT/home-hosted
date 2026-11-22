@@ -225,8 +225,14 @@ These are the ones that prevent real defects. Break one only with a reason in th
   channel (someone must act), a fix is a patch. Never hand-edit the version in `package.json`.
 - **Concise.** A comment explains non-obvious intent in a line or two; the argument for a change goes
   in the commit message, not the code.
-- **`src/shared/contracts.ts` splits leaf-first.** The clusters that moved cleanly — frames, logs, ddns,
-  proxy, backups, accounts — reference only themselves. The entry groups (restart, health, stop, deploy,
-  bootstrap, the backup hooks) do **not**: they are the substrate `serverSchema` is built from, and moving
-  them out collapses its inference into `{ [x: string]: any }`, which still compiles. A further cut takes
-  `serverSchema` **with** its helpers as one module, never the helpers out from under it.
+- **`src/shared/contracts.ts` splits leaf-first, and its core does not split at all.**
+  The clusters that moved cleanly — frames, logs, ddns, proxy, backups, accounts — reference only
+  themselves. The entry groups (restart, health, stop, deploy, bootstrap, the backup hooks) do **not**:
+  they are the substrate `serverSchema` is built from, and moving them out collapses its inference into
+  `{ [x: string]: any }`, which still compiles.
+
+  `serverSchema`'s own dependency closure is **32 declarations spanning lines 19–1050 with 16 gaps** — it
+  reaches `bindSchema`, `notificationsSchema`, `editableFields`, the patch groups and the notification
+  destinations. That is a third of the file, so "take `serverSchema` with its helpers" is a rewrite of
+  the core, not a module extraction. **Do not attempt it as a tail-end refactor**; the leaf cuts are done
+  and the rest is one deliberate redesign with its own round.
