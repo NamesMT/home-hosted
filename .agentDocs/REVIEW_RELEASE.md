@@ -216,6 +216,34 @@ intact and enforced — `test/cli/isolation.test.ts` asserts "imports only path-
 rejecting any static `#src/helpers/paths`, `#src/config/*`, `#src/services/*`, `#src/providers/*` or
 `#src/api/*` import, and passes. Only the count had drifted, so the sentence now names the seven.
 
+## The published package and the OpenAPI document both validate (root agent, same pass)
+
+Two checks against the **outside world** rather than against the repo itself, which is where the `0.13.1`
+divergence was found.
+
+**`npm pack --dry-run`** produces a working tarball: **422 files, 2.6 MB packed / 9.4 MB unpacked**, of which
+225 are `dist/types` and 144 are `dist/chunks`. Every entry in `package.json#files` exists on disk, and all
+ten `docs/*.md` are listed. The 225-file type tree is what *"typed from the panel's own routes"* costs —
+`dist/types/client.d.ts` imports `./app.js` to expose `AppType` — so it is deliberate, not bloat.
+
+**The doc-link check was already right about the tarball**, and its docblock records why: it *was* a second
+hand-written copy of the `files` list, drifted when `docs/JOBS.md` was added to neither, and four shipped
+documents linked to a file that never reached the package while the checker reported everything fine. It now
+derives the shipped set from `package.json#files`. `all relative links resolve in 11 shipped and 8 in-repo
+docs`, zero problems.
+
+**The OpenAPI document is valid.** `@redocly/cli lint` on `/openapi/spec.json` answers *"Your API description
+is valid"* for OpenAPI **3.1.0**, with seven warnings:
+
+- five `no-ambiguous-paths` on `/_hh/jobs/secrets/{id}` beside `/_hh/jobs/{id}/…`. **Theoretical only**:
+  measured, `/_hh/jobs/secrets/log` and `/_hh/jobs/secrets/x` both `404`, so nothing misroutes — and a job
+  genuinely named `secrets` is reachable through `/api`, where `POST /api/jobs` accepts it (`201`) and its
+  log reads (`200`). Only the `/_hh` CLI alias would be shadowed.
+- one `info-license` (no `license` field in `info` — the package has a `LICENSE` file, the spec does not
+  declare one).
+- one `no-unused-components` on `SseMessage`, exported for the client's `.d.ts` but never `$ref`'d in the
+  document, because SSE frames are not response bodies. Correct.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
