@@ -10,7 +10,7 @@ import { appVersion } from '#src/helpers/version'
 import { workspaceLimit } from '#src/helpers/workspace'
 import { requestIdentity } from '#src/middleware/auth'
 import { narrowStateFor } from '#src/services/state'
-import { appStateSchema, metaViewSchema, SSE_EVENT_NAMES } from '#src/shared/contracts'
+import { appStateSchema, metaViewSchema, sseEventNames } from '#src/shared/contracts'
 import { ERROR_CODES } from '#src/shared/error-codes'
 import { lazy } from '#src/shared/lazy'
 import { credentialOf, credentialRefusals } from '#src/shared/meta'
@@ -26,8 +26,13 @@ import { credentialOf, credentialRefusals } from '#src/shared/meta'
  */
 const stateQuery = lazy(() => type({}).onUndeclaredKey('reject'))
 
-/** The SSE `event:` names the panel's streams send, derived from the frame schemas — see `SSE_EVENT_NAMES`. */
-const EVENT_NAMES = SSE_EVENT_NAMES
+/**
+ * The SSE `event:` names, derived per request rather than once at import.
+ *
+ * Called inside the handler on purpose: `sseEventNames()` reads four `lazy()` schemas' JSON Schema, which
+ * materialises them. Hoisting it to a module constant moved that cost from "when asked" to "when loaded"
+ * and `lazy.test.ts` counted 79 built schemas — the same failure the literal was replacing.
+ */
 
 /**
  * `GET /api/meta`: what this panel is, who is asking, and what that credential may not do.
@@ -55,7 +60,7 @@ function metaOf(deps: AppDeps, c: Context): MetaView {
     },
     /** The catalogue's own keys, so a client is never handed a code the panel does not know. */
     errorCodes: Object.keys(ERROR_CODES),
-    events: [...EVENT_NAMES],
+    events: sseEventNames(),
   }
 }
 

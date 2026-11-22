@@ -191,10 +191,10 @@ describe('panel metadata', () => {
      * clients the panel never announced. A literal here would have to be updated by hand in step with
      * the union — the drift the derivation exists to remove.
      */
-    const { SSE_EVENT_NAMES } = await import('#src/shared/contracts')
-    expect(body.events).toEqual([...SSE_EVENT_NAMES])
+    const { sseEventNames } = await import('#src/shared/contracts')
+    expect(body.events).toEqual(sseEventNames())
     // Anti-vacuity: the derivation must have found every frame type, not one.
-    expect(SSE_EVENT_NAMES, 'a frame schema lost its literal `type`, so the announcement misses it').toEqual(
+    expect(sseEventNames(), 'a frame schema lost its literal `type`, so the announcement misses it').toEqual(
       expect.arrayContaining(['hello', 'state', 'server', 'log', 'ping']),
     )
   })

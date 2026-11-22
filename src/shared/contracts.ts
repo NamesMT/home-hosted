@@ -2664,26 +2664,35 @@ export const ssePingFrameSchema = lazy(() => type({
  *
  * `GET /api/meta` publishes this list so a client knows what to listen for. It used to be a hand-written
  * literal in `src/api/state.ts`, which is correct only while somebody remembers to update it: a fifth
- * frame type would have been delivered to clients that the panel never announced. Reading the union
- * means the announcement cannot drift from the frames.
+ * frame type would have been delivered to clients the panel never announced. Reading the union means the
+ * announcement cannot drift from the frames.
  *
- * The `type` field of each member is a union of literals (`"hello" | "state"`), so the list is collected
- * from all four rather than assuming one name per frame.
+ * **A function, not a module-level constant.** Computing it at import calls `toJsonSchema()` on four
+ * `lazy()` schemas, which materialises them — exactly what `test/shared/lazy.test.ts` exists to forbid, and
+ * it counted **79** built schemas the moment this was a `const`. The panel pays for a schema when code
+ * asks it a question, not when the module loads.
  */
-export const SSE_EVENT_NAMES: readonly string[] = [
-  ...new Set([sseStateFrameSchema, sseServerFrameSchema, sseLogFrameSchema, ssePingFrameSchema]
-    .flatMap((schema) => {
-      /**
-       * A single-literal field renders as `const`, a union as `enum` — and the frames use both
-       * (`'"server"'` against `'"hello" | "state"'`). Reading only `enum` collected two of five names,
-       * which is exactly the drift this derivation exists to prevent.
-       */
-      const type = (schema.toJsonSchema() as { properties?: { type?: { const?: string, enum?: string[] } } })
-        .properties
-        ?.type
-      return type?.enum ?? (type?.const === undefined ? [] : [type.const])
-    })),
-].sort()
+/** Cached after the first call: the answer is a property of the schemas, and `/api/meta` is a request path. */
+let sseEventNamesCache: string[] | null = null
+export function sseEventNames(): string[] {
+  if (sseEventNamesCache !== null)
+    return sseEventNamesCache
+  sseEventNamesCache = [
+    ...new Set([sseStateFrameSchema, sseServerFrameSchema, sseLogFrameSchema, ssePingFrameSchema]
+      .flatMap((schema) => {
+        /**
+         * A single-literal field renders as `const`, a union as `enum` — and the frames use both
+         * (`'"server"'` against `'"hello" | "state"'`). Reading only `enum` collected two of five names,
+         * which is exactly the drift this derivation exists to prevent.
+         */
+        const type = (schema.toJsonSchema() as { properties?: { type?: { const?: string, enum?: string[] } } })
+          .properties
+          ?.type
+        return type?.enum ?? (type?.const === undefined ? [] : [type.const])
+      })),
+  ].sort()
+  return sseEventNamesCache
+}
 
 export const sseMessageSchema = lazy(() => sseStateFrameSchema.or(sseServerFrameSchema).or(sseLogFrameSchema).or(ssePingFrameSchema))
 export type SseMessage = typeof sseMessageSchema.infer
