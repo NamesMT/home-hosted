@@ -62,7 +62,43 @@ export interface RealHomeGuard {
  */
 const HOST_PROGRAM_DATA = '/mnt/c/ProgramData/home-hosted'
 
+/**
+ * Removes the per-file state a **killed** run left behind.
+ *
+ * `test-home.ts` registers an `afterAll` that deletes each file's home and `%ProgramData%` stand-in, which
+ * covers every run that finishes. A run that is killed — a `timeout`, Ctrl-C, a cancelled CI job — never
+ * reaches it, so those directories accumulate: **536** of them had built up on this machine before anyone
+ * looked. They are small but they are unbounded, and the names are the same shape a stale run's leftovers
+ * take, which makes "which of these is real?" a question nobody can answer later.
+ *
+ * Swept here because `globalSetup` runs **once per suite, in the runner, before any worker** — so nothing
+ * this run creates exists yet and an old one cannot be mistaken for it.
+ */
+function sweepAbandonedTemp(): void {
+  const prefixes = ['hh-test-programdata-', 'hh-test-home-']
+  let entries: string[]
+  try {
+    entries = fs.readdirSync(os.tmpdir())
+  }
+  catch {
+    return
+  }
+  for (const name of entries) {
+    if (!prefixes.some(prefix => name.startsWith(prefix)))
+      continue
+    const full = path.join(os.tmpdir(), name)
+    // A directory this run has not created yet is necessarily from an earlier, finished-or-killed run.
+    try {
+      fs.rmSync(full, { recursive: true, force: true })
+    }
+    catch {
+      // Another run may hold it; leaving it is better than failing the suite over a temp directory.
+    }
+  }
+}
+
 export async function setup(): Promise<() => Promise<void>> {
+  sweepAbandonedTemp()
   // `os.homedir()` here, not `#src/helpers/paths`: that module resolves at import time and this file
   // must not drag the app's state into the runner before the per-file redirect is in place.
   const guarded = [path.join(os.homedir(), '.home-hosted'), HOST_PROGRAM_DATA]
