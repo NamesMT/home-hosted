@@ -56,6 +56,21 @@ function bodyOf(text: string, name: string): string {
 /** Every filesystem call that can hit the disk from a synchronous path. */
 const DISK_READ = /\b(readFileSync|readdirSync|statSync|existsSync|readFile|readdir|stat)\s*\(/
 
+/**
+ * A **process spawn** on the frame path, which `DISK_READ` does not cover and `AGENTS.md` forbids in the
+ * same sentence: *"never call `execFileSync` from a request or frame path"*.
+ *
+ * The synchronous form is the one that matters — it blocks the event loop for the whole spawn, and the
+ * frame runs about once a second. `execFile`/`spawn` are excluded on purpose: they are asynchronous and
+ * are how this codebase legitimately starts things.
+ *
+ * The rule holds today: `src/providers/host.ts` does call `execFileSync('vm_stat')` and
+ * `execFileSync('getconf')`, but behind `availableMemoryBytes(platform, osFree, vmStat?)`, which takes the
+ * sample as an argument — the syscall fires only when no sample was supplied, i.e. on the sampler's own
+ * clock, never on the frame's. That shape is what this assertion protects.
+ */
+const SPAWN_SYNC = /\b(execFileSync|execSync|spawnSync)\s*\(/
+
 describe('the state frame does no filesystem work', () => {
   /**
    * The three functions that run per frame, in `panel.ts`.
@@ -63,11 +78,12 @@ describe('the state frame does no filesystem work', () => {
    * `stateSignature` is included because it serialises the whole frame — a change that makes the view
    * cheap but the signature expensive is no improvement, and the signature runs on the same clock.
    */
-  it('getState, publishState and stateSignature name no disk read', () => {
+  it('getState, publishState and stateSignature neither read the disk nor spawn', () => {
     const text = source('src/services/panel.ts')
     for (const name of ['getState', 'publishState', 'stateSignature']) {
       const body = bodyOf(text, name)
       expect(body, `${name} must not read the disk`).not.toMatch(DISK_READ)
+      expect(body, `${name} must not spawn a process synchronously — it blocks the whole frame`).not.toMatch(SPAWN_SYNC)
     }
   })
 
