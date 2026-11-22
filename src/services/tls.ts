@@ -9,19 +9,19 @@ import { ensureStateDir } from '#src/helpers/paths'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
- * Stores an uploaded PEM pair and reports what it contains.
- *
- * The key is written 0600 and both files stay out of git. Nothing here binds a
- * socket — the control server reads the pair and hands it to srvx. The reverse
- * proxy keeps its own pair in its own directory through the same class.
- */
-/**
  * How long a `status()` answer is reused. It is read for every state frame (once a second), and
  * building it parses the certificate and compares keys — about 1.6 ms, plus four filesystem calls.
  * `save()`/`clear()` drop it at once; a file replaced behind the panel's back shows within this.
  */
 const STATUS_CACHE_MS = 5000
 
+/**
+ * Stores an uploaded PEM pair and reports what it contains.
+ *
+ * The key is written 0600 and both files stay out of git. Nothing here binds a
+ * socket — the control server reads the pair and hands it to srvx. The reverse
+ * proxy keeps its own pair in its own directory through the same class.
+ */
 export class TlsStore {
   private cached: { cert: string, key: string } | null = null
   private cachedMtime = ''

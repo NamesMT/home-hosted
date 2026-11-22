@@ -112,8 +112,7 @@ export class UiService {
    * Installs a UI from a zip. The archive is extracted beside `.ui` and only then
    * swapped in, so a failed upload leaves the previous UI (or the stock one)
    * serving.
-   */
-  /**
+   *
    * `unlessChanged` runs inside the install lock, just before the swap; a non-null answer refuses
    * the swap with that reason. An unattended update uses it so it never replaces a UI someone
    * installed while it was downloading.

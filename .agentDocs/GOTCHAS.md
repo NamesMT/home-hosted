@@ -258,6 +258,26 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
   `apiTokenRecord`) — much easier to fixture than the password record above.
 
+- **A docblock can be attached to the wrong declaration, and a *regex* cannot reliably find that.**
+  Three found by reading, after the noc-console `deploy`/`runJob` pair:
+
+  - `src/index.ts` — *"Runs the control plane in this process"* sat above `refuseUnusableWorkspace`, a
+    function that refuses a config and exits. The real `runControlPlane` is 27 lines below.
+  - `src/services/tls.ts` — *"Stores an uploaded PEM pair"* sat above `const STATUS_CACHE_MS`, so the class
+    inherited a constant's docblock and `TlsStore` had none.
+  - `src/services/ui.ts` and `src/services/scheduler.ts` — a method's description followed by a second block
+    about one parameter, so the first described nothing.
+
+  **The automated attempt was worse than useless.** A pattern for `*/` followed by `/**` at the same
+  indentation reported **0** on the file I had just fixed and the file I had broken; a looser one reported
+  **100+ hits** that were all file-level docblocks followed by a function docblock — the normal shape. A third
+  version, matching any `\*/\n\s*/\*\*`, *did* catch the real case (1 hit on the pre-fix file) but then
+  reported **22** on the fixed tree, because "two well-formed docblocks in a row" is indistinguishable from
+  "one orphaned docblock" without knowing each block's subject.
+
+  So: **read for this one.** The signal is a block whose first line names a thing the declaration below it is
+  not — and that needs a reader. The regex can only narrow the candidates.
+
 - **The dead-code sweep after a migration is a *whole-corpus* diff, not a per-file read, and this repo is
   clean after one.** Removing five `apiToken*` declarations from `contracts.ts` (all superseded when tokens
   became accounts) prompted the obvious follow-up: did the jobs move and the notifications fold — both in

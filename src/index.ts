@@ -66,11 +66,6 @@ export interface ControlPlaneOptions {
 }
 
 /**
- * Runs the control plane in *this* process until it is stopped. `home-hosted up`
- * detaches a child that calls this; `--foreground` (systemd, docker) calls it
- * directly.
- */
-/**
  * Exits when a workspace's files are not a config this release can run. Same ordering as the global
  * settings, and for the same reason: a pending migration is reported through `configError` too, so
  * the generic message answered first and told the person to edit or reinstall a file that only
@@ -92,6 +87,11 @@ function refuseUnusableWorkspace(id: string, store: WorkspaceStore): void {
   }
 }
 
+/**
+ * Runs the control plane in *this* process until it is stopped. `home-hosted up`
+ * detaches a child that calls this; `--foreground` (systemd, docker) calls it
+ * directly.
+ */
 export async function runControlPlane(options: ControlPlaneOptions): Promise<void> {
   // A state directory this release cannot use stops the daemon before anything reads
   // a path into it. Caught rather than thrown: a detached `up` runs this in a child, and
