@@ -37,6 +37,24 @@ describe('isAllowedHost', () => {
   })
 
   /**
+   * A `Host` with userinfo names the host **after** the `@`, and that is the one judged.
+   *
+   * `lastIndexOf(':')` sliced `example.com:3999@evil.com` at the colon and returned `example.com`, which
+   * matched a declared `allowedHosts` entry — so a request whose real destination was `evil.com` passed
+   * the DNS-rebinding guard. Measured live: with `example.com` declared, that header answered `200` while
+   * `Host: evil.com` answered `421`. `new URL('http://example.com:3999@evil.com')` agrees the host is
+   * `evil.com`.
+   */
+  it('judges the host after the `@`, not the userinfo before it', () => {
+    expect(hostnameOf('example.com:3999@evil.com')).toBe('evil.com')
+    expect(hostnameOf('example.com@evil.com')).toBe('evil.com')
+    expect(hostnameOf('user:pass@example.com:3999')).toBe('example.com')
+    // And the guard refuses the smuggling form even when the userinfo names a declared host.
+    expect(isAllowedHost('example.com:3999@evil.com', ['example.com'])).toBe(false)
+    expect(isAllowedHost('example.com:3999@example.com', ['example.com']), 'a genuine request still passes').toBe(true)
+  })
+
+  /**
    * A request naming no host is refused rather than waved through.
    *
    * This branch used to answer `true`, which is what turned "HTTP/2 has no `Host` header" into an open

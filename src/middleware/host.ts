@@ -42,6 +42,21 @@ export function requestAuthority(c: Context): string | undefined {
 /** The hostname part of a `Host` header: port and IPv6 brackets dropped, lowercased. */
 export function hostnameOf(header: string): string {
   let value = header.trim().toLowerCase()
+  /**
+   * `userinfo@host` — the part before `@` is **not** the hostname, and `URL` says so:
+   * `new URL('http://example.com:3999@evil.com')` is `host: evil.com`, `username: example.com`.
+   *
+   * `lastIndexOf(':')` on that authority sliced at the colon and returned `example.com`, which then
+   * matched a declared `allowedHosts` entry — so a request whose real destination was `evil.com` passed
+   * the DNS-rebinding guard. Measured live: with `example.com` declared,
+   * `Host: example.com:3999@evil.com` answered `200` while `Host: evil.com` answered `421`.
+   *
+   * Everything after the last `@` is the authority proper; an `@` can appear in userinfo but the host
+   * cannot contain one.
+   */
+  const at = value.lastIndexOf('@')
+  if (at !== -1)
+    value = value.slice(at + 1)
   if (value.startsWith('[')) {
     const end = value.indexOf(']')
     return value.slice(1, end === -1 ? undefined : end)
