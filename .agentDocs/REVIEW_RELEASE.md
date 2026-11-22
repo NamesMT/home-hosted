@@ -261,6 +261,28 @@ Two notes for the reviewer, neither a defect:
 - The `add` hint carries `--home` because `invocation()` supplies it — that fixes the failure mode the command-hint guard exists for, and it reads correctly here.
 - A server whose command binds no port stays `starting` rather than `running`, which is right: the readiness probe has nothing to answer it. My first fixture was a bare `setInterval`, so this looked like a stuck state for a moment; a real listener moved it to `running` on the next restart.
 
+## noc-console's add-server flow works (root agent, same pass)
+
+The one mutating action nothing had walked, in the UI that ships as a release asset rather than in the
+package. Installed with `ui-switch`, served on port 7003, driven with Playwright.
+
+**It works and persists.** Filled `ncdemo` / `node` and an args line, pressed **add server** — the row
+appears, **survives a reload**, and reached the config as
+`ncdemo: command=node args=['-e "setInterval(()=>{},1000)"']`.
+
+Two things differ from stock, both by design rather than defect:
+
+- **It is a single-step form**, not stock's two-step wizard — no preset picker, so every field is visible at
+  once. Its fields are named by **wrapping `<label>` elements** (`id`, `label`, `command`, `args`, `cwd`,
+  `port`), which is why an `aria-label` check reports empty and an accessible-name check does not.
+- **The args field is an `<input>`, not a `<textarea>`**, and it is space-separated. A quoted argument is
+  therefore stored with its quotes (`'-e "setInterval(...)"'` as one argv entry) — the same trade stock's
+  importer documents, and worth knowing before writing a command with spaces in it.
+
+That last point is the one a person could trip on: `-e "setInterval(()=>{},1000)"` becomes a single argument
+with literal quotes, so the child receives a broken `-e` value. An args line with no spaces in any argument
+— `-e process.exit(1)` — is fine.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
