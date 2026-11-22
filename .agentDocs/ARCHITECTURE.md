@@ -12,7 +12,8 @@ state layout is there too.
   decided, because `#src/helpers/paths.ts` resolves at import time. The curated dispatch reads only the
   flag forms (`--help`/`-h`, `--version`/`-v`) after a command name, never a bare `help`/`version`,
   because that is an option's value (`init --name help`). Its static imports stay node
-  builtins, citty and two path-free local modules; every command is a lazy
+  builtins, citty and **seven path-free local modules** (`cli/args`, `cli/io`, `cli/nearest`,
+  `shared/api-scopes`, `shared/error-message`, `helpers/runtime`, `helpers/version`); every command is a lazy
   `() => import('#src/cli/<command>')` in `subCommands`, so a command module *may* use static `#src`
   imports — that is the point of the pre-pass. The hidden `__nanny` is dispatched by an early branch,
   not `subCommands`, so it stays out of the curated help and the unknown-command message.

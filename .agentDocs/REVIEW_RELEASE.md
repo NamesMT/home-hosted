@@ -193,6 +193,29 @@ The one in-repo doc that had never been read against the code. Every testable cl
 by `GET /api/backups`; both are declared **optional** (`'entries?'`, `'files?'`) so a newer schema parses an
 older panel's payload. That is the exact shape the doc says keeps an old-UI pairing from being a defect.
 
+## `READINGS.md` holds; `ARCHITECTURE.md` had one stale count (root agent)
+
+The last two in-repo docs. One stale number found, nothing else.
+
+**`READINGS.md` is accurate**, checked against the code and a live panel:
+
+- **`STALE_INTERVALS = 3`** in `src/services/host-monitor.ts`, and `view` does publish `emptyHostView` past
+  it — the "three sampling intervals" the doc names.
+- **`enabled: false` and a stale sample both land in `hostReadings`**, not on the wire:
+  `sampled = sampledAt !== null && enabled !== false`, and both paths return `NOTHING_SAMPLED` with
+  `staleSince` kept, so a surface can say "last sampled 4m ago".
+- **`unmeasured`** is populated in `src/providers/host.ts` (`win32` → `load`, plus a null memory or swap
+  read) and the **wire value stays `0`** via `?? 0`, so an older UI's `.toFixed()` still works. `hostBreaches`
+  skips every one of the three. A live Linux panel carries **no** `unmeasured` key at all, which is right.
+- The scrape serves six series, all `gauge`, none ending `_total`.
+
+**`ARCHITECTURE.md` had one stale number.** It said `src/cli.ts`'s static imports "stay node builtins, citty
+and the same **two** path-free local modules". There are **seven**: `cli/args`, `cli/io`, `cli/nearest`,
+`shared/api-scopes`, `shared/error-message`, `helpers/runtime`, `helpers/version`. The **rule** it states is
+intact and enforced — `test/cli/isolation.test.ts` asserts "imports only path-free modules statically" by
+rejecting any static `#src/helpers/paths`, `#src/config/*`, `#src/services/*`, `#src/providers/*` or
+`#src/api/*` import, and passes. Only the count had drifted, so the sentence now names the seven.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
