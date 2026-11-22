@@ -29,6 +29,14 @@ const props = withDefaults(defineProps<{
 
 const model = defineModel<number | null>({ default: null })
 const id = useId()
+/**
+ * Points the input at its own message, the way `TextField` already does.
+ *
+ * `aria-invalid` alone tells a screen reader *that* the field is wrong; the sentence saying why sat in a
+ * sibling `<p>` with no id, so it was announced as unrelated content after it. Measured on
+ * `/global/settings`: the two components rendered the same markup except for this association.
+ */
+const describedBy = computed(() => (props.hint || props.error ? `${id}-hint` : undefined))
 
 /** Keeps a partially typed value (`1.`) from being clobbered mid-edit. */
 const text = computed({
@@ -54,12 +62,13 @@ const invalid = computed(() => model.value !== null && Number.isNaN(model.value)
       :max="props.max"
       :class="cn(inputClass, 'font-mono tabular-nums', (props.error || invalid) && 'border-danger')"
       :aria-invalid="props.error || invalid ? true : undefined"
+      :aria-describedby="describedBy"
       v-bind="$attrs"
     >
-    <p v-if="props.error" class="text-2xs text-danger">
+    <p v-if="props.error" :id="`${id}-hint`" class="text-2xs text-danger">
       {{ props.error }}
     </p>
-    <p v-else-if="props.hint" :class="hintClass">
+    <p v-else-if="props.hint" :id="`${id}-hint`" :class="hintClass">
       {{ props.hint }}
     </p>
   </div>

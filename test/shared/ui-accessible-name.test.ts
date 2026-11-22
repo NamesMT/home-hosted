@@ -180,4 +180,33 @@ describe('every interactive control has an accessible name', () => {
     }
     expect(wrapping, 'a file input is no longer named by a wrapping label — check how it is named now').toBeGreaterThan(0)
   })
+
+  /**
+   * A field that reports an error must **point** at the sentence saying why.
+   *
+   * `aria-invalid` tells a screen reader *that* the value is wrong; without `aria-describedby` the message
+   * sat in a sibling `<p>` with no id, so it was read as unrelated content that happened to follow.
+   * `TextField` already associated them; `NumberField` did not, and the two components rendered otherwise
+   * identical markup — which is exactly how half a fix survives review.
+   *
+   * The check is per component: an element carrying `:aria-invalid` must also carry `:aria-describedby`, and
+   * the element it points at must have that id.
+   */
+  it('associates an error message with the field that reports it', () => {
+    const offenders: string[] = []
+    let checked = 0
+    for (const { file, body } of templates()) {
+      if (!/aria-invalid/.test(body))
+        continue
+      checked += 1
+      // The input is the element with `aria-invalid`; its message is the `<p>` that renders the error.
+      if (!/aria-describedby/.test(body))
+        offenders.push(`${file}: sets aria-invalid but no aria-describedby`)
+      else if (!/\$\{id\}-hint/.test(body))
+        offenders.push(`${file}: points aria-describedby at an id no element carries`)
+    }
+    // Anti-vacuity: at least one component must report errors, or this asserts nothing.
+    expect(checked, 'no component sets aria-invalid — the scan is stale').toBeGreaterThan(0)
+    expect(offenders, 'a screen reader announces "invalid" and then an unattached sentence').toEqual([])
+  })
 })
