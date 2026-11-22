@@ -159,6 +159,20 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **`defaults` in the notifications block is ignored by any destination that carries its own toggles,
+  and `useOwnSettings` defaults to `true`.** So a PATCH that sets `defaults.cooldownMs: 0` changes nothing
+  for an existing destination: it keeps its own `cooldownMs` (schema default 120000) and throttles every
+  crash to two minutes. The API then *reports* `defaults.cooldownMs: 0` beside a destination that is not
+  using it, which reads as "the cooldown is off" when it is not.
+  Set `useOwnSettings: false` on the destination to make it inherit — and the default is deliberate:
+  before the block existed every target carried its own toggles, and reading one as "inherit" on upgrade
+  would silently change what it delivers.
+
+  Cost me several steps of thinking the delivery path was broken: the crash fired zero notifications
+  while every reported field looked satisfied. Driving it with the destination set to inherit produced
+  **3 of 3**. When a live behaviour contradicts the reported config, check whether a per-object override
+  is shadowing the shared block before suspecting the code.
+
 - **The compose import carries no `environment`, deliberately — and that is not the same leak pm2 had.**
   `composeEntry` builds one entry, `docker compose -f <file> up`, and lets compose read the YAML itself; it
   never parses `environment`, so a `POSTGRES_PASSWORD` in a compose file stays where the person put it and
