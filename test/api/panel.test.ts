@@ -958,7 +958,8 @@ describe('/api/backups restore and the credential store', () => {
     expect(body.code).toBe('SESSION_REQUIRED')
     // The message must name a path this person can actually take.
     expect(body.message).toContain('session')
-    expect(body.message).toContain('home-hosted backup restore')
+    // `invocation()` prefixes `home-hosted` with `--home` when one is chosen, so match the subcommand.
+    expect(body.message).toContain('backup restore')
     // Nothing was applied: the service was never reached.
     expect(reached).toEqual([])
   })
@@ -2151,7 +2152,7 @@ describe('auth: cookies and first-time setup', () => {
     expect(body.code).toBe('SESSION_REQUIRED')
     // The message has to name a real path: sign in, or the CLI on this machine.
     expect(body.message).toContain('session')
-    expect(body.message).toContain('home-hosted account')
+    expect(body.message).toContain('account')
     // And nothing changed.
     expect(created.settings.control.auth.enabled).toBe(true)
     expect(created.globalSecrets.listAccounts()).toHaveLength(2)
