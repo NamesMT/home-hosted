@@ -257,6 +257,43 @@ restart re-reads — `command`, `args`, `cwd`, `env`, `envFile`, `dataEnvs`, `po
 `resources`, `dependsOn`, log retention, backup paths, the port-conflict policy) takes effect live and
 does **not** set it. A stopped entry never sets it.
 
+## The local channel: `/_hh`
+
+The API above is what a UI and a remote script use. **`/_hh` is the other channel**: what the CLI talks
+to when it finds a panel already running on this machine. It exists so `home-hosted` commands work
+against a live panel without a session — `down`, `start`, `stop`, `backup` and `job run` all go through
+it.
+
+It is **not** a second public API, and it is guarded differently on purpose:
+
+- **Loopback only.** The caller must be this machine by `isLoopbackRequest` — a loopback peer with no
+  forwarding headers. The panel's own reverse proxy connects from `127.0.0.1`, which is why the header
+  check is part of the rule rather than an extra.
+- **The `run.json` token.** `$HHOSTED_HOME/.hh/run.json` (0600, written at boot) carries a token, sent
+  as `x-home-hosted-token`. It is compared in constant time, and it is the **only** credential on this
+  channel — which is why the check runs as middleware, before any body is parsed, so an unauthenticated
+  caller cannot make the panel buffer a payload of their choosing.
+- **No scopes.** Unlike an account, this token is not narrowed: it is what the person who owns
+  `$HHOSTED_HOME` already is. Treat it as the panel's own key, not as a credential to hand to anything.
+
+```bash
+# `run.json` carries both halves: the token and the port the panel actually bound.
+HH="$HOME/.home-hosted/.hh"
+TOKEN=$(node -e "process.stdout.write(require('$HH/run.json').token)")
+PORT=$(node -e "process.stdout.write(String(require('$HH/run.json').port))")
+curl -sS -H "x-home-hosted-token: $TOKEN" "http://127.0.0.1:$PORT/_hh/usage"
+```
+
+Reading the port from `run.json` rather than assuming `3999` matters: the panel may have been started on
+another one, and `run.json` is written at boot with the values it actually bound.
+
+Refusals name themselves: `403 INVALID_TOKEN` (wrong or absent token) and `403 NOT_LOOPBACK` (the caller
+came through something). Every operation is in `/openapi/spec.json` with its body, like `/api` — a client
+generated from the spec can drive this channel too.
+
+**Reach for `/api` unless you are the CLI.** A script with an account or a token has everything the
+`/_hh` operations do, over a credential you can scope and revoke.
+
 ## What this panel is
 
 `GET /api/meta` answers in **one** request what a client otherwise probes for piecemeal — start here
