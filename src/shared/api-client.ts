@@ -522,6 +522,28 @@ function boundary<T>(schema: (value: unknown) => T | type.errors, payload: unkno
 }
 
 /**
+ * The same check for a value **this client is about to send**, where a failure is the person's input.
+ *
+ * `boundary` is for a *response*: "contract mismatch" is the right words when the server sent a shape this
+ * build does not understand. Reusing it for an outgoing patch told someone who typed `0` into a field with
+ * a floor of 50:
+ *
+ *     workspace settings patch contract mismatch: defaults.logBufferLines must be at least 50 (was 0)
+ *
+ * which reads as a bug in the panel rather than as advice about the field. Measured in Chromium against a
+ * built panel, on `/w/default/settings`.
+ *
+ * The same schema, a sentence written for the person who filled the form in. The summary already names the
+ * field and the bound, which is the part worth keeping.
+ */
+function outgoing<T>(schema: (value: unknown) => T | type.errors, payload: unknown): T {
+  const parsed = schema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  return parsed as T
+}
+
+/**
  * The typed view of a frame: the schema accepts a request-shaped `port` (possibly absent) while the
  * panel always emits the normalized `number | null`, so these carry that one narrowing.
  */
@@ -604,7 +626,7 @@ export async function deleteWorkspace(id: string): Promise<{ ok: boolean, remove
  * which is falsy, and leave the browser on a stale socket with no error.
  */
 export async function patchSettings(patch: SettingsPatch): Promise<SettingsSaved> {
-  const parsed = boundary(settingsPatchSchema, patch, 'settings patch')
+  const parsed = outgoing(settingsPatchSchema, patch)
   return boundary(settingsSavedSchema, await request<unknown>('/api/settings', { method: 'PATCH', body: JSON.stringify(parsed) }), 'settings') as SettingsSaved
 }
 
@@ -614,7 +636,7 @@ export async function fetchWorkspaceSettings(workspace?: string | null): Promise
 }
 
 export async function patchWorkspaceSettings(patch: WorkspaceSettingsPatch, workspace?: string | null): Promise<WorkspaceSettingsView> {
-  const parsed = boundary(workspaceSettingsPatchSchema, patch, 'workspace settings patch')
+  const parsed = outgoing(workspaceSettingsPatchSchema, patch)
   const payload = await request<unknown>(scoped('/api/settings/workspace', workspace), {
     method: 'PATCH',
     body: JSON.stringify(parsed),

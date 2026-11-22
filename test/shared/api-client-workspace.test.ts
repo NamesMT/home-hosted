@@ -197,6 +197,27 @@ describe('validation at the boundary', () => {
     expect(mock).not.toHaveBeenCalled()
   })
 
+  /**
+   * A rejected **outgoing** value speaks to the person who typed it, not about a contract.
+   *
+   * `patchWorkspaceSettings` ran the outgoing patch through `boundary()`, whose message is written for a
+   * response* that drifted: `workspace settings patch contract mismatch: …`. Measured in Chromium on
+   * `/w/default/settings`, typing `0` into a field with a floor of 50 showed exactly that — panel
+   * internals where the person needed advice about the field.
+   *
+   * The assertion names the wording, because "rejects" was already true and could not tell the two apart.
+   */
+  it('names the field and the bound when an outgoing patch is refused', async () => {
+    const mock = stub({})
+    const error = await patchWorkspaceSettings({ defaults: { logBufferLines: 0 } } as never, 'alpha')
+      .then(() => null, (caught: Error) => caught)
+
+    expect(error, 'an out-of-range value must be refused locally').not.toBeNull()
+    expect(error!.message, 'the field and its bound are the part worth keeping').toContain('logBufferLines')
+    expect(error!.message, 'a person filled this form in; do not answer with internals').not.toContain('contract mismatch')
+    expect(mock, 'nothing should reach the panel').not.toHaveBeenCalled()
+  })
+
   it('refuses a failed patch with the panel\'s own sentence', async () => {
     stub({ message: 'port 3000 is already in use', code: 'PORT_BUSY' }, 409)
     await expect(patchServer('web', { command: 'node' }, 'alpha')).rejects.toThrow('port 3000 is already in use')
