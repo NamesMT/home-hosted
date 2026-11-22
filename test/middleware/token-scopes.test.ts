@@ -218,6 +218,11 @@ describe('an account with admin', () => {
  * at an entry, which is what editing the proxy does.
  */
 describe('an account with proxy', () => {
+  /**
+   * Six requests across three proxy routes, each of which builds the fixture's service graph — 28 s
+   * alone, and past vitest's 90 s default once the whole suite runs in parallel. A budget, not an
+   * assertion: the cases below it prove the scopes, and this one only has further to walk.
+   */
   it('manages the proxy, and a config account may not', async () => {
     const created = await fixture()
     const proxy = mint(created, ['read', 'proxy'])
@@ -243,7 +248,7 @@ describe('an account with proxy', () => {
       expect(refused.status, `a config account must not ${method} ${path}`).toBe(403)
       expect(await refused.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
     }
-  })
+  }, 150_000)
 
   it('is still granted by admin', async () => {
     const created = await fixture()
