@@ -173,6 +173,23 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   **3 of 3**. When a live behaviour contradicts the reported config, check whether a per-object override
   is shadowing the shared block before suspecting the code.
 
+- **The release scripts were exercised without dispatching anything, and they hold.**
+  `check-release-version.mjs` accepts `0.13.0 -> 0.16.0` and refuses a non-increase (`"0.13.0" is not
+  greater than the current 0.13.0`), a downgrade and a non-version (`expected 1.2.3 or 1.2.3-rc.1`) — a
+  check that accepts everything would be worthless, so the refusals were tested too.
+
+  `release-notes.mjs` refuses to build a body when `CHANGELOG.md` has no `## v<version>` section, and its
+  message names the real cause: it runs **after** changelogen in the workflow (line 145 against line 174),
+  and changelogen writes that section. Since `CHANGELOG.md` has 57 sections and none for `0.16.0`, that
+  refusal is the expected state before a dispatch, not a bug.
+
+  Driven with a temporary section in place, the body came out **218 lines** and carried **all three**
+  accumulated migrations — jobs leaving the server entry, the account model, and the exposure bar — which is
+  the behaviour that matters: this branch has `package.json` at `0.13.0` while `UPGRADING.md` holds sections
+  for `0.14.0`, `0.15.0` and `0.16.0`, so one dispatch ships three breaking changes and must print all three.
+  `migrationsTo()` collects every section up to the version, compared numerically, and says in a comment
+  that printing only the matching one *"is worse than printing nothing"*.
+
 - **Every proxy write is refused before the engine binary exists — including a DNS-01-only change.**
   `apply`/`configure` call `installed()` (a `statSync` on `enginePath`) before anything else, so
   `PATCH /api/proxy` answers `400 ENGINE_MISSING` even for a settings change that needs no engine. That
