@@ -16,7 +16,7 @@ export const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(['/api/auth/login',
 /** 401s from the guard carry this code so the SPA can route to the login view. */
 export const AUTH_REQUIRED_CODE = 'AUTH_REQUIRED'
 /** Auth is off and the caller is not this machine (a remote peer, or anything a proxy relayed). */
-export const AUTH_DISABLED_CODE = 'AUTH_DISABLED_REMOTE'
+const AUTH_DISABLED_CODE = 'AUTH_DISABLED_REMOTE'
 
 /**
  * The one place that reads a request's credentials, so the guard, the session

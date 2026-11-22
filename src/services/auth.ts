@@ -92,7 +92,7 @@ export interface AuthIdentity {
   account?: AccountRecord
 }
 
-export const ANONYMOUS: AuthIdentity = { authenticated: false, method: null, session: null }
+const ANONYMOUS: AuthIdentity = { authenticated: false, method: null, session: null }
 
 /**
  * `Authorization: Bearer <token>`; the scheme is case-insensitive per RFC 7235,

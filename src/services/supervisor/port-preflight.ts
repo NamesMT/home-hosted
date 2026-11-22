@@ -73,7 +73,7 @@ export async function supervisedPids(
  * Where a port can be observed for this entry: a specific bind is not reachable on loopback, and a
  * `lan` bind is reachable on loopback *and* the LAN address.
  */
-export function occupancyHosts(entry: Entry): string[] {
+function occupancyHosts(entry: Entry): string[] {
   const configured = bindHost(entry.config.bind)
   const candidates = configured === '0.0.0.0'
     ? ['127.0.0.1', lanAddress() ?? '127.0.0.1']

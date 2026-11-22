@@ -36,7 +36,7 @@ const MAX_BYTES_PER_POLL = 256 * 1024
  * a stat plus one bounded read per entry, so polling is cheaper than a watcher that has to be
  * re-established every time a file is truncated.
  */
-export const OUTPUT_POLL_MS = 250
+const OUTPUT_POLL_MS = 250
 
 /** The two files of one entry's run. */
 export interface OutputFiles {

@@ -328,7 +328,7 @@ export function pickCpuTemperature(sensors: TemperatureSensor[]): number | null 
  * none either, and the Windows host's `MSAcpi_ThermalZoneTemperature` answers a constant 20 °C
  * regardless of load, so reaching across for it would be a fabricated number rather than a reading.
  */
-export function cpuTemperature(): number | null {
+function cpuTemperature(): number | null {
   const sensors: TemperatureSensor[] = []
 
   /** `name` is the sensor's own label; absent means the file could not be read, so skip it. */
@@ -392,7 +392,7 @@ export function cpuTemperature(): number | null {
 const pendingStatfs = new Set<string>()
 
 /** How long one sample waits on a filesystem before reporting it unmeasured. */
-export const STATFS_TIMEOUT_MS = 5000
+const STATFS_TIMEOUT_MS = 5000
 
 async function diskUsage(target: string, timeoutMs: number): Promise<HostView['disks'][number] | null> {
   // Never queue a second stuck call behind the first: four of them exhaust libuv's pool, which

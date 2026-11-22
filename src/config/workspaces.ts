@@ -16,7 +16,7 @@ import { isRecord } from '#src/shared/shape'
  * them. Kept apart from any workspace's own files so it can be read before they
  * are, and so creating or removing one is a single small write.
  */
-export const workspacesFileSchema = lazy(() => type({
+const workspacesFileSchema = lazy(() => type({
   $schema: 'string?',
   meta: metaSchema.optional(),
   workspaces: workspaceSchema.array(),

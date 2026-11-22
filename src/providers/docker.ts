@@ -411,7 +411,7 @@ export function isOwnStack(holder: { project: string | null, composeDir: string 
 }
 
 /** One target's running containers from a fresh `docker ps`, or `null` when docker cannot answer. */
-export async function composeContainers(target: ComposeTarget): Promise<ContainerRow[] | null> {
+async function composeContainers(target: ComposeTarget): Promise<ContainerRow[] | null> {
   try {
     const listing = await execFileAsync('docker', [
       'ps',

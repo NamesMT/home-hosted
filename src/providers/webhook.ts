@@ -47,7 +47,7 @@ export interface WebhookPayload {
 }
 
 /** The JSON body for one event. Exported so a test can pin the shape without a round trip. */
-export function webhookPayload(event: NotificationEventBody, now = Date.now()): WebhookPayload {
+function webhookPayload(event: NotificationEventBody, now = Date.now()): WebhookPayload {
   const text = `${event.title}\n${event.message}`
   return {
     text,

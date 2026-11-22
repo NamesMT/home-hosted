@@ -101,23 +101,3 @@ export async function stopJobRun(run: { child: ChildProcess, done: Promise<unkno
   await terminate(run.child, { signal: 'SIGTERM', killGroup: true, graceMs })
   await run.done
 }
-
-/**
- * What a finished run reads as, in one line — the log line and the history event's `detail`.
- *
- * `0` succeeded and nothing else did; a signal is reported as the signal, because "exited with code
- * null" tells nobody anything. A cancelled run says so instead of dressing a stop up as a failure.
- */
-export function describeJobOutcome(
-  exitCode: number | null,
-  signal: string | null,
-  durationMs: number,
-  cancelled: boolean,
-): string {
-  const took = `${Math.max(1, Math.round(durationMs / 1000))}s`
-  if (cancelled)
-    return `run stopped after ${took}`
-  if (signal !== null)
-    return `run killed by ${signal} after ${took}`
-  return `run ${exitCode === 0 ? 'finished' : 'failed'} with exit code ${exitCode ?? '?'} after ${took}`
-}

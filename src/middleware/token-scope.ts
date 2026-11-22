@@ -180,7 +180,7 @@ export function tokenScopesFor(method: string, path: string): ApiTokenScope | nu
 }
 
 /** The full rule, for a caller that also needs to know whether a workspace limit applies. */
-export function ruleFor(method: string, path: string): TokenScopeRule | null {
+function ruleFor(method: string, path: string): TokenScopeRule | null {
   const key = `${method.toUpperCase()} ${path}`
   const exact = RULES[key]
   if (exact !== undefined)
@@ -214,7 +214,7 @@ function matches(pattern: string, path: string): boolean {
  * one reads it through the same matcher rather than splitting the path again at the call site — a
  * second split is how `/api/workspaces/:id` would be read positionally and drift.
  */
-export function pathParam(method: string, path: string, name: string): string | null {
+function pathParam(method: string, path: string, name: string): string | null {
   const want = `${method.toUpperCase()} `
   const candidates = Object.entries(RULES)
     .filter(([candidate]) => candidate.startsWith(want))

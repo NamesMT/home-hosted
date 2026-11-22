@@ -16,7 +16,7 @@ import { lazy } from '#src/shared/lazy'
  * Only a deliberate stop writes it. A panel that was killed has nobody to write anything, which is
  * why a *stale record* stays the signal for that one — see `status`.
  */
-export const lastStopSchema = lazy(() => type({
+const lastStopSchema = lazy(() => type({
   /** Milliseconds since the epoch, from the process that stopped it. */
   at: 'number',
   /** How it stopped. `down` is the only writer today; the field exists so a future cause is named. */

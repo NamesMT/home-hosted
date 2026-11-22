@@ -13,7 +13,7 @@ const REQUEST_TIMEOUT_MS = 10_000
 const MAX_RETRY_AFTER_S = 20
 
 /** A Bot API refusal, shaped like Telegram's own error body so `describeTelegramError` reads it. */
-export class TelegramApiError extends Error {
+class TelegramApiError extends Error {
   override name = 'TelegramApiError'
   constructor(readonly description: string, readonly error_code: number, readonly parameters?: { retry_after?: number }) {
     super(description)

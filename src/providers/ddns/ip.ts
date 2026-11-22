@@ -7,7 +7,7 @@ import { errorMessage } from '#src/shared/error-message'
  * a bare `ipify.org` answers over whichever family the connection happened to
  * take, which is exactly what an AAAA update must not get.
  */
-export const DEFAULT_IPV4_ENDPOINTS = [
+const DEFAULT_IPV4_ENDPOINTS = [
   'https://api4.ipify.org',
   'https://ipv4.icanhazip.com',
   'https://checkip.amazonaws.com',
@@ -15,7 +15,7 @@ export const DEFAULT_IPV4_ENDPOINTS = [
   'https://cloudflare.com/cdn-cgi/trace',
 ]
 
-export const DEFAULT_IPV6_ENDPOINTS = [
+const DEFAULT_IPV6_ENDPOINTS = [
   'https://api6.ipify.org',
   'https://ipv6.icanhazip.com',
   'https://6.ident.me',
@@ -147,7 +147,7 @@ export function parseAddressResponse(text: string, family: 'A' | 'AAAA'): string
 }
 
 /** One address lookup; the pass's own deadline still bounds the whole list. */
-export const DETECT_TIMEOUT_MS = 10_000
+const DETECT_TIMEOUT_MS = 10_000
 
 export interface DetectResult {
   ip: string | null

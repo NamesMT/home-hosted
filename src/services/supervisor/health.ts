@@ -83,7 +83,7 @@ async function probeEntryHealth(entry: Entry): Promise<{ healthy: boolean, ms: n
  * Announces a force restart's outcome once, the first moment the entry is serving. Every "it is up
  * again" path calls this; the pending flag makes it idempotent.
  */
-export function settleRestart(ctx: SupervisorContext, entry: Entry, detail: string): void {
+function settleRestart(ctx: SupervisorContext, entry: Entry, detail: string): void {
   const pending = entry.pendingRestart
   if (pending === null)
     return

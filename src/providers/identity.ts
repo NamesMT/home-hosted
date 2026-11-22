@@ -268,7 +268,7 @@ function parseCsvRows(output: string): [string[] | null, string[] | null] {
  * to CSV rather than JSON: CSV survives a value that contains a quote or a newline, which
  * an argv legitimately can.
  */
-export async function windowsProcessInfo(pid: number): Promise<{ commandLine: string, imagePath: string | null } | null> {
+async function windowsProcessInfo(pid: number): Promise<{ commandLine: string, imagePath: string | null } | null> {
   if (!windowsFilter.test(String(pid)))
     return null
 

@@ -6,7 +6,7 @@ export function requestIp(c: { req: { raw: unknown } }): string | null {
   return raw?.ip ?? null
 }
 
-export function isLoopback(address: string | null): boolean {
+function isLoopback(address: string | null): boolean {
   if (!address)
     return false
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'

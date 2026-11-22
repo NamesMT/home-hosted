@@ -83,11 +83,6 @@ export function diffFields(current: Patch, next: Patch, nested: readonly string[
  * filled must not travel either: it is `[]`, and `[]` on a replaced list is
  * "delete every entry".
  */
-export function replacedListEdited(filled: readonly unknown[] | undefined, next: readonly unknown[]): boolean {
-  if (filled === undefined)
-    return false
-  return !same(filled, next)
-}
 
 export interface ReplacedListMerge<T> {
   /** The list this form was filled with; absent means it was never filled. */

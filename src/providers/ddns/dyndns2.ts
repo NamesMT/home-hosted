@@ -28,7 +28,7 @@ export interface DyndnsReply {
 }
 
 /** The first word of the body is the code; the rest is provider detail. */
-export function parseDyndnsReply(body: string): DyndnsReply {
+function parseDyndnsReply(body: string): DyndnsReply {
   const trimmed = body.trim()
   const separator = trimmed.search(/\s/)
   if (separator < 0)

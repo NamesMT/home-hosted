@@ -4,7 +4,7 @@ import { streamSSE } from 'hono/streaming'
 import { frameKey, sseChannel } from '#src/helpers/sse'
 import { accessRefusal, requestIdentity } from '#src/middleware/auth'
 
-export const PING_INTERVAL_MS = 15_000
+const PING_INTERVAL_MS = 15_000
 
 /**
  * The `retry:` hint a stream opens with, in ms — how long a browser waits before reconnecting.
@@ -13,7 +13,7 @@ export const PING_INTERVAL_MS = 15_000
  * reconnection time for the connection, so repeating it on every frame is noise, and a value that
  * changed mid-stream would move the delay under a client that already read one.
  */
-export const RETRY_HINT_MS = 3_000
+const RETRY_HINT_MS = 3_000
 
 /** Anything the hub publishes or a route sends first: `type` names the SSE event. */
 export interface StreamFrame { type: string, workspaceId?: string, serverId?: string }

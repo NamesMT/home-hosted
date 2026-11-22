@@ -144,7 +144,7 @@ function present(value: number | null | undefined): number | null {
  * The band for the host's own CPU share, which has no configurable alert — one constant, not a
  * literal pair at each surface.
  */
-export const HOST_CPU_BAND = { warnAt: 80, dangerAt: 95 } as const
+const HOST_CPU_BAND = { warnAt: 80, dangerAt: 95 } as const
 
 /** The band for a host cpu share, against {@link HOST_CPU_BAND}. */
 export function hostCpuBand(percent: number | null): HostBand {

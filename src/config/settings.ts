@@ -39,7 +39,7 @@ export class ConfigError extends Error {
  * A save that would overwrite an edit the panel has not read yet. The caller is told to retry; the
  * store's conflict listeners are what make the reload happen first.
  */
-export function changedOnDisk(file: string): ConfigError {
+function changedOnDisk(file: string): ConfigError {
   return new ConfigError(`${path.basename(file)} changed on disk since the panel last read it — the panel will reload it; retry the save`, 'CONFIG_CHANGED_ON_DISK')
 }
 

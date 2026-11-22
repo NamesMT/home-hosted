@@ -83,7 +83,7 @@ const DNS01_MODULE = 'dns.providers.acmeproxy'
  * checked. A file from ≤0.7.x carried a `sha256` key, which is undeclared here and rejects the record
  * wholesale — it reads as a custom build.
  */
-export const engineRecordSchema = lazy(() => type({
+const engineRecordSchema = lazy(() => type({
   'engine': 'string',
   'version': 'string',
   'source': '"downloaded" | "custom"',
@@ -99,7 +99,7 @@ export type EngineRecord = typeof engineRecordSchema.infer
  * Generated once and kept beside the engine's other state, 0600 — the endpoint is
  * loopback-only, and this is the second lock on a door that writes into DNS.
  */
-export const challengeAuthSchema = lazy(() => type({
+const challengeAuthSchema = lazy(() => type({
   username: 'string >= 1',
   password: 'string >= 1',
 }).onUndeclaredKey('reject'))
@@ -1799,7 +1799,7 @@ export class ProxyService {
  * True when a download's final address is https on the host it was asked from (or a subdomain of
  * it). `fetch` follows redirects, so the address asked for says nothing about where the bytes came from.
  */
-export function trustedDownload(finalUrl: string, requestedUrl: string): boolean {
+function trustedDownload(finalUrl: string, requestedUrl: string): boolean {
   try {
     const final = new URL(finalUrl)
     const host = new URL(requestedUrl).hostname

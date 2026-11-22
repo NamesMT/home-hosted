@@ -19,7 +19,7 @@ export interface ServerSeries {
 }
 
 /** The panel samples the process tree every 5 s. */
-export const MIN_SAMPLE_GAP_MS = 4000
+const MIN_SAMPLE_GAP_MS = 4000
 
 export function createSeries(): ServerSeries {
   return { ts: [], cpu: [], rss: [], probe: [], lastSampledAt: -1 }

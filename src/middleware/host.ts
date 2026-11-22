@@ -14,7 +14,7 @@ import { isPublicHost } from '#src/shared/proxy-form'
  * from `X-Forwarded-Host`, which a rebound page sets freely (it is same-origin with the panel, so no
  * preflight stops it) — using it would hand the attacker back the field being checked.
  */
-export function requestAuthority(c: Context): string | undefined {
+function requestAuthority(c: Context): string | undefined {
   const host = c.req.header('host')
   if (host !== undefined)
     return host

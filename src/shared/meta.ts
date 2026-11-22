@@ -30,7 +30,7 @@ import type { CredentialKind, CredentialView } from './contracts'
  * An **API token is full admin** (AGENTS.md): this list is not "less authority", it is the set of
  * moves that would let the token replace the person who owns the panel. Never describe it as less.
  */
-export const REFUSED_TO_TOKEN: readonly string[] = [
+const REFUSED_TO_TOKEN: readonly string[] = [
   'password.clear',
   'password.first',
   'auth.disable',
