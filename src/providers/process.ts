@@ -201,8 +201,6 @@ export async function terminate(child: ChildProcess, options: TerminateOptions):
  */
 export async function killTreeWindows(pid: number): Promise<void> {
   try {
-    // `windowsHide` matters most for a *kill*: this runs while the user is waiting on a stop, so a
-    // console flashing now reads as the panel doing something unexpected to their machine.
     await execFileAsync('taskkill', ['/pid', String(pid), '/T', '/F'], { timeout: 5000, windowsHide: true })
   }
   catch {

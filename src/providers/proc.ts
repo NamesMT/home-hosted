@@ -167,8 +167,6 @@ async function readWindows(): Promise<ProcRow[]> {
     const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
       timeout: 8000,
       maxBuffer: 16 * 1024 * 1024,
-      // Without this the sample pops a console window on someone's desktop, every five seconds,
-      // for as long as the panel runs: this is the periodic process scan.
       windowsHide: true,
     })
     return parseWindowsCsv(stdout)

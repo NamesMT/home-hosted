@@ -79,29 +79,6 @@ known majors from its own review and was patched as 0.9.1 ninety minutes later.
 So the pre-dispatch check is: read the review's findings list top to bottom and account for every
 line. "Addressed in a follow-up" is only true if the user chose the follow-up.
 
-## `audit-round-3` is numerically behind npm, and it does not matter — but say so
-
-Before dispatching from this branch, know this: **`0.13.1` is published on npm and is not an ancestor of
-`audit-round-3`.** `main` carries two commits this branch lacks — `chore(release): v0.13.1` and the Windows
-`windowsHide` fix it wrapped — while this branch carries 366 commits `main` has never seen.
-
-`package.json` here therefore reads `0.13.0` while npm's latest is `0.13.1`, and `check-release-version.mjs`
-compares against *this* `package.json`, so it happily accepts `0.13.0 -> 0.16.0`. That is the right answer for
-a jump to `0.16.0` — but only after checking the two commits are **functionally** present, which they are:
-
-- `1a90d8c`'s change (`windowsHide` on every helper spawn) is in the branch by content —
-  `src/services/supervisor/persistent.ts`, `src/services/proxy.ts` and the providers all pass it, and
-  `test/providers/windows-spawn-hidden.test.ts` enforces it;
-- `2ded2f2`'s change (drop the shipped `0.13.0` section from `UPGRADING.md`) is present — there is no
-  `## 0.13.0` heading in the file.
-
-So nothing is lost. What is missing is the **changelog row and the tag**, which live on `main`. A release
-body generated here will show `v0.13.0 → v0.16.0` and omit a patch that npm users already have. If that
-matters for the release notes, merge `main` in first; if the version jump is deliberate, it does not.
-
-Recorded because a future reader looking at `package.json` beside `npm view` will otherwise conclude the
-branch is broken.
-
 ## The migration reaches the release body, not just git
 
 `CHANGELOG.md` is derived from commit subjects, so it names *what changed* and never *what a person
