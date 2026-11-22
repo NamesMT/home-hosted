@@ -21,6 +21,23 @@ describe('isLoopbackHost', () => {
       expect(isLoopbackHost(host), host).toBe(true)
   })
 
+  /**
+   * Including the IPv4-mapped spellings a **URL** hands back.
+   *
+   * `new URL('http://[::ffff:127.0.0.1]:3999').hostname` is `[::ffff:7f00:1]`, not `127.0.0.1` — `URL`
+   * normalises the dotted tail into hextets and keeps the brackets. Without these,
+   * `createClient({ baseUrl: 'http://[::ffff:127.0.0.1]:3999' })` refused a genuinely local panel with
+   * "refusing to send the API token over plain http … use https, a loopback address" — for a loopBack
+   * address. Measured before and after.
+   */
+  it('recognizes the IPv4-mapped forms a URL produces', () => {
+    for (const host of ['::ffff:127.0.0.1', '[::ffff:127.0.0.1]', '::ffff:7f00:1', '[::ffff:7f00:1]', '0:0:0:0:0:ffff:7f00:1'])
+      expect(isLoopbackHost(host), host).toBe(true)
+    // The same shape with a non-loopback tail must not be swept in.
+    for (const host of ['::ffff:8.8.8.8', '[::ffff:808:808]'])
+      expect(isLoopbackHost(host), host).toBe(false)
+  })
+
   it('leaves a reachable name alone', () => {
     // A `.local` mDNS name is not loopback: it can resolve elsewhere, and an empty host is a
     // missing location rather than this machine.

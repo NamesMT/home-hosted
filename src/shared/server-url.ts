@@ -28,14 +28,36 @@ export interface ServerLinkSource {
   bindHost: string
 }
 
-/** True for a name a browser resolves to this machine: `localhost`, `127.0.0.0/8`, `::1`. */
+/**
+ * True for a name this machine answers to: `localhost`, `127.0.0.0/8`, `::1` — and the IPv4-mapped
+ * IPv6 spellings of loopback, which a **URL** produces even though a browser rarely shows one.
+ *
+ * `new URL('http://[::ffff:127.0.0.1]:3999').hostname` is `[::ffff:7f00:1]`, not `127.0.0.1`: `URL`
+ * normalises the dotted tail into hextets and keeps the brackets. Leaving that out meant
+ * `createClient({ baseUrl: 'http://[::ffff:127.0.0.1]:3999' })` refused a genuinely local panel and told
+ * the caller to "use https, a loopback address" — for a loopback address. Measured both before and
+ * after. `exposure.ts` has its own `isLoopbackAddress` covering exactly these forms; the two predicates
+ * are not shared because that one also treats `0.0.0.0` and `::` as local (a *bind* meaning) and this one
+ * must not.
+ */
 export function isLoopbackHost(host: string): boolean {
   const name = host.trim().toLowerCase()
   if (name === 'localhost' || name === '::1' || name === '[::1]')
     return true
   if (name.endsWith('.localhost'))
     return true
-  return /^127(?:\.\d{1,3}){3}$/.test(name)
+  // Node's `URL` gives the bracketless form to `client.ts`'s caller but brackets inside `hostname`.
+  const bare = name.startsWith('[') && name.endsWith(']') ? name.slice(1, -1) : name
+  // `::ffff:127.0.0.1` written out, and the `::ffff:7f00:1` form `URL` normalises it to. The
+  // `0:0:0:0:0:ffff:7f00:1` expansion is included because Node accepts it as input.
+  // `URL` normalises the tail to hextets, but a caller may pass the dotted form directly.
+  if (/^::ffff:127(?:\.\d{1,3}){3}$/.test(bare))
+    return true
+  if (/^::ffff:(?:0:)?7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(bare))
+    return true
+  if (/^(?:0{1,4}:){5}ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(bare))
+    return true
+  return /^127(?:\.\d{1,3}){3}$/.test(bare)
 }
 
 /**
