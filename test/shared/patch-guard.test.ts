@@ -86,6 +86,29 @@ describe('a nested patch group mirrors its base schema', () => {
     })
   }
 
+  /**
+   * Every nested group a patch actually carries is in the list above.
+   *
+   * The list is **hand-written** — seven entries when it was last counted — and a group added to
+   * `settingsPatchSchema` or `workspaceSettingsPatchSchema` without an entry here was silently
+   * unguarded, which is the exact drift the pairs exist to catch. Same shape as `SHIPPED`, `IN_REPO`,
+   * `SOURCES`, `stateSignature` and the `windowsHide` scan before it: when a guard needs to cover
+   * "every X", discover the X.
+   */
+  it('the pair list covers every nested patch group', () => {
+    const covered = new Set(pairs.filter(pair => pair.key !== 'dns01').map(pair => pair.key))
+    for (const [container, schema] of [['settingsPatch', settingsPatchSchema], ['workspaceSettingsPatch', workspaceSettingsPatchSchema]] as const) {
+      const props = properties(schema)
+      const nested = Object.entries(props)
+        // A group is an object with its own `properties`; a scalar field has none.
+        .filter(([, value]) => typeof value === 'object' && value !== null && 'properties' in (value as object))
+        .map(([key]) => key)
+      expect(nested.length, `${container} must have nested groups to check`).toBeGreaterThan(0)
+      for (const key of nested)
+        expect(covered.has(key), `${container}.${key} has no pair in the list above, so nothing checks it against its base schema`).toBe(true)
+    }
+  })
+
   it('the proxy patch covers every proxy config field', () => {
     expect(keysOf(proxyPatchSchema)).toEqual(keysOf(proxyConfigSchema))
   })
