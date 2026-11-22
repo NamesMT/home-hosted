@@ -91,11 +91,20 @@ no longer log each other out.
 
 **Exposing the panel beyond loopback now needs a password of at least 12 characters.** A panel bound
 to a non-loopback address, or reached through a proxy route to the panel, refuses to start while its
-password is shorter than that — and `home-hosted set-password` refuses to set one, as does
-`POST /api/auth/password` (it answers `400 PASSWORD_TOO_SHORT`). A password short enough to guess
+password is shorter than that — and `home-hosted account secret <id>` refuses to set one, as does
+`POST /api/auth/accounts/me/secret` while the panel is exposed (it answers `400 PASSWORD_TOO_SHORT`; on
+loopback a short one is still accepted, which is what makes the first run possible). A password short
+enough to guess
 from the network is no longer enough protection. Passwords hashed by an older release carry no length
-record and are not measured, so run `home-hosted set-password` once to be sure yours qualifies: a
-loopback-only panel still accepts any length.
+record and are not measured, so set yours again once with `home-hosted account secret <id>` to be sure it
+qualifies: a loopback-only panel still accepts any length.
+
+The refusal names the fix itself:
+
+```text
+can't listen on lan with a secret shorter than 12 characters — set a longer one with
+`home-hosted account secret <id>` or in Global settings → Accounts
+```
 
 **`POST /api/servers` with an id that already exists answers `409 SERVER_EXISTS`.** It answered
 `400 INVALID_SERVER`, the same code as a schema failure, so a client could not tell "pick another id"
