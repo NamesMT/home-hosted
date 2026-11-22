@@ -258,6 +258,20 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   A token hash is `sha256(token).base64` and `hint` is the first 8 characters (`hashApiToken`,
   `apiTokenRecord`) — much easier to fixture than the password record above.
 
+- **`prepare` never runs for a registry consumer, and npm 11 hides that behind a warning.** Verified
+  against a real `npm pack` tarball: `npm install ./home-hosted-0.13.0.tgz` prints
+  *"home-hosted@0.13.0 (prepare: node scripts/prepare.mjs) — install scripts not yet covered by
+  allowScripts"* and **skips it**. `npm install-scripts approve` refused too (*"no trusted identity for
+  policy key"*). So the consumer half of `scripts/prepare.mjs` — the half whose silent failure on an older
+  npm the docblock was written about — is not exercised by any install a user does.
+
+  Run it directly in a tarball tree to check it: no `.git`, no `node_modules`, no `i18n/sheets`, and it
+  **exits 0 doing nothing**, which is the designed behaviour. The package that install is left with is
+  functional — `.bin/home-hosted --version` answers `0.13.0` and `up` prints a first-run password.
+
+  The lesson for anyone changing `prepare`: a green local `pnpm install` proves the **contributor** branch
+  only. The consumer branch has to be run by hand, because npm will not run it for you.
+
 - **A docblock can be attached to the wrong declaration, and a *regex* cannot reliably find that.**
   Three found by reading, after the noc-console `deploy`/`runJob` pair:
 
