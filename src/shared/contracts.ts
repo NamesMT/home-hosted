@@ -366,15 +366,27 @@ export const cronExpressionSchema = lazy(() => type(/^\S+(?: +\S+){4}$/)
  *
  * `null` when the entry carries neither.
  */
-export function entryHasJobFields(entry: Record<string, unknown>): string | null {
+export function entryHasJobFields(entry: Record<string, unknown>, command?: string): string | null {
   const hasKind = typeof entry.kind === 'string'
   const hasSchedule = typeof entry.schedule === 'string'
   if (!hasKind && !hasSchedule)
     return null
+  /**
+   * The command is **the caller's to add**, not this module's.
+   *
+   * `src/shared` may not import `cli/io`, so it cannot call `invocation()` — and the literal it used to
+   * return, `run \`home-hosted migrate\``, told someone whose panel lives at `--home /tmp/x` to run against
+   * the *default* home and create `~/.home-hosted` beside the state they meant. Measured on a panel started
+   * with `HHOSTED_HOME=/tmp/hh-mg`: the refusal said `run home-hosted migrate` with no `--home`.
+   *
+   * So the message names the fix and leaves the invocation to the layer that can build it; `migrate` is
+   * passed in by `config/parse.ts` and `config/store.ts`, both of which may import `cli/io`.
+   */
+  const migrate = command === undefined ? 'the migrate command' : `\`${command} migrate\``
   if (entry.kind === 'job') {
-    return 'this entry is a `job`, which now lives in jobs.config.json — run `home-hosted migrate` to move it, then remove `kind`/`schedule` here'
+    return `this entry is a \`job\`, which now lives in jobs.config.json — run ${migrate} to move it, then remove \`kind\`/\`schedule\` here`
   }
-  return '`kind` and `schedule` belong to a job now, not a server — remove them (a server is always a supervised service), or run `home-hosted migrate` if this entry is a job'
+  return `\`kind\` and \`schedule\` belong to a job now, not a server — remove them (a server is always a supervised service), or run ${migrate} if this entry is a job`
 }
 
 /**

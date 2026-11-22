@@ -2,6 +2,7 @@ import type { ConfigKind, MigrationOptions } from '#src/config/migrations'
 import type { ResolvedGlobalConfig, ResolvedWorkspaceSettings } from '#src/config/schema'
 import type { ServerConfig } from '#src/shared/contracts'
 import { type } from 'arktype'
+import { invocation } from '#src/cli/io'
 import { CONFIG_SCHEMA, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import {
   backupsSchema,
@@ -293,7 +294,7 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
      * carries them would otherwise be read as a service with two unknown keys — a job that quietly
      * stops running. The migration is `home-hosted migrate`, and the message names it.
      */
-    const leftover = entryHasJobFields(entry)
+    const leftover = entryHasJobFields(entry, invocation())
     if (leftover !== null) {
       errors.push(`${label} ("${server.id}"): ${leftover}`)
       return

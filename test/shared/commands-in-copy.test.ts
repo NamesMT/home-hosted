@@ -109,7 +109,7 @@ describe('commands printed in the UI', () => {
        * which told someone importing with `--home` to run a command against the *default* home. Only
        * `cli/io.ts` itself is exempt now: it *is* `invocation()`, so its own text cannot call it.
        */
-      if (relative.startsWith('src/shared/') || relative === 'src/cli/io.ts' || relative === 'src/cli/import-plan.ts')
+      if (relative === 'src/cli/io.ts' || relative === 'src/cli/import-plan.ts')
         continue
       // A comment inside a script the panel *generates* for the host: it runs on Windows, where the panel's
       // own `invocation()` (a Node bin path) would be the wrong thing to print. Not a hint to a person.

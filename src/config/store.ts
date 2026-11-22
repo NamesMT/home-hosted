@@ -13,6 +13,7 @@ import type {
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
+import { invocation } from '#src/cli/io'
 import { planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseServersFile, parseTolerant, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { applyPatch, DDNS_MERGE_KEYS, EMPTY_MERGE_KEYS, NOTIFICATION_MERGE_KEYS, SERVER_MERGE_KEYS } from '#src/config/patch'
@@ -516,7 +517,7 @@ export class WorkspaceStore {
     const server = { ...parsed, port: parsed.port ?? null }
     // A write that still names a job field is refused here, at the write, so a caller cannot create an
     // entry whose `kind` would be silently dropped.
-    const leftover = entryHasJobFields(entry)
+    const leftover = entryHasJobFields(entry, invocation())
     if (leftover !== null)
       throw new ConfigError(`${label}: ${leftover}`)
     return server
