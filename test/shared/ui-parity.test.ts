@@ -63,14 +63,28 @@ describe('the UIs share one proxy form', () => {
    * declarations are one shape written twice, and they drift.
    */
   it('declares no shared type name twice', () => {
+    /**
+     * **Recursive**, because `src/shared` grows subdirectories as the contracts split. A top-level-only
+     * read silently stopped covering the types that moved into `src/shared/contracts/` — the floor below
+     * is what caught it, which is why the floor exists.
+     */
     const shared = new Map<string, string>()
-    for (const file of fs.readdirSync(path.join(root, 'src', 'shared'))) {
-      if (!file.endsWith('.ts'))
-        continue
-      const text = stripComments(fs.readFileSync(path.join(root, 'src', 'shared', file), 'utf8'), file)
-      for (const m of text.matchAll(/^export (?:type|interface) (\w+)/gm))
-        shared.set(m[1]!, `src/shared/${file}`)
+    const gather = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          gather(full)
+          continue
+        }
+        if (!entry.name.endsWith('.ts'))
+          continue
+        const rel = path.relative(root, full).replaceAll('\\', '/')
+        const text = stripComments(fs.readFileSync(full, 'utf8'), entry.name)
+        for (const m of text.matchAll(/^export (?:type|interface) (\w+)/gm))
+          shared.set(m[1]!, rel)
+      }
     }
+    gather(path.join(root, 'src', 'shared'))
 
     // Anti-vacuity: the walk must see the shared modules and a name in each.
     expect(shared.size, 'the shared modules must be read').toBeGreaterThan(150)
