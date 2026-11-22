@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -108,6 +109,36 @@ describe('jobProblems', () => {
 
   it('refuses a 6-field expression, which would run on a schedule nobody typed', () => {
     expect(jobProblems({ schedule: '0 0 3 * * *' }).join(' ')).toMatch(/6/)
+  })
+
+  /**
+   * A file a person edited in Notepad still reads.
+   *
+   * `jobs.config.json` is hand-editable — the whole point of it being a separate file is that someone
+   * can open it — and Windows' own editor writes a UTF-8 BOM before the first `{`. Read with a plain
+   * `'utf8'` `readFileSync`, the document failed as *"is not readable JSON (Unexpected token
+   * '\uFEFF')"*, so every job in it silently disappeared for the person who had just typed one.
+   *
+   * `servers.config.json` and `settings.json` already read through `readStateFile`; this file, added
+   * later to the same layer, did not. UTF-16 is checked too, because a BOM is the marker that tells the
+   * two apart and that is what the helper exists for.
+   */
+  it('reads a file saved with a BOM, in either UTF-8 or UTF-16', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-jobs-bom-'))
+    dirs.push(dir)
+    const document = { jobs: [{ id: 'nightly', command: 'node', args: ['-e', '0'], schedule: '0 3 * * *' }] }
+    const json = JSON.stringify(document)
+
+    const cases: Array<[string, Buffer]> = [
+      ['plain UTF-8', Buffer.from(json)],
+      ['UTF-8 with a BOM', Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(json)])],
+      ['UTF-16LE with a BOM', Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(json, 'utf16le')])],
+    ]
+    for (const [label, bytes] of cases) {
+      const file = path.join(dir, `${label.replace(/\W+/g, '-')}.json`)
+      fs.writeFileSync(file, bytes)
+      expect(new JobStore(file).listOrEmpty().map(job => job.id), label).toEqual(['nightly'])
+    }
   })
 })
 

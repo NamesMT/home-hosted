@@ -4,6 +4,7 @@ import { type } from 'arktype'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { ConfigError } from '#src/config/settings'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { duplicateSecretEnvNames, jobSchema, jobsFileSchema } from '#src/shared/contracts'
 import { cronProblem } from '#src/shared/cron'
 import { errorMessage } from '#src/shared/error-message'
@@ -112,7 +113,14 @@ export class JobStore {
   private readDocument(): { jobs: JobConfig[] } {
     let text: string
     try {
-      text = fs.readFileSync(this.file, 'utf8')
+      /**
+       * `readStateFile`, not a `'utf8'` read: this file is hand-editable, and Windows Notepad writes a
+       * UTF-8 BOM — measured, `jobs.config.json` with one answered *"is not readable JSON (Unexpected
+       * token '\uFEFF')"*, so every job in it silently vanished for anyone who opened it in the editor
+       * the platform ships. `servers.config.json` and `settings.json` already read through this helper;
+       * `jobs.config.json`, added later to the same layer, did not.
+       */
+      text = readStateFile(this.file)
     }
     catch {
       // Absent is "no jobs", which `listOrEmpty` answers before reaching here.
