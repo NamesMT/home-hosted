@@ -208,12 +208,6 @@ function parseScope(all: boolean, raw: string | undefined): Scope | null {
   return { kind: 'include', ids }
 }
 
-/**
- * The plan rows a scope selects, and an exclusion drops.
- *
- * `kind` is deliberately not part of this: it is the panel's label for a row, not an id, and every id
- * the plan prints is already prefixed with it (`global:settings`, `workspace:default:servers`).
- */
 /** Flatten a nested plan into the rows the tree renders. */
 function flattenRows(rows: PlanItem[]): PlanRow[] {
   return rows.flatMap(row => [
@@ -222,6 +216,12 @@ function flattenRows(rows: PlanItem[]): PlanRow[] {
   ])
 }
 
+/**
+ * The plan rows a scope selects, and an exclusion drops.
+ *
+ * `kind` is deliberately not part of this: it is the panel's label for a row, not an id, and every id
+ * the plan prints is already prefixed with it (`global:settings`, `workspace:default:servers`).
+ */
 function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(entries: T[], scope: Scope, exclude: string[] | undefined): T[] {
   const unwanted = exclude ?? []
   const excluded = (id: string): boolean => unwanted.some(entry => id === entry || id.startsWith(`${entry}:`))

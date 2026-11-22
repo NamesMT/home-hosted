@@ -203,12 +203,6 @@ function lifecycle<T>(group: object, filled: T): T {
 }
 
 /**
- * The whole entry as the form now describes it.
- *
- * `filled` is the config the form was filled from: a box that decided nothing falls back to its
- * value. That is also what `serverEditPatch` diffs against, so an untouched field never travels.
- */
-/**
  * The `deploy` group from the editor's textarea, or `null` to remove it.
  *
  * `null` — not an empty list — is what "no deploy action" means, and the schema refuses an empty step
@@ -237,6 +231,12 @@ function deployPayload(text: string, restart: boolean, filled: ServerConfig) {
   }
 }
 
+/**
+ * The whole entry as the form now describes it.
+ *
+ * `filled` is the config the form was filled from: a box that decided nothing falls back to its
+ * value. That is also what `serverEditPatch` diffs against, so an untouched field never travels.
+ */
 export function serverEditPayload(form: ServerEditForm, filled: ServerConfig): Patch {
   const maxRssMb = readFormNumber(form.maxRssMb)
   const logBufferLines = readFormNumber(form.logBufferLines)

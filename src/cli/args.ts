@@ -227,6 +227,22 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
   return null
 }
 
+/** A group's subcommands, possibly lazy at either level, as citty takes them. */
+type SubCommandsShape = Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)>
+
+export interface CommandShape {
+  args?: ArgsDef | (() => ArgsDef | Promise<ArgsDef>) | Promise<ArgsDef>
+  subCommands?: SubCommandsShape | (() => SubCommandsShape | Promise<SubCommandsShape>) | Promise<SubCommandsShape>
+}
+
+/** A possibly-lazy value, as citty's `Resolvable`. */
+async function resolveLazy<T>(value: T | (() => T | Promise<T>) | Promise<T> | undefined): Promise<T | undefined> {
+  if (value === undefined)
+    return undefined
+  const resolved = typeof value === 'function' ? await (value as () => T | Promise<T>)() : await value
+  return resolved as T
+}
+
 /**
  * The definition whose `args` actually govern this argv: the subcommand's, for a group.
  *
@@ -247,22 +263,6 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
  * and the variance between one command's literal args and another's makes the two unassignable to
  * each other. Every field this reads is structural, so the narrow local type is the honest one.
  */
-/** A group's subcommands, possibly lazy at either level, as citty takes them. */
-type SubCommandsShape = Record<string, CommandShape | (() => CommandShape | Promise<CommandShape>)>
-
-export interface CommandShape {
-  args?: ArgsDef | (() => ArgsDef | Promise<ArgsDef>) | Promise<ArgsDef>
-  subCommands?: SubCommandsShape | (() => SubCommandsShape | Promise<SubCommandsShape>) | Promise<SubCommandsShape>
-}
-
-/** A possibly-lazy value, as citty's `Resolvable`. */
-async function resolveLazy<T>(value: T | (() => T | Promise<T>) | Promise<T> | undefined): Promise<T | undefined> {
-  if (value === undefined)
-    return undefined
-  const resolved = typeof value === 'function' ? await (value as () => T | Promise<T>)() : await value
-  return resolved as T
-}
-
 export async function flagTarget(argv: string[], command: CommandShape | undefined): Promise<{ args: ArgsDef | undefined, argsFor: string[] }> {
   if (command === undefined)
     return { args: undefined, argsFor: argv }

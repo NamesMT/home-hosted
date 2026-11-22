@@ -140,11 +140,6 @@ const SECRET_LABELS: Record<string, { en: string, key: string }> = {
 }
 
 /**
- * Structural allowlist for archive entries. A regex alone is not enough: `..`
- * is made of allowed characters, so segments are checked explicitly and any
- * entry that could resolve outside the staging directory aborts the restore.
- */
-/**
  * The servers an archive carries for one workspace, from its staged config.
  *
  * A restore reads this rather than `getSources()` because the live config is the *old* one at this
@@ -184,6 +179,11 @@ function isPortableSegment(segment: string): boolean {
   return true
 }
 
+/**
+ * Structural allowlist for archive entries. A regex alone is not enough: `..`
+ * is made of allowed characters, so segments are checked explicitly and any
+ * entry that could resolve outside the staging directory aborts the restore.
+ */
 export function isSafeArchiveEntry(entry: string): boolean {
   if (entry.startsWith('/') || entry.includes('\0'))
     return false

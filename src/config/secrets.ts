@@ -457,22 +457,6 @@ function readStoredDdns(value: unknown): Record<string, StoredDdnsRecord> {
   return out
 }
 
-/**
- * A hand-edited `serverEnv` block, read tolerantly.
- *
- * A file this release wrote always matches; one a person edited (or a newer release wrote) may hold a
- * non-string value or a nested shape. Anything that is not `{ serverId: { NAME: string } }` is dropped
- * rather than taken as a reason to refuse the whole file — the same rule the other unknown shapes
- * follow, and the reason a typo in one entry cannot lock a person out of their panel.
- */
-/**
- * A hand-edited `apiTokens` list, read tolerantly — and the **legacy single token migrated in**.
- *
- * A file written by an older release has `apiToken` and no list. That token becomes one named
- * `default` with `admin` and no workspace limit: it *was* full admin, so anything narrower would
- * silently remove access an upgrade never announced. The migration happens on read, and the next
- * write persists the list and drops the legacy field — which is why a revoke cannot resurrect it.
- */
 /** An account id: typable, and safe in a URL path and a `Bearer <id>:<secret>` header. */
 const ACCOUNT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/
 
@@ -653,6 +637,14 @@ function migrateLegacyAccounts(contents: SecretsFile): AccountRecord[] {
   return accounts
 }
 
+/**
+ * A hand-edited `apiTokens` list, read tolerantly — and the **legacy single token migrated in**.
+ *
+ * A file written by an older release has `apiToken` and no list. That token becomes one named
+ * `default` with `admin` and no workspace limit: it *was* full admin, so anything narrower would
+ * silently remove access an upgrade never announced. The migration happens on read, and the next
+ * write persists the list and drops the legacy field — which is why a revoke cannot resurrect it.
+ */
 function readNamedTokens(value: unknown): NamedApiTokenRecord[] {
   if (!Array.isArray(value))
     return []
@@ -687,6 +679,14 @@ function readNamedTokens(value: unknown): NamedApiTokenRecord[] {
   return tokens
 }
 
+/**
+ * A hand-edited `serverEnv` block, read tolerantly.
+ *
+ * A file this release wrote always matches; one a person edited (or a newer release wrote) may hold a
+ * non-string value or a nested shape. Anything that is not `{ serverId: { NAME: string } }` is dropped
+ * rather than taken as a reason to refuse the whole file — the same rule the other unknown shapes
+ * follow, and the reason a typo in one entry cannot lock a person out of their panel.
+ */
 function readServerEnv(value: unknown): Record<string, Record<string, string>> {
   if (!isRecord(value))
     return {}
