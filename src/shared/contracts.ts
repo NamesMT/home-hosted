@@ -2038,7 +2038,6 @@ const controlViewSchema = lazy(() => type({
 }))
 export type ControlView = typeof controlViewSchema.infer
 
-/** Everything one workspace owns, plus the live state of its servers. */
 /**
  * A user-supplied UI, as the settings page shows it.
  *
@@ -2085,6 +2084,7 @@ const serverOrphanSchema = lazy(() => type({
 }))
 export type ServerOrphan = typeof serverOrphanSchema.infer
 
+/** Everything one workspace owns, plus the live state of its servers. */
 export const workspaceViewSchema = lazy(() => type({
   'id': 'string',
   'label': 'string',
