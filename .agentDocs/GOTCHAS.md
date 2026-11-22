@@ -159,6 +159,21 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **The security predicates were brute-forced and hold — with the one exception already fixed.**
+  After the `Host` userinfo bypass, every neighbouring predicate was probed the same way rather than
+  assumed: `tokenScopesFor` classifies all nineteen risky method/path pairs correctly, and its
+  completeness is already enforced — `token-scopes.test.ts` walks the published spec and fails if any
+  `/api` route declares no scope, with four anti-vacuity assertions. `dialsPanel` recognises **every**
+  loopback spelling including `[::ffff:127.0.0.1]`, `[::ffff:7f00:1]` and the unbracketed
+  `0:0:0:0:0:ffff:7f00:1` — its `isLoopbackAddress` was already right, which is what the `isLoopbackHost`
+  fix brought the client's predicate up to. `hostnameOf`/`isAllowedHost` refuse twelve of thirteen
+  hostile `Host` shapes; the thirteenth was the `@` form, now fixed.
+
+  Two paths return `null` from `tokenScopesFor` (`PUT /api/auth/password`, `GET /api/health`,
+  `GET /api/activity`) and **none of those routes exists** — only `DELETE /auth/password` is declared —
+  so a `null` there is a speculative path, not an unchecked door. The spec walk is what would catch a
+  real one.
+
 - **`/openapi/spec.json` documents `/_hh` as well as `/api`, and it is accurate in both directions.**
   Measured on a built panel: 78 paths, 103 operations, of which 60 paths / 83 operations are `/api`.
   Driving every documented `/api` operation — substituting `{id}`/`{workspaceId}`/`{kind}` and sending
