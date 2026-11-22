@@ -234,5 +234,12 @@ These are the ones that prevent real defects. Break one only with a reason in th
   `serverSchema`'s own dependency closure is **32 declarations spanning lines 19–1050 with 16 gaps** — it
   reaches `bindSchema`, `notificationsSchema`, `editableFields`, the patch groups and the notification
   destinations. That is a third of the file, so "take `serverSchema` with its helpers" is a rewrite of
-  the core, not a module extraction. **Do not attempt it as a tail-end refactor**; the leaf cuts are done
-  and the rest is one deliberate redesign with its own round.
+  the core, not a module extraction.
+
+  **The tail does not split either.** Taking everything after the request schemas — lines 1059–2149, the
+  112 response and view shapes — looks like a clean 1,100-line run, and it fails the same way from the
+  other direction: those shapes import `serverSchema`, `backupsViewSchema`, `hostSchema` and 17 more back
+  from the barrel, and the round trip collapses every inferred type into `any` (130 implicit-`any` errors,
+  all of which compile as `any` once a stray annotation hides them). **`contracts.ts` is one module by
+  construction**, because a schema graph that references itself in both directions cannot be cut. Leave
+  it whole.
