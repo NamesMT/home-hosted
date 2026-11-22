@@ -206,7 +206,10 @@ export function planPm2Apps(apps: readonly Pm2App[]): ImportPlan {
     if (app.watch === true)
       warnings.push(`"${name}": \`watch\` is not carried — this panel restarts on a crash, not on a file change (run a build watcher as its own entry)`)
     if (typeof app.cron_restart === 'string' && app.cron_restart.trim().length > 0)
-      warnings.push(`"${name}": \`cron_restart "${app.cron_restart}"\` is not carried — this release has no scheduled restart; use a cron job that calls \`home-hosted restart ${id}\``)
+      // No `invocation()` here: this module is a **pure** map with no runtime imports, which is what lets
+      // its tests read it as data. The caller that prints this warning adds the invocation — see
+      // `import.ts`.
+      warnings.push(`"${name}": \`cron_restart "${app.cron_restart}"\` is not carried — this release has no scheduled restart; use a cron job that runs the restart command`)
     if (app.exec_mode === 'cluster' || (typeof app.instances === 'number' && app.instances > 1))
       warnings.push(`"${name}": \`instances\`/\`exec_mode: cluster\` is not carried — this panel supervises one process per entry, so importing would run a single instance`)
 

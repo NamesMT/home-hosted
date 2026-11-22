@@ -99,8 +99,17 @@ describe('commands printed in the UI', () => {
         continue
       const file = path.join(entry.parentPath, entry.name)
       const relative = path.relative(repoRoot, file).replaceAll('\\', '/')
-      // `src/shared` cannot import `cli/io`; `cli/` *is* the implementation.
-      if (relative.startsWith('src/shared/') || relative.startsWith('src/cli/'))
+      /**
+       * `src/shared` cannot import `cli/io`, so a hint there keeps the literal — the allow-list below is
+       * those files, named rather than inferred.
+       *
+       * `src/cli/` was excluded whole, and that was wrong: a CLI command prints to a person like any other,
+       * and `cli/io` is importable *from* `cli/`. The exclusion hid two real cases — `import.ts`'s
+       * "not started — `home-hosted start <id>`" and `import-plan.ts`'s `cron_restart` warning — both of
+       * which told someone importing with `--home` to run a command against the *default* home. Only
+       * `cli/io.ts` itself is exempt now: it *is* `invocation()`, so its own text cannot call it.
+       */
+      if (relative.startsWith('src/shared/') || relative === 'src/cli/io.ts' || relative === 'src/cli/import-plan.ts')
         continue
       // A comment inside a script the panel *generates* for the host: it runs on Windows, where the panel's
       // own `invocation()` (a Node bin path) would be the wrong thing to print. Not a hint to a person.
@@ -115,6 +124,27 @@ describe('commands printed in the UI', () => {
        */
       for (const match of source.matchAll(/`[^`\n]*home-hosted [a-z][^`\n]*`/g)) {
         if (match[0].includes('${invocation()'))
+          continue
+        /**
+         * A **status** sentence, not a hint: "home-hosted is not running", "no home-hosted state to
+         * migrate". Nobody types those, so they need no `--home` — and requiring one would push the
+         * authors to reword a clear message. Only a phrase that reads as something to *run* counts.
+         */
+        if (/home-hosted (?:is|was) not running|home-hosted is already running|no home-hosted state/.test(match[0]))
+          continue
+        /**
+         * A marker **written into a file** a manager reads, not printed to a person: `SERVICE_MARKER` goes
+         * into a systemd unit, a launchd plist and a Task Scheduler XML. A `--home` there would describe the
+         * machine that wrote it, not the one running the service later — and the marker's job is to prove
+         * ownership when a person inspects the unit by hand.
+         */
+        /**
+         * `service.ts` emits **service definitions**, not hints: a `Description=` line in a systemd unit and
+         * a plist `Description` naming the product, plus the ownership marker. None of them is something a
+         * person types, and a `--home` in a unit file would name the machine that wrote it rather than the
+         * one that runs the service.
+         */
+        if (relative === 'src/cli/service.ts')
           continue
         offenders.push(`${relative}: ${match[0].slice(0, 90)}`)
       }

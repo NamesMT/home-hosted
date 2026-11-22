@@ -3,7 +3,7 @@ import type { UiMeta } from '#src/shared/contracts'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
 import { defineCommand } from 'citty'
-import { prompt, style } from '#src/cli/io'
+import { invocation, prompt, style } from '#src/cli/io'
 import {
   assetDownloadUrl,
   compareTags,
@@ -189,7 +189,7 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
     const flag = values.tag !== undefined ? '--tag' : '--asset'
     throw new Error([
       `${flag} needs a repository to fetch from, and this UI does not declare one`,
-      `  pass it: home-hosted ui-update --repo ${DEFAULT_REPO} ${flag} ${values[values.tag !== undefined ? 'tag' : 'asset']}`,
+      `  pass it: ${invocation()} ui-update --repo ${DEFAULT_REPO} ${flag} ${values[values.tag !== undefined ? 'tag' : 'asset']}`,
     ].join('\n'))
   }
 
@@ -221,7 +221,7 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   if (plan.kind === 'unidentifiable') {
     io.write(`${io.style.bold('this UI does not say where it came from')} — nothing to follow automatically\n`)
     printIdentity(io, plan.identity)
-    io.write(`  ${io.style.dim('point it at a repo to make this work: home-hosted ui-update --repo owner/name')}\n`)
+    io.write(`  ${io.style.dim(`point it at a repo to make this work: ${invocation()} ui-update --repo owner/name`)}\n`)
     return
   }
 
@@ -247,7 +247,8 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
     const direction = order === 'newer' ? 'newer' : 'older'
     io.write(`no ${direction} releases carry ${plan.asset}\n`)
     if (order === 'newer')
-      io.write(`  ${io.style.dim('list older releases with: home-hosted ui-update --old')}\n`)
+      // Through `invocation()`: a person running this against `--home` must be told to ask *that* home.
+      io.write(`  ${io.style.dim(`list older releases with: ${invocation()} ui-update --old`)}\n`)
     return
   }
 

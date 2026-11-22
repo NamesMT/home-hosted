@@ -233,6 +233,7 @@ export const importCommand = defineCommand({
     if (result.failed.length > 0)
       process.exitCode = 1
     else
-      process.stdout.write(`${dim('not started — `home-hosted start <id>` when you are ready')}\n`)
+      // Through `invocation()`: a person who imported with `--home` must be told to start *that* home.
+      process.stdout.write(`${dim(`not started — \`${invocation()} start <id>\` when you are ready`)}\n`)
   },
 })
