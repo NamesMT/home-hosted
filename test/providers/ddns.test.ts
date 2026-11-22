@@ -907,4 +907,38 @@ describe('every ddns provider validates credentials', () => {
     expect(both).toContain('1017105')
     expect(both).toContain('is not whitelisted')
   })
+
+  /**
+   * Porkbun's documented auth codes are **permanent**, and everything else stays retryable.
+   *
+   * The envelope field `code` was never declared, so it was never read: a rejected key answered with
+   * Porkbun's prose only, and nothing could tell it from a provider having a moment. `src/services/ddns.ts`
+   * reads `permanent` to end a record, so every failure was retried forever — a wrong key produced a
+   * failure line on the settings page indefinitely.
+   *
+   * `INVALID_API_KEYS_001` and `INVALID_USER` are named in Porkbun's own reference: "API key and secret
+   * combination is invalid" and "Account associated with the API key was not found or is not active".
+   */
+  it('treats Porkbun\'s documented auth codes as permanent, and other failures as retryable', async () => {
+    const reply = (body: unknown) => async () => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    const creds = { apikey: 'pk1_x', secretapikey: 'sk1_y' }
+    const call = async (body: unknown) => updater(porkbunProvider)(
+      record({ host: 'home.example.com', ttl: 600 }),
+      { credentials: creds, fetch: reply(body) as never },
+    )
+
+    for (const code of ['INVALID_API_KEYS_001', 'INVALID_USER']) {
+      const result = await call({ status: 'ERROR', code, message: 'rejected' })
+      expect(result.ok, code).toBe(false)
+      expect(result.permanent, `${code} is the credential being rejected, and retrying cannot fix it`).toBe(true)
+      expect(result.error, 'the code must reach the person').toContain(code)
+    }
+
+    // Anti-vacuity: a provider-side failure and a codeless one must stay retryable, or retry breaks.
+    for (const body of [{ status: 'ERROR', code: 'SOMETHING_ELSE', message: 'temporary' }, { status: 'ERROR', message: 'no code' }]) {
+      const result = await call(body)
+      expect(result.ok).toBe(false)
+      expect(result.permanent, 'a transient failure must stay retryable').not.toBe(true)
+    }
+  })
 })
