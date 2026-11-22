@@ -56,6 +56,30 @@ the API refuses revoking the account you are signed in as. `reset` is what to ru
 sign in at all — it writes a fresh generated secret and prints it, on the machine that runs the
 panel.
 
+### A token is the API credential, and it works with the panel down
+
+An **account** is one credential that signs in *and* calls the API. A **token** is the API half only:
+it never signs in to the UI, and it can be minted from a terminal with no panel running.
+
+```bash
+home-hosted token create --name monitor --scope read   # prints the value once
+home-hosted token ls                                   # ids, names, scopes, last use
+home-hosted token revoke monitor
+```
+
+`create` prints the value exactly once — only its SHA-256 is stored, so there is nothing to print
+again, and `ls` says so rather than looking broken. With the panel running the mint goes through its
+local channel and the panel picks the new token up at once; with it stopped the write goes straight
+to `.control-secrets.json`. Either way the credential is `Authorization: Bearer <id>:<value>`.
+
+**The id is a slug of the name**, and `revoke` takes the **id**: `--name "Deploy Hook"` creates the id
+`deploy-hook`, and `token revoke "Deploy Hook"` answers *no API token with the id "Deploy Hook"* while
+`token revoke deploy-hook` works. `ls` shows both columns, so the id is always there to copy.
+
+**Which to reach for:** `account create` when a *person* signs in; `token create` when a *script*
+calls the API — a monitoring probe, a deploy hook, a scheduled `curl`. Both take the same
+`--scope`/`--workspace`, both are stored as hashes, and `revoke` ends either.
+
 **Managing credentials needs a signed-in session**, never a bearer credential: an account that could
 mint another could escalate past its own scopes. The same rule covers switching authentication off,
 installing a custom UI, and restoring an archive that carries the panel's own credentials

@@ -389,6 +389,8 @@ backup restore    (<name> | --from <path>) (--include <ids> | --all) [--exclude 
 init              --dir <dir> --name <name> --pm <pnpm|npm|yarn|bun> --no-install -y/--yes
 account create <id> [--scope <scopes>] [-w/--workspace <ids>]   (HHOSTED_SECRET to set your own)
 account ls | secret <id> | revoke <id> | reset [<id>] | disable-auth
+token create      --name <name> [--scope <scopes>] [-w/--workspace <ids>] --json
+token ls | revoke <id> --json                  (the panel may be down; the value prints once)
 migrate           --dry-run -y/--yes           (HHOSTED_MIGRATE=allow for a script)
 ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|url> [--insecure] --list --token <token> -y/--yes
 ui-update         --check --tag <tag> --asset <name> --old --repo <owner/name> --token <token> -y/--yes
