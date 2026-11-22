@@ -207,6 +207,24 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
   so the next attempt does not rediscover that.
 
+- **`--all --exclude global:secrets` is refused on a home with nothing else to capture, and that is correct.**
+  Driven on a scratch home: `backup create --all --exclude global:secrets --confirm` answered *"nothing was
+  selected to back up"*, while excluding `global:settings` or `global:tls` succeeded. It looked like the
+  documented "common case" (`src/services/backups.ts:527` calls it exactly that) was broken.
+  It was not. `backup list --json` showed why: the only entry with content was `global:secrets`, and every
+  workspace item was `note: "not set"` — a fresh home has no settings or servers files yet. Once
+  `add web` gave the workspace something, the same command produced a 1 KB archive. The refusal is the
+  guard at `backups.ts:1159`, which exists so an exclusion that captures nothing cannot write a
+  manifest-only archive that "reads as a backup and restores nothing".
+
+  The lesson is the fixture, not the code: **a scratch home is empty, so it cannot answer questions about
+  selection.** Seed something first.
+
+- **`/_hh/backups` is `POST`-only, and a `GET` there answers a *plan* with `200`.** Calling it with `GET`
+  returned `{"dir":…,"entries":[…],"files":[…]}` — which reads like "`confirm=true` was ignored" and is
+  really "the method is wrong". `POST` with `confirm=1` created the archive. The same shape applies to
+  `/_hh/usage` (GET) and `/_hh/shutdown` (POST): check the method before concluding a flag did nothing.
+
 - **The authentication section of `UPGRADING.md` is now verified end to end, claim by claim.** Driven against
   a panel on this build:
   - `/api/auth/token` and `/api/auth/tokens` are **gone** from the spec; `/api/auth/accounts`,
