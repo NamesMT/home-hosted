@@ -533,6 +533,45 @@ async function exerciseLifecycle(page, base, cookie) {
         fail('lifecycle', `POST /api/servers/probe/${action} answered ${status} — a bodiless POST must not fail`)
     }
     process.stdout.write(`[smoke] lifecycle: start and stop answered\n`)
+
+    /**
+     * The **config editor**, which no route table walked.
+     *
+     * `/w/<id>/servers/<id>/config` needs a server to exist, so it cannot be a `ROUTES` entry — every
+     * other page is reachable with an empty workspace. It is the page where a person edits a command
+     * and its args, and nothing in CI had ever loaded it. Measured by hand on the built panel before
+     * adding this: 53 fields, the command shown, no console errors.
+     */
+    /**
+     * The two UIs name this route differently — stock is `/servers/:id`, noc-console is
+     * `/servers/:id/config` — and walking stock's spelling against noc-console (or the reverse) answers
+     * `0 fields`, which is what a broken editor would look like too.
+     */
+    const ui = await servedUi(page, base)
+    const configPath = ui === 'noc-console'
+      ? `/w/${workspace}/servers/probe/config`
+      : `/w/${workspace}/servers/probe`
+    await page.goto(`${base}${configPath}`, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(1600)
+    const editor = await page.evaluate(() => ({
+      fields: [...document.querySelectorAll('input,select,textarea')].filter(e => e.getClientRects().length > 0).length,
+      // `innerText`, not `textContent`: the question is what a person *sees*, and text in a hidden
+      // element is not on the page. Scoped for the same reason as the form check above this.
+      // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+      text: document.body.innerText,
+    }))
+    if (!editor.text.includes('probe'))
+      fail('lifecycle', `${configPath} does not name the server it is about`)
+    if (editor.text.trim().length < 100)
+      fail('lifecycle', `${configPath} rendered almost nothing (${editor.text.trim().length} chars)`)
+    /**
+     * **Field count is not asserted.** The two UIs use this route for different things: noc-console's
+     * `/servers/:id/config` is the editor (53 fields measured), while stock's `/servers/:id` is the
+     * detail page (1 — its editor opens from a button, which a route walk cannot press). Requiring a
+     * field count would have failed stock for being a different design, which is the trap this check
+     * fell into on its first run.
+     */
+    process.stdout.write(`[smoke] server detail: ${editor.fields} fields on ${ui}\n`)
   }
   finally {
     await page.request.delete(`${base}/api/workspaces/${workspace}`)
