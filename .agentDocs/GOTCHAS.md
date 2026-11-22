@@ -185,8 +185,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
     two UI component tests, none of which connects; `proxy.test.ts` never starts an engine.
 
   So the remaining candidates are a Node inspector/dev-server default or a stray listener on the macOS
-  runner, not project code. Recorded as open rather than guessed at — a second sighting with the
-  reporter named would settle it.
+  runner, not project code. Recorded as open rather than guessed at.
+
+  **A second sighting, on Windows as well, added one thing and removed nothing.** Both platforms produced
+  the identical `AggregateError` in the same run, which rules out "macOS runner quirk" but not much else.
+  The two tests that actually *failed* that run were unrelated — two `panel.test.ts` message assertions
+  pinned to a prefix `invocation()` had changed — so the `:3000` noise did not fail the job by itself; the
+  job failed for a real reason and this printed alongside it. That is the most useful fact about it: **it
+  is noise, not a failure**, and chasing it three times has cost more than it is worth until it is the
+  only red line. `vitest run` is what CI invokes, the same as locally, and it does not reproduce here.
 
 - **An SSE stream looks dead under a 3-second probe, and that is not a bug.**
   `PING_INTERVAL_MS` is 15 s (`src/helpers/event-stream.ts`), and a quiet panel publishes nothing in
