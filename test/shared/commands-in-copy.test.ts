@@ -76,4 +76,49 @@ describe('commands printed in the UI', () => {
     }
     expect(offenders).toEqual([])
   })
+
+  /**
+   * A command hint in **server** copy goes through `invocation()`.
+   *
+   * `invocation()` carries `--home` when the caller chose a state directory, quoted for the shell, and
+   * resolves the program for an installed bin, `npx home-hosted` and a source checkout alike. A literal
+   * `home-hosted account reset` in an error message tells someone with a `--home` panel to run a command
+   * against the *default* home — which created `~/.home-hosted` beside the state they meant.
+   *
+   * Eight messages had drifted: the sign-in lockout, three `SESSION_REQUIRED` refusals, the backup
+   * restore and UI install refusals, and two `contracts.ts` config refusals. The last two are in
+   * `src/shared`, which may not import `cli/io`, so they keep the literal — the allow-list below is
+   * exactly those two, named rather than inferred.
+   */
+  it('uses invocation() for a command hint in server copy', () => {
+    const offenders: string[] = []
+    let scanned = 0
+    for (const entry of fs.readdirSync(path.join(repoRoot, 'src'), { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.ts'))
+        continue
+      const file = path.join(entry.parentPath, entry.name)
+      const relative = path.relative(repoRoot, file).replaceAll('\\', '/')
+      // `src/shared` cannot import `cli/io`; `cli/` *is* the implementation.
+      if (relative.startsWith('src/shared/') || relative.startsWith('src/cli/'))
+        continue
+      // A comment inside a script the panel *generates* for the host: it runs on Windows, where the panel's
+      // own `invocation()` (a Node bin path) would be the wrong thing to print. Not a hint to a person.
+      if (relative === 'src/providers/wsl-temperature.ts')
+        continue
+      scanned += 1
+      const source = stripComments(fs.readFileSync(file, 'utf8'), file)
+      /**
+       * The shape that matters: a backtick string naming a `home-hosted` subcommand, in a file that could
+       * have called `invocation()`. Matching the literal alone is enough — the escapes and conditions I
+       * first wrote skipped the very case this test exists for.
+       */
+      for (const match of source.matchAll(/`[^`\n]*home-hosted [a-z][^`\n]*`/g)) {
+        if (match[0].includes('${invocation()'))
+          continue
+        offenders.push(`${relative}: ${match[0].slice(0, 90)}`)
+      }
+    }
+    expect(scanned, 'the scan found no server sources — a broken glob would pass for free').toBeGreaterThan(30)
+    expect(offenders, 'a command hint must carry --home; use invocation()').toEqual([])
+  })
 })

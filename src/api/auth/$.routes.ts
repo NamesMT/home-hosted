@@ -5,6 +5,7 @@ import type { LoginRequest } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
+import { invocation } from '#src/cli/io'
 import { scopeCatalogue } from '#src/config/secrets'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
@@ -280,7 +281,7 @@ export function createAuthRoute(deps: AppDeps) {
          * names the two real paths, both of which the person can follow.
          */
         if (identity.method !== 'cookie') {
-          throw new DetailedError('turning authentication off needs a signed-in session, not a bearer credential — sign in at the panel, or run `home-hosted account disable-auth` on the machine', {
+          throw new DetailedError(`turning authentication off needs a signed-in session, not a bearer credential — sign in at the panel, or run \`${invocation()} account disable-auth\` on the machine`, {
             statusCode: 403,
             code: 'SESSION_REQUIRED',
           })
@@ -323,7 +324,7 @@ function requireSession(c: Context, deps: AppDeps, what: string): AuthIdentity {
   if (!identity.authenticated)
     throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
   if (identity.method !== 'cookie')
-    throw new DetailedError(`${what} needs a signed-in session, not an API credential — sign in at the panel, or run \`home-hosted account\` on the machine`, { statusCode: 403, code: 'SESSION_REQUIRED' })
+    throw new DetailedError(`${what} needs a signed-in session, not an API credential — sign in at the panel, or run \`${invocation()} account\` on the machine`, { statusCode: 403, code: 'SESSION_REQUIRED' })
   return identity
 }
 

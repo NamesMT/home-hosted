@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono'
 import type { AuthIdentity, AuthService } from '#src/services/auth'
 import type { HistoryActor } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
+import { invocation } from '#src/cli/io'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { bearerToken, SESSION_COOKIE } from '#src/services/auth'
@@ -54,7 +55,7 @@ export function accessRefusal(c: Context, auth: AuthService, identity: AuthIdent
       code: 'AUTH_UNARMED',
     })
   }
-  return new DetailedError('authentication is off, so only this machine may use the panel — create an account (`home-hosted account create <id> --scope read,lifecycle,config,proxy,admin`) and turn authentication on to reach it through a proxy or from another machine', {
+  return new DetailedError(`authentication is off, so only this machine may use the panel — create an account (\`${invocation()} account create <id> --scope read,lifecycle,config,proxy,admin\`) and turn authentication on to reach it through a proxy or from another machine`, {
     statusCode: 401,
     code: AUTH_DISABLED_CODE,
   })

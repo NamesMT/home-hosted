@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import { Hono } from 'hono'
 import { describeRoute, generateSpecs } from 'hono-openapi'
+import { invocation } from '#src/cli/io'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { appVersion } from '#src/helpers/version'
@@ -189,7 +190,7 @@ export function setupOpenAPI(app: Parameters<typeof generateSpecs>[0]) {
                 bearerAuth: {
                   type: 'http',
                   scheme: 'bearer',
-                  description: '`<id>:<secret>` for a panel account, from `home-hosted account create`. It never expires until the secret is rotated or the account revoked.',
+                  description: `\`<id>:<secret>\` for a panel account, from \`${invocation()} account create\`. It never expires until the secret is rotated or the account revoked.`,
                 },
                 sessionCookie: {
                   type: 'apiKey',

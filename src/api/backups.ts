@@ -8,6 +8,7 @@ import { Readable } from 'node:stream'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute, resolver } from 'hono-openapi'
+import { invocation } from '#src/cli/io'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -210,7 +211,7 @@ export function createBackupsRoute(deps: AppDeps) {
         // attacker's hash in the file.
         if (confirm && selectionWritesCredentials({ include: request.include, exclude: request.exclude })) {
           if (requestIdentity(c, deps.auth).method !== 'cookie') {
-            throw new DetailedError('restoring the panel\'s own credentials needs a signed-in session, not an API token — sign in, or run this from the machine with `home-hosted backup restore`', {
+            throw new DetailedError(`restoring the panel's own credentials needs a signed-in session, not an API token — sign in, or run this from the machine with \`${invocation()} backup restore\``, {
               statusCode: 403,
               code: 'SESSION_REQUIRED',
             })

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { invocation } from '#src/cli/io'
 import { errorMessage } from '#src/shared/error-message'
 /**
  * The GitHub-release side of installing a UI: which repo, which tag, which asset, how
@@ -333,7 +334,7 @@ export function describeReleaseFailure(status: number, repo: RepoSlug, tag: stri
   const slug = repoSlug(repo)
   if (status === 404) {
     if (tag !== null && tag !== 'latest')
-      return `no release tagged "${tag}" in ${slug}\n  list what exists with: home-hosted ui-switch --repo ${slug} --tag latest --list`
+      return `no release tagged "${tag}" in ${slug}\n  list what exists with: ${invocation()} ui-switch --repo ${slug} --tag latest --list`
     return `no repository or published release at ${slug}\n  check the --repo slug (owner/name), and that the repository is public`
   }
   if (status === 403 || status === 429)

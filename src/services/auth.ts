@@ -1,6 +1,7 @@
 import type { AccountRecord, ApiTokenScope, SecretsStore } from '#src/config/secrets'
 import type { AccountView, AuthConfig, SessionView } from '#src/shared/contracts'
 import crypto from 'node:crypto'
+import { invocation } from '#src/cli/io'
 import { accountIdProblem, API_TOKEN_SCOPES } from '#src/config/secrets'
 import { parseCookies } from '#src/helpers/cookies'
 
@@ -492,7 +493,7 @@ export class AuthService {
       return {
         ok: false,
         status: 429,
-        error: `too many failed sign-ins on this panel, retry in ${Math.ceil(retryAfterMs / 1000)}s (or run \`home-hosted account reset\` on the machine)`,
+        error: `too many failed sign-ins on this panel, retry in ${Math.ceil(retryAfterMs / 1000)}s (or run \`${invocation()} account reset\` on the machine)`,
         retryAfterMs,
       }
     }

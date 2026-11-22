@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
+import { invocation } from '#src/cli/io'
 import { ConfigError } from '#src/config/store'
 import { displayHost } from '#src/helpers/bind'
 import { afterResponse } from '#src/helpers/deferred'
@@ -122,7 +123,7 @@ export function createSettingsRoute(deps: AppDeps) {
        * Turning it *on* stays open to a token: that only adds protection.
        */
       if (patch.control?.auth?.enabled === false && requestIdentity(c, deps.auth).method !== 'cookie') {
-        throw new DetailedError('switching authentication off needs a signed-in session, not a bearer credential — sign in, or run `home-hosted account disable-auth` on the machine', {
+        throw new DetailedError(`switching authentication off needs a signed-in session, not a bearer credential — sign in, or run \`${invocation()} account disable-auth\` on the machine`, {
           statusCode: 403,
           code: 'SESSION_REQUIRED',
         })
@@ -237,7 +238,7 @@ export function createSettingsRoute(deps: AppDeps) {
      */
     async (c, next) => {
       if (requestIdentity(c, deps.auth).method === 'token') {
-        throw new DetailedError('installing a UI needs a signed-in session, not an API token — sign in at the panel, or run `home-hosted ui-switch --file <zip>` on the machine', {
+        throw new DetailedError(`installing a UI needs a signed-in session, not an API token — sign in at the panel, or run \`${invocation()} ui-switch --file <zip>\` on the machine`, {
           statusCode: 403,
           code: 'SESSION_REQUIRED',
         })
