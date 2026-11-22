@@ -447,7 +447,7 @@ async function save(): Promise<void> {
     :description="t('editor.changesDescription')"
     width="w-[min(92vw,42rem)]"
   >
-    <div class="max-h-[60dvh] overflow-auto">
+    <div class="scroll-hint-x max-h-[60dvh] overflow-auto">
       <ul v-if="changes.length > 0" class="divide-y divide-line-soft">
         <li v-for="change in changes" :key="change.path" class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 first:pt-0">
           <code class="font-mono text-xs text-ink">{{ change.path }}</code>

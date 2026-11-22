@@ -121,7 +121,7 @@ function apply(): void {
           {{ mode === 'only' ? t('settings.backups.scopeOnlyHint') : t('settings.backups.scopeExceptHint') }}
         </p>
 
-        <div class="max-h-80 overflow-auto">
+        <div class="scroll-hint-x max-h-80 overflow-auto">
           <CaptureTree :choices="draft" show-count />
         </div>
 

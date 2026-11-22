@@ -71,7 +71,7 @@ async function submit(): Promise<void> {
     width="w-[min(92vw,40rem)]"
   >
     <div class="space-y-3">
-      <div class="max-h-80 overflow-auto">
+      <div class="scroll-hint-x max-h-80 overflow-auto">
         <CaptureTree :choices="choices" :disabled="busy" show-count />
       </div>
 

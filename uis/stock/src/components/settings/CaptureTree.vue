@@ -157,7 +157,7 @@ function partiallySelected(entry: EntryChoice): boolean {
           </div>
         </div>
 
-        <ul class="max-h-72 space-y-1 overflow-auto">
+        <ul class="scroll-hint-x max-h-72 space-y-1 overflow-auto">
           <li v-for="leaf in subTarget?.leaves ?? []" :key="leaf.id" class="rounded-control px-2 py-1.5 hover:bg-hover">
             <CheckField
               :model-value="subDraft[leaf.id] === true"

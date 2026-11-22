@@ -263,7 +263,7 @@ watch(open, (isOpen) => {
           <p class="mt-2">
             {{ t('settings.restore.choosePrompt', { selected: selectedCount, total: plan.items.length }) }}
           </p>
-          <ul class="mt-1 max-h-64 space-y-0.5 overflow-auto">
+          <ul class="scroll-hint-x mt-1 max-h-64 space-y-0.5 overflow-auto">
             <li v-for="item in plan.items" :key="item.id">
               <CheckField
                 v-model="item.selected"

@@ -212,17 +212,33 @@ describe('the layout survives a phone', () => {
     expect(rule, 'the cover defaults to a panel').toContain('--scroll-cover: var(--panel)')
     expect(styles, 'a page-ground cover exists').toContain('--scroll-cover: var(--page)')
 
-    // Every horizontal scroller in a template opts into it.
+    /**
+     * Every box that can scroll sideways opts into the hint.
+     *
+     * The first version matched `overflow-x-auto` only, and that is one spelling of three: a bare
+     * `overflow-auto` scrolls on **both** axes, and `overflow-scroll`/`overflow-x-scroll` force bars on.
+     * Seven boxes in this UI — the capture tree, the restore and backup lists, the log viewer, two
+     * dialog bodies — scroll horizontally through `overflow-auto` and were invisible to the guard, so
+     * a long path in a label was cut off with nothing saying so. That is the defect this test exists
+     * for, in the spelling it did not look at.
+     */
     const silent: string[] = []
+    const HORIZONTAL = /\boverflow-(?:x-auto|x-scroll|auto|scroll)\b/
+    let scrollers = 0
     for (const file of templateFiles()) {
       const source = fs.readFileSync(file, 'utf8')
-      for (const match of source.matchAll(/class="([^"]*\boverflow-x-auto\b[^"]*)"/g)) {
+      for (const match of source.matchAll(/class="([^"]*)"/g)) {
         const classes = match[1] ?? ''
+        if (!HORIZONTAL.test(classes))
+          continue
+        scrollers += 1
         if (!classes.split(/\s+/).includes('scroll-hint-x'))
           silent.push(`${path.relative(root, file)}: "${classes}"`)
       }
     }
     expect(silent).toEqual([])
+    // Anti-vacuity: the scan must be finding scrollers at all.
+    expect(scrollers, 'no horizontal scroller matched — the scan has drifted off the markup').toBeGreaterThan(10)
 
     // A scroller drawn straight on the page ground says so, or its cover is the wrong colour.
     const jobs = fs.readFileSync(path.join(root, '..', '..', 'uis/stock', 'src/views/JobsView.vue'), 'utf8')

@@ -269,7 +269,7 @@ const streamOptions = computed(() => [
     <div class="relative min-h-0 flex-1">
       <div
         ref="scroller"
-        class="h-full overflow-auto overscroll-contain bg-page/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+        class="h-full scroll-hint-x overflow-auto overscroll-contain bg-page/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
         :style="{ minHeight: props.minHeight }"
         tabindex="0"
         role="log"
