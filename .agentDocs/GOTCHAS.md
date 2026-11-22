@@ -207,6 +207,17 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
   so the next attempt does not rediscover that.
 
+- **A legacy `.control-secrets.json` fixture must use **base64** for `salt` and `hash`, and the salt is
+  decoded before use.** Two failed attempts to verify the credential migration were my fixture, not the
+  code. `deriveKey` takes a `Buffer` salt (`hashPassword` does `salt.toString('base64')`), and the password
+  is `normalize('NFKC')` before hashing. Writing the salt as a hex string, and hashing it as a string
+  rather than decoding it, gives `verifyAccountSecret → false` with matching-looking
+  `{N:16384, r:8, p:1}` parameters — which reads exactly like a broken migration.
+
+  Built correctly, the documented migration holds: a real 0.13 password record signs in as account
+  `default` with every scope (`200`), and `Authorization: Bearer <value-without-a-colon>` is refused
+  (`401`), as `UPGRADING.md` says.
+
 - **`refused` in `/api/meta` is about credential *kind*, not scopes — and the scope refusal lives in the
   403 instead.**
   A read-only session reports `refused: []` while being refused `403` on `POST /api/servers` and
