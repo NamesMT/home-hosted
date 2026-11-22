@@ -50,6 +50,36 @@ Notifications, Dynamic DNS (4/4).
 Headings render as *Globale Einstellungen*, *Arbeitsbereich-Einstellungen*, *Reverse-Proxy* — the long
 compounds — with **0 px** sideways overflow and no console errors.
 
+## Mutating actions (root agent, same pass)
+
+The review task points at these because the page-load pass above could not reach them. Driven with
+Playwright against the built panel, `HHOSTED_HOME=/tmp/hh-mut`, port 6994.
+
+**Add a server, end to end — works.** The dialog is a **two-step wizard**: it opens on a preset picker
+(Minecraft, Jellyfin, Node, Python, each with a sentence about what to change), and the form is
+`v-show="!showPresets"` — `display: none` until a preset is chosen. Two readings of mine were wrong before
+that was clear: the first said "dialog has 1 visible field", the second "the form has zero size, it is a
+bug". Both were the first step of a working wizard.
+
+After picking **A Node app**, filling `demo` / `Demo app` / port `7985` and submitting:
+
+- the server appears in the list;
+- it **survives a reload**;
+- and it reached the config file with every field intact —
+  `demo  command=node port=7985 label=Demo app`.
+
+**Start — works.** The row control reads `Start`; after clicking, the row reads `running` and the workspace
+counter moved `0/1`. No console errors.
+
+**A crash is surfaced, in both places a person looks.** The Node preset pre-fills `args: ["server.js"]`, which
+did not exist in my scratch working directory, so it exited 1 and gave up after its retries. The servers page
+says `Crashed` / `node server.js` / `Exited`; `/w/default/logs` carries the detail — `exited with code 1 after
+1s`, `gave up after 3 retries (code 1)`, `84 lines`. That is correct behaviour for a broken entry, and the
+reporting is the useful kind.
+
+**One routing note for the reviewer, not a defect:** there is no per-server logs control on the servers page;
+logs are the workspace route `/w/<id>/logs`. If a finding is "I cannot find the logs", look there.
+
 ## What this pass did NOT cover
 
 - Every action a person takes: add/edit/delete a server, start/stop/restart, the config editor, presets,
