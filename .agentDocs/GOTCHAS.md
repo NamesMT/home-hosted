@@ -159,6 +159,23 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   through the one door left open. **`transfer-encoding` is the discriminator** — srvx gives *every*
   request a body stream, so a bodyless `POST` and a chunked one are identical by that measure; only the
   chunked one carries the header. It is now refused `411 LENGTH_REQUIRED`.
+- **One macOS `config-watch` failure is an unowned `ECONNREFUSED 127.0.0.1:3000`, and the source is open.**
+  `test/services/config-watch.test.ts > sees an external write` failed once on macOS with an
+  `AggregateError` listing `connect ECONNREFUSED` to both `::1:3000` and `127.0.0.1:3000`. A re-run was
+  green and the three runs before it were green. What is established, and worth not rediscovering:
+
+  - `config-watch.test.ts` itself has no network code — only `fs`, `os`, `path` and `ConfigWatch`.
+  - The stack shows the error surfacing **between** tests, not inside the failing one, so the test that
+    reported it is probably not the test that caused it.
+  - Nothing in `src/` opens a TCP connection to an upstream. `exposure.ts` resolves an upstream's
+    hostname with `node:dns` `lookup`, which would not produce `ECONNREFUSED`.
+  - `127.0.0.1:3000` appears only as a **fixture string** in `test/services/proxy.test.ts` (35 sites) and
+    two UI component tests, none of which connects; `proxy.test.ts` never starts an engine.
+
+  So the remaining candidates are a Node inspector/dev-server default or a stray listener on the macOS
+  runner, not project code. Recorded as open rather than guessed at — a second sighting with the
+  reporter named would settle it.
+
 - **An SSE stream looks dead under a 3-second probe, and that is not a bug.**
   `PING_INTERVAL_MS` is 15 s (`src/helpers/event-stream.ts`), and a quiet panel publishes nothing in
   between, so a 3 s read captures exactly one frame (`hello`) and reads as "the stream is broken". I
