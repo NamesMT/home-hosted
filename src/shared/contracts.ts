@@ -148,13 +148,8 @@ const deployStepSchema = lazy(() => type({
 /**
  * `deploy`: an ordered list of steps, run in the entry's environment, then a restart.
  *
- * A failed step **stops the deploy** and keeps the old process running — half-deployed is the state
- * this exists to avoid, and the running service is the thing a person still has. `restart` defaults
- * to **true**: the point of a deploy is that the process picks it up, and a false default would make
- * every deploy a no-op nobody noticed.
- *
- * The steps are a **list a patch replaces whole**, like `args` and `backupPaths`: a deploy is a
- * sequence, and merging two sequences key by key would interleave them.
+ * A failed step stops the deploy and keeps the old process running. `restart` defaults to true — the
+ * point of a deploy is that the process picks it up. A patch replaces the list whole, like `args`.
  */
 const deploySchema = lazy(() => type({
   steps: deployStepSchema.array().atLeastLength(1),
@@ -224,14 +219,8 @@ export const bootstrapOrNullSchema = lazy(() => bootstrapSchema.or(type('null'))
 /**
  * The `bootstrap` group as a patch carries it: every field optional, and **no defaults**.
  *
- * A patch must not fill a default in (`AGENTS.md`), and it could not here for a second reason.
- * `bootstrap` is not in `SERVER_MERGE_KEYS`, so `applyPatch` **replaces** the whole group; the
- * defaults on `bootstrapSchema` used to arrive with the patch, so sending one changed field
- * wrote a group with the other four reset. Measured on `PATCH /api/servers/db` with
- * `{"bootstrap":{"command":"next.sh"}}`: stored `args: ["--ci"]` became `[]`, `runOnce: false`
- * became `true` — re-arming a one-shot bootstrap to run on every `up` — and `timeoutMs: 5000`
- * became `120000`. The group is still replaced, so a caller sends the fields it means to keep;
- * what changes is that the panel no longer invents the ones it did not send.
+ * `bootstrap` is not in `SERVER_MERGE_KEYS`, so a patch replaces the whole group; a default arriving
+ * with it would reset the fields the caller did not send.
  */
 const bootstrapPatchSchema = lazy(() => type({
   command: 'string >= 1?',
@@ -243,15 +232,11 @@ const bootstrapPatchSchema = lazy(() => type({
 const bootstrapPatchOrNullSchema = lazy(() => bootstrapPatchSchema.or(type('null')))
 
 /**
- * A command run around a backup, for engines that need one to produce a consistent copy.
+ * A command run around a backup, for engines that need one to produce a consistent copy
+ * (`mongodump`, because copying a live `dbPath` gives a torn one).
  *
- * `mongodump` is the reason this exists: copying `dbPath` while the server writes gives a torn copy,
- * and a dump taken by the engine is the only supported way. Same shape as `bootstrap` — one program
- * and its args, never a command line — and the same rule that the panel never guesses what an engine
- * needs.
- *
- * `{dumpDir}` is created before `dump` runs and captured by the archive; on restore the same
- * directory is filled again before `load` runs, so the two hooks see the same path.
+ * One program and its args, never a command line. `{dumpDir}` is created before `dump` and captured
+ * by the archive; on restore the same directory is filled before `load`, so both hooks see one path.
  */
 const backupHookSchema = lazy(() => type({
   // Non-empty: an empty command is accepted by `spawn`'s type but fails at run time, and a `dump`
@@ -345,13 +330,9 @@ export function duplicateSecretEnvNames(names: readonly string[]): string[] {
 /**
  * The **shape** of a cron expression: exactly five whitespace-separated fields.
  *
- * A schema can prove this much without a predicate (which `toJsonSchema` cannot render, and every
- * route's OpenAPI document needs that). The *contents* — ranges, steps, names, bounds — are proved by
- * `cronProblem()` in `src/shared/cron.ts`, which `serverKindProblems()` calls at every write. The
- * split is the one `duplicateSecretEnvNames` already makes, for the same reason.
- *
- * Five fields, deliberately: a 6-field expression (seconds first) read as 5 would run on a schedule
- * nobody typed, and the `@daily`-style macros are a different language. Both are refused by name.
+ * A schema proves only the shape, because `toJsonSchema` cannot render a predicate; the contents are
+ * proved by `cronProblem()` at every write. Five fields deliberately — a 6-field expression read as 5
+ * would run on a schedule nobody typed.
  */
 export const cronExpressionSchema = lazy(() => type(/^\S+(?: +\S+){4}$/)
   .describe('a 5-field cron expression (minute hour day-of-month month day-of-week); no seconds field, no @macros'))
@@ -390,17 +371,10 @@ export function entryHasJobFields(entry: Record<string, unknown>, command?: stri
 }
 
 /**
- * One **job**: a short-lived command on a cron schedule.
+ * One **job**: a short-lived command on a cron schedule, whose exit code is the outcome.
  *
- * Jobs had their own lifecycle bolted onto a server entry (`kind: "job"` plus `schedule`), and it
- * showed: half the Servers page and half its explanation existed to say "this one is not really a
- * server". A job is a different thing from a service — it starts, it runs, it exits, and its **exit
- * code is the outcome** — so it is a different domain with its own file, page, API and command.
- *
- * What a job therefore does **not** have, by construction rather than by a rule that refuses it:
- * no `port` (nothing serves), no `health` (nothing stays up), no `restart` (a finished run is not
- * retried), no `persistent` (a nanny keeps a *service* alive). Deleting the field is a better answer
- * than refusing it, because a refusal needs explaining and the Servers page no longer has to.
+ * What a job does not have, it does not have *by construction*: no `port`, `health`, `restart` or
+ * `persistent`, because those belong to something that stays up.
  */
 export const jobSchema = lazy(() => type({
   'id': '/^[a-z0-9][a-z0-9_-]*$/',
@@ -1973,19 +1947,13 @@ const historyEventSchema = lazy(() => type({
   /** How long the process had been up, recorded on exit, crash, deploy and a job run. */
   'runtimeMs': 'number?',
   /**
-   * How an attempt ended, recorded on a `deploy` or a `job-run`.
+   * How an attempt ended, recorded on a `deploy` or a `job-run`. `running` is written when a run
+   * **starts**, and its `ts` is the durable "this occurrence was claimed" — which is what stops a
+   * panel restarted mid-run from starting a second copy.
    *
-   * `overlap` is a job run that was **skipped** because the previous one was still going — not a
-   * failed run, and the distinction is what tells a person "it is too slow" from "it is broken".
-   * `cancelled` is a run a stop ended, whose non-zero exit status says nothing about the work.
-   */
-  /**
-   * How a `job-run` ended — and `running`, which is written when it **starts**.
-   *
-   * A start record is what makes the boot catch-up correct: a panel restarted *during* a run used to
-   * find no `job-run` event for it (the completion one had not been written yet) and start a second
-   * copy while the first was still going. The record's `ts` is the durable "this occurrence was
-   * claimed", so a restart sees a run in flight rather than a missed one.
+   * `overlap` is a run **skipped** because the previous one was still going — not a failure, and the
+   * distinction tells a person "too slow" from "broken". `cancelled` is a run a stop ended, whose
+   * non-zero exit status says nothing about the work.
    */
   'outcome?': '"ok" | "failed" | "cancelled" | "overlap" | "running"',
   /** Who caused it; absent on events from before this field existed. */
@@ -2642,17 +2610,11 @@ export const ssePingFrameSchema = lazy(() => type({
   ts: 'number',
 }).onDeepUndeclaredKey('ignore'))
 /**
- * Every `event:` name this build's streams can send, **derived from the frame schemas**.
+ * Every `event:` name this build's streams can send, derived from the frame schemas so `GET /api/meta`
+ * cannot drift from what is actually sent.
  *
- * `GET /api/meta` publishes this list so a client knows what to listen for. It used to be a hand-written
- * literal in `src/api/state.ts`, which is correct only while somebody remembers to update it: a fifth
- * frame type would have been delivered to clients the panel never announced. Reading the union means the
- * announcement cannot drift from the frames.
- *
- * **A function, not a module-level constant.** Computing it at import calls `toJsonSchema()` on four
- * `lazy()` schemas, which materialises them — exactly what `test/shared/lazy.test.ts` exists to forbid, and
- * it counted **79** built schemas the moment this was a `const`. The panel pays for a schema when code
- * asks it a question, not when the module loads.
+ * A function, not a module-level constant: computing it at import materialises the `lazy()` schemas,
+ * which is what `test/shared/lazy.test.ts` forbids.
  */
 /** Cached after the first call: the answer is a property of the schemas, and `/api/meta` is a request path. */
 let sseEventNamesCache: string[] | null = null
@@ -2778,31 +2740,14 @@ export type BackupPlanResponse = typeof backupPlanResponseSchema.infer
 export const backupLocalResponseSchema = lazy(() => backupPlanResponseSchema.or(backupCreatedResponseSchema))
 
 /** Buffered or persisted log lines, the shape every log-reading route returns. */
-/**
- * `GET /api/servers/:id/logs` — the **buffered** lines, straight from memory.
- *
- * It is not the disk history below: this route has no window, no rotation and no search, so it
- * answers `{ lines }` and nothing else. The schema used to be a copy of the disk shape
- * (`serverId`/`enabled`/`sizeBytes`/`files`/`searched`), so the documented response named five
- * fields the handler never sent — and `searched` was declared as an array here while the disk route
- * sends a number. `test/api/panel.test.ts` only walks routes it can reach with a live fixture and
- * skipped this one, so nothing caught it.
- */
+/** `GET /api/servers/:id/logs` — the buffered lines, straight from memory: no window, no rotation. */
 export const bufferedLogsResponseSchema = lazy(() => type({
   lines: logLineSchema.array(),
 }))
 
 /**
- * `GET /api/logs/:id` — one entry's log **from disk**, with its rotation and its search window.
- *
- * This is the shape the UIs parse (`logHistoryViewSchema` below is the same thing with its own
- * name for the client side), and it is what `logLinesResponseSchema` should always have been.
- */
-/**
- * One job's own log lines, plus what the page needs to explain an empty answer.
- *
- * `enabled` is the workspace's `logs.persist`, which a job log obeys like a server's: off means the
- * panel keeps nothing, and a page must say so rather than claim the run printed nothing.
+ * One job's own log lines, plus what the page needs to explain an empty answer: `enabled` is the
+ * workspace's `logs.persist`, and a page must say "nothing kept" rather than "nothing printed".
  */
 export const jobLogViewSchema = lazy(() => type({
   jobId: 'string',
@@ -2928,6 +2873,7 @@ export const logServersViewSchema = lazy(() => type({
   servers: logServerViewSchema.array(),
 }))
 
+/** One entry's log **from disk**, with its rotation and search window — the shape the UIs parse. */
 export const logHistoryViewSchema = lazy(() => type({
   serverId: 'string',
   enabled: 'boolean',
