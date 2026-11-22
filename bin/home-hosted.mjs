@@ -48,6 +48,24 @@ const child = spawn(process.execPath, commandArgs, {
   stdio: 'inherit',
 })
 
+/**
+ * Forward the signals that mean "stop" to the child, instead of dying and orphaning it.
+ *
+ * Node does **not** pass a signal to a child: a bare `spawn` child is in no new process group, so the
+ * terminal's Ctrl-C reaches both — but `kill <shim>` (what a supervisor, a container runtime or a
+ * `systemctl stop` does) hits only this process. Measured: `kill -TERM` on the shim exited 143 while the
+ * `up --foreground` child kept running and holding its port. That is the worst shape for a panel — the
+ * thing the person meant to stop is still serving, and nothing says so.
+ *
+ * `SIGKILL` cannot be caught, which is why it is not listed: nothing here could forward it.
+ */
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill(signal)
+  })
+}
+
 child.once('error', (error) => {
   process.stderr.write(`home-hosted could not start: ${error.message}\n`)
   process.exit(1)
