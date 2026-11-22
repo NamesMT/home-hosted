@@ -207,6 +207,22 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
   reachable docker daemon (`docker info` fails here) and a full ACME issuance needs a public name. Recorded
   so the next attempt does not rediscover that.
 
+- **`refused` in `/api/meta` is about credential *kind*, not scopes — and the scope refusal lives in the
+  403 instead.**
+  A read-only session reports `refused: []` while being refused `403` on `POST /api/servers` and
+  `PATCH /api/settings`. That reads as a bug and is not: `credentialRefusals(kind)` answers only "which
+  moves would let a *token* replace the panel's owner", so a session is refused none of the seven, however
+  narrow its scopes. `docs/API.md` says so, including the warning to read it as *"the moves that would take
+  the panel over", never as reduced authority*.
+
+  What a client actually needs is already there, and in a better place — the refusal itself:
+
+      403 {"message":"this account has the read scope — POST /api/servers needs `config`",
+           "code":"TOKEN_SCOPE","detail":{"needed":"config","held":["read"]}}
+
+  Names the needed scope, the held scopes and the route. A `credential.scopes` field would not be more
+  useful than this, and this one is specific to the attempt rather than the session.
+
 - **The five open items this audit carried for months are all closed — do not re-verify them from the
   queue.** Each was checked this round rather than assumed:
   1. *"A fifth table ships a silent scroller."* Guarded twice. `uis/stock/test/mobile-layout.test.ts`
