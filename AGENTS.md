@@ -88,11 +88,16 @@ pnpm run build                 # dist/cli.js + the stock UI
 pnpm run build:uis             # every UI, zipped into uis/dist/
 pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated catalogs
 pnpm run smoke                 # boot the BUILT panel and walk every route in Chromium
+pnpm run verify:actions        # boot the BUILT panel and walk every MUTATING action over the API
 ```
 
 - **`pnpm run smoke` drives the built panel and both UIs in Chromium at two viewports
   (`scripts/smoke.mjs`). Not part of `check`; CI runs it (`smoke.yml`). Run it after any change under
   `uis/`.**
+- **`pnpm run verify:actions` walks the mutating half (`scripts/verify-actions.mjs`).** Smoke loads
+  routes; this creates, patches, reads back and deletes over the API against a real built panel, so a
+  save that reports success but does not persist is caught. It makes its own throwaway home and
+  account, and cleans up after itself. Run it after a request or response shape changes.
 - **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.
   CI on a push runs only the tests its changes reach since the last green run (`test.yml`); the
   whole suite with coverage runs on a manual dispatch of `test.yml` and in every release. `check:fast` follows imports, so a change only a spawned CLI or a source scan
