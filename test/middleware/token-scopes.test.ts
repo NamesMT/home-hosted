@@ -219,9 +219,16 @@ describe('an account with admin', () => {
  */
 describe('an account with proxy', () => {
   /**
-   * Six requests across three proxy routes, each of which builds the fixture's service graph — 28 s
-   * alone, and past vitest's 90 s default once the whole suite runs in parallel. A budget, not an
-   * assertion: the cases below it prove the scopes, and this one only has further to walk.
+   * Three proxy routes, each asked twice: once by a `proxy` account, once by a `config` one.
+   *
+   * **`POST /api/proxy/engine` is asked with a body the route refuses before it installs.** The route
+   * downloads an engine binary, and this file is about scopes, not about installation — letting it
+   * through cost **31 s** of the file's 29 s runtime, which is how a scope test became the slowest thing
+   * in the suite and then crossed vitest's 90 s default under full parallelism. A `400` from the body
+   * still proves the guard let the *credential* through, because a scope refusal answers `403
+   * TOKEN_SCOPE` first — which is the only comparison these cases make.
+   *
+   * The install itself is `test/api/proxy.test.ts`'s subject.
    */
   it('manages the proxy, and a config account may not', async () => {
     const created = await fixture()
@@ -235,8 +242,9 @@ describe('an account with proxy', () => {
     ] as const) {
       const answer = await created.app.request(path, {
         method,
+        // A version the engine will not install: the schema refuses it, so nothing is downloaded.
         headers: { ...proxy.headers, 'content-type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(method === 'POST' && path.endsWith('/engine') ? { version: 'not a version' } : {}),
       })
       expect(answer.status, `proxy account ${method} ${path}`).not.toBe(403)
 
@@ -248,7 +256,7 @@ describe('an account with proxy', () => {
       expect(refused.status, `a config account must not ${method} ${path}`).toBe(403)
       expect(await refused.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
     }
-  }, 150_000)
+  })
 
   it('is still granted by admin', async () => {
     const created = await fixture()
