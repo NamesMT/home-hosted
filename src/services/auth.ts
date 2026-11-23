@@ -247,30 +247,24 @@ export class AuthService {
   /**
    * The account a `Bearer <id>:<secret>` header names, or `null`.
    *
-   * The **id travels in the credential**, exactly as a username travels with a password: the panel
-   * cannot be asked "which account is this secret for" without comparing it against every stored hash,
-   * which is both slower and a timing signal. Splitting on the first `:` keeps a secret containing one
-   * intact, and a missing `:` is refused rather than guessed — a legacy single-value token is not an
-   * account and must not silently become one.
+   * The **id travels in the credential**, as a username travels with a password: the panel cannot be
+   * asked "which account is this secret for" without comparing it against every stored hash, which is
+   * both slower and a timing signal. Splitting on the first `:` keeps a secret containing one intact,
+   * and a missing `:` is refused rather than guessed — a legacy single-value token is not an account
+   * and must not silently become one.
    *
-   * **A failed guess is contained per address, with the lockout a failed sign-in uses.** This method
-   * is read on every `/api` request by `requestIdentity`, and a miss costs one scrypt (equalised on
-   * every failed answer, so a miss cannot name an id). Without a bound, an anonymous caller loops
-   * `<made-up-id>:<guess>` and every attempt burns ~30 ms of **synchronous** scrypt on the event-loop
-   * thread; no valid credential and no known account id is needed. Measured against a scratch panel
-   * with 16 such workers: `/healthz` went from 2.3 ms to a sustained 1.02 s (~440×) and recovered the
-   * moment the load stopped, with the reverse proxy's health checks and every state frame queued
-   * behind the hashing. `login` was already bounded per address *and* panel-wide; this path had
-   * neither, so the panel's own login limits were bypassable by moving the guess to the header.
+   * **A failed guess is contained per address, with the lockout a failed sign-in uses.** This runs on
+   * every `/api` request, and a miss costs one scrypt (~30 ms **synchronous**, on the event-loop
+   * thread, equalised on every failed answer so a miss cannot name an id). Unbounded, an anonymous
+   * caller loops `<made-up-id>:<guess>` with no valid credential and no known account id, and the
+   * whole panel stalls behind the hashing — so `login`'s per-address limits were bypassable by moving
+   * the guess to the header.
    *
-   * It is the **per-address** budget, not the panel-wide one. The panel-wide counter refuses even a
-   * correct credential once spent, by design — that is what bounds a distributed guess. Applying it
-   * here would mean ~100 junk headers from one stranger stop every working script's bearer token for
-   * ten minutes, which trades a CPU DoS for a trivial outage of the automation the panel exists to
-   * serve. Bounding the offending address slows the guesser down and leaves everyone else alone.
-   *
-   * With no address (a caller outside a request) the guess is unbounded by address, as `login` is
-   * with no address: there is no rate to abuse when the caller is already inside the process.
+   * It is the **per-address** budget, not the panel-wide one: that counter refuses even a correct
+   * credential once spent, so applying it here would let ~100 junk headers from one stranger stop
+   * every working script's token for ten minutes — a trivial outage of the automation the panel
+   * exists to serve, traded for a CPU DoS. With no address (a caller already inside the process)
+   * there is no rate to abuse, exactly as `login` treats it.
    */
   accountFromBearer(value: string, ip: string | null = null): AccountRecord | null {
     const separator = value.indexOf(':')

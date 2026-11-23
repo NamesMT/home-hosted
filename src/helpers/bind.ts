@@ -3,17 +3,14 @@ import os from 'node:os'
 /**
  * How long the LAN address stays good.
  *
- * `os.networkInterfaces()` is not free: it was measured at **34–62 ms per call** on a machine
- * with three interfaces (median 51 ms, 30 calls), because libuv enumerates every interface and
- * every address each time. `lanAddress()` is called from `serverTemplateVars`, which runs once per
- * server inside a state frame — so a 40-entry panel called it 82 times per build and spent ~4.2 s
- * of a 4.3 s window blocked inside it, with the tick publishing once a second. `/healthz` took
- * 3.1–4.2 s and every `/api` route waited behind the same loop.
+ * `os.networkInterfaces()` is not free — libuv enumerates every interface and every address each time,
+ * measured at **34–62 ms per call** on a three-interface machine. `lanAddress()` is called from
+ * `serverTemplateVars`, once per server inside a state frame, so a large panel spent most of its
+ * one-second tick blocked inside it and `/healthz` waited behind the same loop.
  *
  * A home server's LAN address changes when DHCP moves it, a cable moves, or a VPN comes up, and a
  * half-minute of staleness costs one stale "open server" link that the next frame corrects. So the
- * value is cached, and the cache is short enough that a network change is picked up without a
- * restart.
+ * value is cached, short enough that a network change is picked up without a restart.
  */
 const LAN_ADDRESS_TTL_MS = 30_000
 

@@ -46,14 +46,13 @@ export type WorkspaceErrorCode = 'UNKNOWN_WORKSPACE' | 'WORKSPACE_EXISTS'
  * The workspace a command acts in when none was named: `default` if the host declares it, else the
  * first one it declares.
  *
- * **The panel already answers this question, and the CLI was answering a different one.** Every
+ * **The panel already answered this question, and the CLI was answering a different one.** Every
  * workspace-scoped `/api` and `/_hh` route resolves an omitted `?workspace` through
- * `PanelService.requireWorkspace` → `WorkspaceRegistry.defaultId`, i.e. this rule. The two CLI
- * commands that take a workspace id read `DEFAULT_WORKSPACE_ID` literally instead — so on a host
- * whose registry lists one workspace that is not called `default` (a colleague's panel, or one
- * where `default` was removed), `start <id>` reached that workspace while `logs <id>` looked in
- * `.hh/default/.logs/`, a directory that does not exist. Measured: `logs` answered "no output yet"
- * and exited 0 for a log that was on disk, on the one command a diagnostic session starts with.
+ * `PanelService.requireWorkspace` → `WorkspaceRegistry.defaultId`, i.e. this rule, while the two CLI
+ * commands that take a workspace id read `DEFAULT_WORKSPACE_ID` literally — so on a host whose
+ * registry lists one workspace that is not called `default`, `start <id>` reached that workspace
+ * while `logs <id>` looked in a directory that does not exist, and answered "no output yet" and
+ * exited 0 for a log that was on disk.
  *
  * One function, called by every surface that asks, so a third caller cannot re-derive it.
  */

@@ -183,19 +183,18 @@ function exitCodeHint(code: number | null): string | null {
  * A spawn failure in words a person can act on.
  *
  * Node reports a missing program as `spawn <cmd> ENOENT` — the same errno as a missing *file*, and
- * the same wording whichever of the two it is. A user who pasted `java -jar server.jar` into
- * `command` saw exactly that and had nothing to go on: the message names the whole line, so it
- * reads as "the program is missing" even when the program is fine and only the argument is wrong.
+ * the same wording either way. The message names the whole line, so a pasted
+ * `java -jar server.jar` in `command` reads as "the program is missing" even when the program is
+ * fine and only the argument is wrong.
  *
  * `command` is the configured program, so the two cases can be told apart: if a bare name has no
  * path separator, the shell would have searched `PATH` and this one did not.
  *
  * A **missing working directory** is the third cause of the same errno, and it is the one a
  * deployment hits: `spawn` resolves `cwd` before it looks for the program, so an entry whose `cwd`
- * does not exist *under this launch directory* fails exactly like an uninstalled program. That read
- * sent a person to `which node` while `node` was fine and only the relative path was wrong (a unit
- * file with no `WorkingDirectory=`, a container started from `/`). `cwd` is therefore checked first:
- * if it is not an existing directory, nothing else about the spawn could have worked.
+ * does not exist *under this launch directory* fails exactly like an uninstalled program. `cwd` is
+ * therefore checked first: if it is not an existing directory, nothing else about the spawn could
+ * have worked.
  */
 export function describeSpawnError(error: NodeJS.ErrnoException, command: string, cwd?: string): string {
   const missingDir = cwd === undefined ? null : describeMissingDir(cwd)

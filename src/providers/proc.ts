@@ -251,13 +251,11 @@ function collectTree(rootPid: number, children: Map<number, number[]>): number[]
 /**
  * CPU time a tree used over one interval, from per-pid cumulative counters.
  *
- * Pure, and separated from the scan because this is where both CPU bugs lived — and a scan of the
- * live process table cannot pin arithmetic that depends on a child appearing or vanishing between
- * two reads.
+ * Pure, and separated from the scan because a live process table cannot pin arithmetic that depends
+ * on a child appearing or vanishing between two reads.
  *
- * `previous` is the **whole process table** of the prior scan, not just this tree: that is what
- * lets a process which joins the tree later be charged only its interval, and what the caller
- * guarantees.
+ * `previous` is the **whole process table** of the prior scan, not just this tree: that is what lets
+ * a process which joins the tree later be charged only its interval, and what the caller guarantees.
  *
  * Three rules make the answer a real interval:
  *
@@ -265,9 +263,8 @@ function collectTree(rootPid: number, children: Map<number, number[]>): number[]
  *   reports less than the process that used to hold it, and that is not a delta.
  * - A pid only in `next` was **born inside the window**, so its whole counter accrued in it.
  * - A pid only in `previous` **exited inside the window**; its time is already accounted for by the
- *   samples where it was alive, and it contributes nothing. The old code summed the tree on both
- *   sides, so an exit made the total *drop*, the delta went negative and the reading was discarded
- *   — the gap. Summing only pids present in `next` is what removes it.
+ *   samples where it was alive, and it contributes nothing. Summing the tree on both sides would make
+ *   an exit drop the total, turn the delta negative and discard the reading.
  *
  * `null` when the map has nothing usable, so a caller reports "unknown" instead of `0`.
  */

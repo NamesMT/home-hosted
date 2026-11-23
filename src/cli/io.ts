@@ -66,31 +66,20 @@ function invocationProgram(): string {
 /**
  * A reader that hangs up is a finished conversation, not a crash.
  *
- * Node's stdout is a socket. When the reader closes it, the next write raises `EPIPE` as an **error
- * event**, and an unhandled one kills the process with an engine stack trace and exit 1: measured on
- * the built CLI, `dist/cli.js status | head -1` printed `Error: write EPIPE … at runStatus` and exited
- * 1, so `set -o pipefail` turned a working panel into a failed deploy step. `logs --lines all | head`
- * and `logs --follow | head` did the same.
+ * Node's stdout is a socket: a closed reader raises `EPIPE` as an **error event**, and unhandled it
+ * kills the process with an engine stack trace and exit 1 — so `set -o pipefail` turns
+ * `status | head -1` into a failed deploy step. This exits 0 like Node's own CLI and Python do,
+ * because the command *succeeded* and only the reader stopped listening. GNU tools die of SIGPIPE
+ * (141), which `pipefail` also reports as a failure.
  *
- * GNU tools die of SIGPIPE (141), which `pipefail` reports as a failure too; Node's own CLI and
- * Python's exit 0. This follows the latter, because the command *succeeded* and only the reader
- * stopped listening — nothing was refused, and no work was lost.
+ * **The code for "the reader is gone" differs per platform** — `EPIPE` on Linux, `ENOTCONN` from a
+ * stdout socket on macOS, `ERR_STREAM_DESTROYED` or a bare `closed` elsewhere — so the test is "does
+ * this error say the reader went away". Matching only `EPIPE` left macOS exiting 1 with an **empty
+ * stderr**. A full disk or an EIO still ends the process. `ENOTCONN` means this here and nowhere
+ * else: nothing in the CLI opens its own socket.
  *
- * **The code for "the reader is gone" is not the same on every platform.** `EPIPE` is what Linux
- * reports; libuv elsewhere can surface the same condition as `ERR_STREAM_DESTROYED`, and a write to an
- * already-destroyed stream arrives with no `code` at all and the message `closed`. Matching only
- * `EPIPE` left the macOS gate failing with exit 1 and an **empty stderr** — nothing was printed and
- * nothing was explained, because the error was a stream state, not a failed write. So the test is
- * "does this error say the reader went away"; a full disk or an EIO still ends the process.
- *
- * `ENOTCONN` is the one the macOS runner actually produced: a stdout **socket** whose peer has closed
- * reports "socket is not connected", not a broken pipe (measured in the cross-platform workflow —
- * `write ENOTCONN` at the write site, with the reader long gone). It means the same thing here and
- * nowhere else in this codebase: nothing in the CLI opens a socket of its own, so a write reaching
- * this handler with `ENOTCONN` is always the stdout pipe's reader having hung up.
- *
- * Installed once at the entry so every command shares it. A per-command copy is the shape that leaves
- * the next command broken, and every release adds more write sites.
+ * Installed once at the entry so every command shares it; a per-command copy leaves the next command
+ * broken, and every release adds more write sites.
  */
 const READER_GONE = /^(?:EPIPE|ENOTCONN|ERR_STREAM_DESTROYED|ERR_STREAM_WRITE_AFTER_END|ECONNRESET)$/
 

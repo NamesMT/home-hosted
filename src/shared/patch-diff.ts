@@ -70,18 +70,14 @@ export function diffFields(current: Patch, next: Patch, nested: readonly string[
 /**
  * Has a **replaced** list been touched by this form?
  *
- * A list a patch replaces (`destinations`, `routes`) is all-or-nothing on the wire:
- * sending it writes the sender's whole view, including the entries it has never
- * seen. So the comparison that decides "send it" must be against the list this form
- * was **filled with**, never against live state — live state moving is precisely
- * what another client's save looks like, and a form that treats that as its own
- * edit deletes whatever arrived while it was open. Measured: with the workspace
- * settings page open on `alpha`, a second client added `beta`; saving an unrelated
- * policy toggle on the first page removed `beta` from disk.
+ * A list a patch replaces (`destinations`, `routes`) is all-or-nothing on the wire: sending it writes
+ * the sender's whole view, including the entries it has never seen. So the comparison that decides
+ * "send it" must be against the list this form was **filled with**, never against live state — live
+ * state moving is precisely what another client's save looks like, and a form that treats that as its
+ * own edit deletes whatever arrived while it was open.
  *
- * `filled` absent means the block was never filled, and a list that was never
- * filled must not travel either: it is `[]`, and `[]` on a replaced list is
- * "delete every entry".
+ * `filled` absent means the block was never filled, and a list that was never filled must not travel
+ * either: it is `[]`, and `[]` on a replaced list is "delete every entry".
  */
 
 export interface ReplacedListMerge<T> {

@@ -131,10 +131,9 @@ export function setupOpenAPI(app: Parameters<typeof generateSpecs>[0]) {
          * hono-openapi injects its own default on any operation that has a validator and does not
          * name a `400`: `{ success: false, error: [], data }`. This API has never sent that shape —
          * `src/helpers/error.ts` maps every failure through one `DetailedError` envelope,
-         * `{ message, code, detail }`, which is what AGENTS.md promises and what a client parses.
-         * Measured on 29 operations: `GET /api/servers`, `POST /api/servers/{id}/start`, every
-         * `/_hh` lifecycle route, `GET /api/logs/{id}`. The document described a body no successful
-         * client would ever see, and every generated client was typed against it.
+         * `{ message, code, detail }`, which is what AGENTS.md promises and what a client parses. Left
+         * to the default, the document described a body no successful client would ever see, and every
+         * generated client was typed against it.
          *
          * Spelled as a resolved JSON schema rather than `ERROR_RESPONSES[400]`: this option takes
          * an OpenAPI response object, not a Standard Schema, and `apiErrorSchema` is what that

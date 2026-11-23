@@ -99,13 +99,12 @@ export function buildWorkspaceView(source: WorkspaceViewSource): WorkspaceView {
  *
  * A workspace-limited token's limit is enforced by the scope guard on every route that **names** a
  * workspace. `GET /api/state` names none — it is the panel in one payload — so the guard has nothing
- * to check it against, and the snapshot handed a `staging`-limited `read` account `default`'s whole
- * subtree: every server's id, `config.command`, live pid and status, plus `configPath` and `logsDir`.
- * Measured on a fixture whose `default` holds `secret-svc`, the refused account read
- * `[{"id":"secret-svc","command":"node --api-key=SUPERSECRET","pid":4242}]` out of `/api/state` while
+ * to check it against, and the snapshot handed a `staging`-limited account `default`'s whole subtree:
+ * every server's id, `config.command`, live pid and status, plus `configPath` and `logsDir`. A
+ * refused account read a `default` entry's `node --api-key=SUPERSECRET` out of `/api/state` while
  * `/api/servers?workspace=default` answered it `403 TOKEN_SCOPE`.
  *
- * That is the sentence `GET /api/metrics` and `GET /api/events` were each fixed for: "there is no
+ * It is the same sentence `GET /api/metrics` and `GET /api/events` were each fixed for: "there is no
  * `?workspace=` to narrow" is true of the *query* and false of the *data*. Here the payload is the
  * full view rather than a handful of gauges, which makes it the richest way to read a workspace the
  * account may not poll.

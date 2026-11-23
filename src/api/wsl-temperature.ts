@@ -32,16 +32,14 @@ function status(deps: AppDeps): WslTemperatureStatus {
  * The last live probe, and how long an answer from it may be reused.
  *
  * `GET /api/host/temperature` is declared `read`, and its probe **spawns `host.tempCommand`** through
- * a shell. Unbounded, that made a reading route into a process-spawn amplifier: measured on a scratch
- * panel with the command set to `sleep 2; echo 42`, 20 concurrent requests from an account holding
- * only `read` all answered `200` after ~2.4 s, i.e. twenty shells ran at once, and each repeat of the
- * request cost another one. `read` is documented as "the readings" and is the scope a monitor gets, so
- * a leaked monitor credential could spawn as many processes as it had sockets — and the panel's own
- * page calls this route once on mount, so a cache costs it nothing.
+ * a shell. Unbounded, that makes a reading route a process-spawn amplifier: `read` is the scope a
+ * monitor gets and is documented as "the readings", so a leaked monitor credential could spawn as
+ * many processes as it had sockets — one per repeat of the same request. The panel's own page calls
+ * this route once on mount, so a cache costs it nothing.
  *
- * Deliberately not "only probe when the command changed": the point of the route is to show a live
- * reading, and a temperature is one number, so a short reuse window is the honest trade — the same
- * shape `TlsStore.status` uses for its own per-frame filesystem work.
+ * Deliberately not "only probe when the command changed": the point of the route is a live reading,
+ * and a temperature is one number, so a short reuse window is the honest trade — the same shape
+ * `TlsStore.status` uses for its own per-frame filesystem work.
  */
 const PROBE_CACHE_MS = 5000
 

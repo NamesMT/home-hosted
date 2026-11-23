@@ -53,13 +53,12 @@ export function createControlRoute(deps: AppDeps) {
   /**
    * The credential check, as **middleware**, so it runs before anything reads the body.
    *
-   * `assertLocalCall` was called from inside each handler, which put it *after*
-   * `validate('json', …)`: the body is parsed to validate it, so an unauthenticated caller could make
-   * the panel buffer and schema-walk a payload of its choosing before being refused. Measured on the
-   * local channel with a 2 MB body and no token, the answer was `400 INVALID_INPUT` naming a field
-   * rather than `403`, with ~3 MB of heap used to say it — pre-auth work proportional to the request,
-   * on a channel whose whole design is "the token is the only guard". It also leaked the expected
-   * body shape of a privileged route to a caller that had not proved anything.
+   * `assertLocalCall` was called from inside each handler, which put it *after* `validate('json', …)`:
+   * the body is parsed to validate it, so an unauthenticated caller could make the panel buffer and
+   * schema-walk a payload of its choosing before being refused — a 2 MB body answered `400
+   * INVALID_INPUT` naming a field rather than `403` — and leaked a privileged route's expected body
+   * shape to a caller that had proved nothing. Pre-auth work proportional to the request, on a channel
+   * whose whole design is "the token is the only guard".
    *
    * Only the routes that read a body need this (`POST /_hh/servers` and
    * `POST /_hh/servers/secrets/:id`); the rest answer from the query string, where validation is a

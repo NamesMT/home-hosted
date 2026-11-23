@@ -826,20 +826,14 @@ export class PanelService {
  * serialised — no list to keep in step, and no way to forget the next field somebody adds.
  *
  * It was a hand-written list of the fields someone believed mattered, and that belief was wrong four
- * times: `apiTokenSet`/`passwordSet`/`allowedHosts` (minting a token reached no other tab), the host
- * view's `enabled` (dials kept drawing after sampling was switched off), `backups`'s policy
- * (`enabled`, `keep`, `dir`, `schedule` — a hand edit reloaded the store and published nothing), and
- * the proxy's `certificates` (a stored pair reached no other tab while the engine was off). Each fix
- * widened the list; each one left the next field to be found the same way, by somebody noticing a
- * stale page.
+ * times over (`apiTokenSet`/`passwordSet`/`allowedHosts`, the host view's `enabled`, `backups`'
+ * policy, the proxy's `certificates`), and the `ui` status signed three of `meta`'s eight fields. Each
+ * fix widened the list and left the next field to be found the same way: by somebody noticing a stale
+ * page in another tab.
  *
- * The whole `ui` status was never right either: it signed `custom`, `meta.name` and `meta.version`,
- * and `meta` has eight fields — `uploadedAt`, `files`, `repo`, `tag`, `asset`, `unix` were all
- * invisible, so re-uploading the same name and version published nothing.
- *
- * Cost, measured: `JSON.stringify` of an eight-workspace, six-server frame is **0.009 ms** (8.6 kB),
- * and this runs at most once per publish — the frame itself is already serialised to every SSE
- * client, so signing it is not the expensive half.
+ * Cost: `JSON.stringify` of an eight-workspace, six-server frame is **0.009 ms**, at most once per
+ * publish — the frame is already serialised to every SSE client, so signing it is not the expensive
+ * half.
  */
 function stateSignature(state: AppState): string {
   return JSON.stringify(state)

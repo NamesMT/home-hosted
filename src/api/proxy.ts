@@ -129,9 +129,8 @@ export function createProxyRoute(deps: AppDeps) {
          * A route names the entry it forwards to, so writing one into another workspace is acting on
          * that workspace — and the write side is worse than the read side, because a patch *replaces*
          * the list: a `staging`-limited `admin` account that sent its own one route deleted every
-         * other workspace's, and one that named `default` redirected a public hostname at
-         * `default`'s entry. Measured on a scratch panel: `PATCH /api/proxy` with a route into
-         * `default` answered `200` and the table served it.
+         * other workspace's, and one that named `default` redirected a public hostname at `default`'s
+         * entry.
          *
          * So the rows it may not touch are kept in place, and a row naming a workspace outside the
          * limit is refused rather than silently dropped — the same pair `GET` answers with, one

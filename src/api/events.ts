@@ -77,11 +77,10 @@ export function createEventsRoute(deps: AppDeps) {
          *
          * The live feed is the one `/api` read that is **not** narrowed by `?workspace=` alone: it
          * also carries a `log` frame for every workspace, and the state frame names every workspace.
-         * Declared panel-wide, it handed an account limited to `staging` the default workspace's
-         * output — measured, a `staging`-limited `read` account subscribed with no query at all and
-         * received `DEFAULT-LEAK` from `default`'s `web`. Its sibling `GET /api/logs?workspace=default`
-         * refuses that account, so a limit that held on the polling route and not on the streaming one
-         * was no limit: the stream is the cheaper way to watch a workspace you may not read.
+         * Declared panel-wide it handed an account limited to `staging` the default workspace's
+         * output, while its sibling `GET /api/logs?workspace=default` refused that account — so a
+         * limit that held on the polling route and not on the streaming one was no limit, and the
+         * stream is the cheaper way to watch a workspace you may not read.
          *
          * A session, this machine, and an unlimited credential get `null` — scopes are about
          * credentials, and the UIs open the panel-wide stream with no query so their selector still

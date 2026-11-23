@@ -592,22 +592,20 @@ function dataTargetMatcher(archiveTargets: DataTarget[], instanceTargets: DataTa
  *
  * An archive is a snapshot, so the release that wrote it is often **older** than the one restoring
  * it — the backup someone takes before an upgrade is the one they reach for afterwards. Its files
- * carry the schema they were written with, and the parsers refuse an older stamp by design, so a
- * plain readability gate discarded every config an older archive carried: measured on a real
- * 0.7.21 archive applied to a blank 0.10.0 home, it reported "restored 4 items" and every one of
- * them was a secrets leaf, while both workspaces and the global settings were dropped as "not
- * valid" — a half-restored setup that reads as a success.
+ * carry the schema they were written with and the parsers refuse an older stamp by design, so a
+ * plain readability gate silently discarded every config an older archive carried while reporting
+ * the restore a success.
  *
- * So run the same chain `migrate` runs, on the contents rather than on a file: an archive that
- * needs lifting is lifted, and one this release cannot lift is still refused. A newer archive is
- * never rewritten here — that direction is refused earlier, from the manifest's own schema.
+ * So run the same chain `migrate` runs, on the contents rather than on a file: an archive that needs
+ * lifting is lifted, and one this release cannot lift is still refused. A newer archive is never
+ * rewritten here — that direction is refused earlier, from the manifest's own schema.
  *
  * **Lifting needs an explicit older stamp.** A file carrying no `meta.schema` is not evidence of an
  * older release — it is a seed (written in the current shape) or a damaged file, and lifting an
- * unparseable one let `{"not": "a servers file"}` be stamped as a valid empty `servers.config.json`,
- * which would restore a workspace with every entry deleted. Only a numeric stamp this release can
- * lift qualifies, and an unstamped file is refused here: the parsers accept one whose kind has no
- * step to run (a hand-written `servers.config.json`), so they are no longer the gate for it.
+ * unparseable one would stamp `{"not": "a servers file"}` as a valid empty `servers.config.json`,
+ * restoring a workspace with every entry deleted. Only a numeric stamp this release can lift
+ * qualifies; the parsers accept an unstamped file whose kind has no step to run, so they are no
+ * longer the gate for it.
  *
  * `null` means "this release cannot read it", which stays distinguishable from "it was fine".
  */
@@ -2101,11 +2099,9 @@ export class BackupService {
    * Reclaims the staging trees a killed backup left behind.
    *
    * `create()` removes its staging on success and in a `catch`, which covers every failure it can
-   * observe — but a `SIGKILL`, a power cut or a container stop never returns to run the `catch`.
-   * Measured on a real home with a 60 MB data path: two interrupted runs left two `.staging-*`
-   * trees, **121 MB** beside a single 184 B archive. `scan()` filters on `.zip` and `prune()` walks
-   * `list()`, so nothing listed them and nothing removed them — the debris of a failed attempt
-   * holding the free space the next one needs, on the disk that already filled.
+   * observe — but a `SIGKILL`, a power cut or a container stop never returns to run the `catch`, and
+   * `scan()` filters on `.zip` while `prune()` walks `list()`, so nothing listed the debris and
+   * nothing removed it: the free space the next attempt needs, held on the disk that already filled.
    *
    * The owner's pid decides it, never an age: another run sharing this directory is *live*, not
    * stale, and deleting its tree would destroy a capture in progress. `isProcessAlive` is the same
