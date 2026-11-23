@@ -252,14 +252,17 @@ async function main() {
     )
 
     /**
-     * **Deploy through the running panel** — the path with no test anywhere else.
+     * **Deploy, on both channels.**
      *
      * `test/cli/deploy.test.ts` covers deploy **offline**, which is the path someone uses *because the
-     * panel is down*. The panel path resolves the entry's environment through its supervisor, and nothing
-     * exercised it: a sweep of every `test/` file found `/_hh/servers/.../deploy` in none of them.
+     * panel is down*. The two *live* paths are different routes that happen to share a name:
+     * `/api/servers/:id/deploy` for a client, and `/_hh/servers/:id/deploy` for the CLI, which reaches it
+     * with `run.json`'s token instead of a session. A sweep of the spec against every test file found
+     * neither named anywhere.
      *
-     * The entry declares one step that writes a file, so the check is the file rather than the answer. A
-     * deploy that reports success and runs nothing is exactly the shape this walk exists for.
+     * This comment used to claim it covered `/_hh` while calling `/api` — the same shape of error as a
+     * guard that checks one spelling of a class. Both are exercised now, and the entry declares one step
+     * that writes a file, so the check is evidence rather than an echo of the answer.
      */
     const marker = `deploy-marker-${Date.now()}`
     const declared = await api('/api/servers/verify1', {
@@ -275,9 +278,30 @@ async function main() {
 
     const deployRun = await api('/api/servers/verify1/deploy', { method: 'POST', body: JSON.stringify({}) })
     record(
-      'deploy through the panel reaches the route and reports its outcome',
+      'deploy through /api reports its outcome',
       deployRun.status === 200 && typeof deployRun.body.ok === 'boolean',
       `status ${deployRun.status}, ok ${JSON.stringify(deployRun.body.ok)}, failedStep ${JSON.stringify(deployRun.body.failedStep ?? null)}`,
+    )
+
+    /**
+     * The same entry, through the **local channel** — the route the CLI actually uses.
+     *
+     * `/_hh` takes `run.json`'s token rather than a session, so it is a separate route with separate auth
+     * and the walk reaching it with a bearer would prove only that a bearer is refused. It is called with
+     * the local token, which the walk can read from the home it made.
+     */
+    const localToken = JSON.parse(fs.readFileSync(path.join(HOME, '.hh', 'run.json'), 'utf8')).token
+    const deployLocal = await fetch(`${BASE}/_hh/servers/verify1/deploy`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-home-hosted-token': localToken },
+      body: '{}',
+      signal: AbortSignal.timeout(60_000),
+    })
+    const deployLocalBody = await deployLocal.json().catch(() => ({}))
+    record(
+      'deploy through the local channel (/​_hh) reaches the route',
+      deployLocal.status === 200 && typeof deployLocalBody.ok === 'boolean',
+      `status ${deployLocal.status}, ok ${JSON.stringify(deployLocalBody.ok)}`,
     )
 
     /**
@@ -493,6 +517,7 @@ async function main() {
       'POST /api/servers/{id}/start',
       'POST /api/servers/{id}/stop',
       'POST /api/servers/{id}/deploy',
+      'POST /_hh/servers/{id}/deploy',
       'POST /api/jobs',
       'POST /api/jobs/{id}/run',
       'PATCH /api/settings',
