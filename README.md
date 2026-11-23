@@ -112,10 +112,9 @@ it, so the check is in the CLI itself.) `pnpm dlx home-hosted …` works too. `-
 > **Before you expose it to anything but this machine.** It listens on `127.0.0.1` until you say
 > otherwise, and it refuses to bind further — or to be put behind its own reverse proxy — while it
 > still has its first-run secret. So: set your own secret (12+ characters) first, *then* bind to `lan` (UI,
-> `settings.json`, or `up --host lan`). And an `admin` account is **everything the panel's user can do**:
-> it can create and start a server entry, and an entry runs any command as that user. Give a script only
-> the scopes it needs — `read` for a monitor, `read,lifecycle` for a deploy hook — and revoke it when it
-> may have leaked. The whole model: [SECURITY.md](./docs/SECURITY.md).
+> `settings.json`, or `up --host lan`). **Treat an `admin` account as that user's shell on this
+> machine**, and give every script the least scopes it needs. The whole model:
+> [SECURITY.md](./docs/SECURITY.md).
 
 <details>
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
@@ -424,9 +423,10 @@ home-hosted migrate             # asks once before any schema step, keeps a .bak
 ```
 
 A newer release always reads an older config, and unknown keys are kept and reported, never reset.
-What it will not do is run a config it cannot read — a wrong value, a duplicate id, a newer schema —
-so `up` stops with the exact problem instead of starting on defaults. Release notes say what each
-upgrade needs from you. **Coming from 0.6.x:** run the latest 0.7.x once first.
+A config it cannot read — a wrong value, a duplicate id, a newer schema — stops `up` with the exact
+problem instead of starting on defaults. Release notes say what each upgrade needs from you.
+**Coming from 0.6.x:** run the latest 0.7.x once first. Details:
+[CLI.md](./docs/CLI.md#upgrading).
 
 </details>
 

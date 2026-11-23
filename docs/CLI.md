@@ -49,9 +49,10 @@ so the secret is shown exactly once.
 scope allows, and why a monitor gets `read`: [SECURITY.md](./SECURITY.md#an-account-is-scoped-and-the-scopes-mean-something).
 
 **Two refusals keep the panel reachable**: `revoke` refuses the last account that can sign in, and
-the API refuses revoking the account you are signed in as. `reset` is what to run when you cannot
-sign in at all — it writes a fresh generated secret and prints it, on the machine that runs the
-panel.
+the API refuses revoking the account you are signed in as
+([SECURITY.md](./SECURITY.md#accounts-sessions-and-lockout) names both codes). `reset` is what to run
+when you cannot sign in at all — it writes a fresh generated secret and prints it, on the machine that
+runs the panel.
 
 ### A token is the API credential, and it works with the panel down
 
