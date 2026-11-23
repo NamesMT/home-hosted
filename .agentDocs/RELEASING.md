@@ -96,6 +96,32 @@ Not reachable on a laptop, so say so rather than implying otherwise: compose/Doc
 daemon), full ACME issuance (needs a public name), and CPU temperature in a WSL2 guest (needs the
 optional Windows helper).
 
+**Three of those are now commands**, so a dispatch starts with them rather than with a browser:
+
+```sh
+pnpm run check                 # lint, types, doc links, the suite, coverage floors
+pnpm run verify:actions        # boots its own panel: every mutating action, read back from the API
+pnpm run audit:auth            # against a running panel: no write route open, a session reaches it
+pnpm run smoke                 # built panel + both UIs in Chromium, two viewports
+```
+
+`verify:actions` and `audit:auth` cover between them what the manual walk above describes — a save that
+persists, a credential that is refused, a lifecycle that reaches the state it promised. `smoke` is the
+one that needs a browser and the only one that sees layout.
+
+**Then verify the release machinery itself**, which fails at dispatch time rather than in the gate:
+
+```sh
+node scripts/check-release-version.mjs 0.16.0   # exits 0, prints the bump
+node scripts/check-release-version.mjs 0.13.2   # exits 1 while a breaking commit is pending
+node scripts/release-notes.mjs 0.16.0           # exits 1 until changelogen writes the section
+```
+
+The third failing **before** the dispatch is correct, not a defect: `release-notes.mjs` runs after
+changelogen in the same job, so the `## v0.16.0` section exists only once the release has bumped. Run it
+to see the diagnostics it gives when the section is missing, and do not "fix" it by hand-writing a
+CHANGELOG entry.
+
 ## The migration reaches the release body, not just git
 
 `CHANGELOG.md` is derived from commit subjects, so it names *what changed* and never *what a person
