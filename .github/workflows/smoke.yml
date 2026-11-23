@@ -1,6 +1,7 @@
 name: Browser smoke
 
-# The suite `pnpm run smoke` — the only check that sees what a browser sees.
+# The suite `pnpm run smoke` — the only check that sees what a browser sees — plus
+# `pnpm run verify:actions`, which walks the mutating half over the API.
 #
 # It is deliberately **not** part of `pnpm run check`: it needs a Chromium binary `pnpm install` does not
 # fetch (~150 MB) and it boots a real panel, which together cost more than the whole unit suite. That
@@ -16,6 +17,10 @@ name: Browser smoke
 # So it runs here, on every push and pull request, on Linux — one runner, one Chromium, about four
 # minutes. A platform-specific *layout* difference is rare and the cross-platform job covers runtime
 # behaviour; this is the same suite that found the four above, so Linux is where it earns its keep.
+#
+# `verify:actions` rides along in the same job: it needs the `pnpm run build` that is already here and
+# no browser at all, so it adds seconds to a job that costs minutes. It covers what a browser pass
+# cannot — that a value written through the API survives a read back from disk.
 
 on:
   push:
@@ -97,6 +102,15 @@ jobs:
           for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:6979/healthz > /dev/null 2>&1 && break; sleep 1; done
           HHOSTED_SMOKE_URL=http://127.0.0.1:6979 HHOSTED_SMOKE_USER=smoke HHOSTED_SMOKE_SECRET=smoke-secret-12 pnpm run smoke
           HHOSTED_HOME="$RUNNER_TEMP/hh-noc" pnpm exec -- node dist/cli.js down || true
+
+      # The mutating half. `smoke` loads routes; this creates, patches, reads back and deletes, so a save
+      # that reports success and does not persist is caught. It needs the build above and nothing else —
+      # no browser, no fixtures — so it costs seconds on a runner that has already built the panel.
+      #
+      # It makes its own throwaway home and account and removes both, so it cannot collide with the
+      # state the two passes above leave behind.
+      - name: Walk every mutating action over the API
+        run: pnpm run verify:actions
 
       - name: Keep the state directory on a failure
         if: failure()
