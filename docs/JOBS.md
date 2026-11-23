@@ -5,8 +5,7 @@ code is the outcome** — `0` succeeded, anything else failed.
 
 That is a different thing from a [server](./SERVERS.md), which stays up and is supervised: health
 probes, readiness on its port, a restart policy, a nanny. A job has none of those, because there is
-nothing to probe and nothing to restart. It used to be a server entry with `kind: "job"`, and the
-half-explanation that cost on the Servers page is why it now lives here.
+nothing to probe and nothing to restart.
 
 Jobs are stored per workspace in `jobs.config.json`, beside `servers.config.json`.
 
@@ -128,12 +127,11 @@ all work. Sunday is both `0` and `7`. When **both** day fields are restricted, a
 
 ## How a run is scheduled
 
-- **One run per occurrence.** The panel derives the due occurrence from the clock, not from how often
-  it ticks, so a late tick or a busy loop still starts exactly one run for that minute — **never
+- **One run per occurrence.** The due occurrence is derived from the clock, not from how often the
+  panel ticks, so a late tick or a busy loop still starts exactly one run for that minute — **never
   two**. What it does not promise is that nothing is *missed*: a tick stalled across several
-  occurrences runs only the one due when it resumes. Measured: ticking at 10:00 and then not again
-  until 10:17 on `*/5 * * * *` runs 10:00 and 10:15, never 10:05 or 10:10. Replaying them would turn
-  one stall into a burst.
+  occurrences runs only the one due when it resumes (stalling from 10:00 to 10:17 on `*/5 * * * *`
+  runs 10:00 and 10:15, never 10:05 or 10:10). Replaying them would turn one stall into a burst.
 - **An overlap is skipped and recorded.** A job still running when its next occurrence arrives is not
   queued behind itself. The skip is logged, and its history event carries `overlap`.
 - **A missed occurrence runs once, at boot.** A panel that was down across 03:00 starts that run when

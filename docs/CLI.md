@@ -45,11 +45,8 @@ the panel and authenticates the API as `Authorization: Bearer <id>:<secret>`. On
 so the secret is shown exactly once.
 
 `--scope` takes a comma-separated subset of `read`, `lifecycle`, `config`, `proxy`, `admin`
-(cumulative; default all five), and `-w/--workspace` limits the account to some workspaces. That is
-the whole point of accounts: a monitor gets `read`, a deploy hook gets `read,lifecycle`, whoever runs
-the reverse proxy gets `read,proxy`, and none of them holds a credential that can change config.
-`proxy` and `admin` are **panel-wide** — a workspace limit cannot narrow them, and the UI marks both
-with an asterisk.
+(cumulative; default all five), and `-w/--workspace` limits the account to some workspaces. What each
+scope allows, and why a monitor gets `read`: [SECURITY.md](./SECURITY.md#an-account-is-scoped-and-the-scopes-mean-something).
 
 **Two refusals keep the panel reachable**: `revoke` refuses the last account that can sign in, and
 the API refuses revoking the account you are signed in as. `reset` is what to run when you cannot
@@ -80,11 +77,9 @@ to `.control-secrets.json`. Either way the credential is `Authorization: Bearer 
 calls the API — a monitoring probe, a deploy hook, a scheduled `curl`. Both take the same
 `--scope`/`--workspace`, both are stored as hashes, and `revoke` ends either.
 
-**Managing credentials needs a signed-in session**, never a bearer credential: an account that could
-mint another could escalate past its own scopes. The same rule covers switching authentication off,
-installing a custom UI, and restoring an archive that carries the panel's own credentials
-(`403 SESSION_REQUIRED`). Scopes are **not** a boundary against someone holding a credential — an
-entry runs any command as the panel's user — so revoke one that may have leaked.
+**Managing credentials needs a signed-in session**, never a bearer credential (`403
+SESSION_REQUIRED`) — an account that could mint another could escalate past its own scopes. Scopes are
+not a boundary against someone holding a credential, so revoke one that may have leaked.
 
 ## Declaring servers
 
@@ -175,11 +170,9 @@ follows) and `UNKNOWN_JOB`. There is no offline path: without a panel there is n
 and no history to record a run against, so it refuses rather than answering with a second,
 unsupervised implementation.
 
-`ls` lists **services** and only services, always in four columns. The `NEXT RUN` column it used to
-grow is gone with the job entries that filled it — `home-hosted job ls` answers that question now,
-with a `NEXT` column that reads `in 3 minutes`, `in 18 hours` or `never` (an expression that cannot
-come due). A disabled job shows `—`: its expression says nothing about when it will run, because it
-will not.
+`ls` lists **services** only, always in four columns; `home-hosted job ls` answers when a job is next
+due, with a `NEXT` column reading `in 3 minutes`, `in 18 hours` or `never` (an expression that cannot
+come due). A disabled job shows `—`: its expression says nothing about when it will run.
 
 ## What `status` tells you
 
@@ -263,13 +256,12 @@ home-hosted usage                # what is eating the machine
 
 `logs` reads files directly, so it works when the panel is wedged. An id the workspace does not
 declare is refused with a suggestion rather than answered with an empty log. In `usage`, a stopped
-server shows a dash, never `0`. `STARTS` and `CRASH` cover the history window: `STARTS` counts start
-events, so a long-lived server shows the start it got (usually `1`) rather than `0`, and a flapping
-one climbs — which is what makes it visible while its live CPU and memory still look idle. It is
-**not** the retry budget the panel shows on a server's card: that is `server.restarts`, the crashes
-spent out of `restart.maxRetries` on the current sequence, which a deliberate start resets. `--json`
-names the count `starts` for the same reason (a panel predating the rename sends `restarts`, and this
-command reads either).
+server shows a dash, never `0`. `STARTS` counts start events over the history window, so a
+long-lived server shows `1` rather than `0` and a flapping one climbs — visible while its live CPU
+and memory still look idle. It is **not** the retry budget on a server's card: that is
+`server.restarts`, crashes spent out of `restart.maxRetries`, which a deliberate start resets.
+`--json` names it `starts`; a panel predating the rename sends `restarts`, and this command reads
+either.
 
 ## Starting at boot
 

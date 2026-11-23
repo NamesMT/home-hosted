@@ -32,11 +32,9 @@ instead leaves the shell at `.ui/dist/index.html`, where nothing serves it.
 > [!IMPORTANT]
 > **An installed UI hides the stock build, so editing the stock UI in this repo does nothing until
 > you revert.** The panel serves `.ui/` whenever it holds a complete UI, and only falls back to
-> `uis/stock/dist` when it does not. Measured on a dev state: `pnpm run build:ui` wrote
-> `uis/stock/dist/index.html` referencing `index-BiD989Sc.js`, while `:6600` kept serving
-> `index-Bwwrw1n-.js` out of `.dev-state/.hh/.ui/` — the rebuild was simply shadowed, which reads
-> as "my change did not take". Either run `home-hosted ui-revert` (or Interface → Revert to stock)
-> before testing stock, or point the run at a fresh state with `pnpm dev --home /tmp/hh-dev`.
+> `uis/stock/dist` when it does not — a rebuild is simply shadowed, which reads as "my change did not
+> take". Either run `home-hosted ui-revert` (or Interface → Revert to stock) before testing stock, or
+> point the run at a fresh state with `pnpm dev --home /tmp/hh-dev`.
 >
 > Where each artifact lives, because they are three different directories:
 >

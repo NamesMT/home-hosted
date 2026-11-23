@@ -129,14 +129,11 @@ destination that can never send.
 are what gets exercised.
 
 **The panel will POST to any address you give it, including one on your own network.** There is no
-allow-list and no private-range refusal: measured, a webhook pointed at `http://127.0.0.1:<port>/api/…`
-reaches that service and reports its real answer (a `401` from the panel's own API, in the test).
-`169.254.x` and a closed local port both answer `fetch failed`, which is the request having been
-made rather than refused.
-
-Whether that should be refused is a judgement call, not an oversight to patch silently: a panel on a
-home network reasonably alerts a service on the same LAN, and a blanket private-range block would break
-exactly that case. It is not an escalation, though:
+allow-list and no private-range refusal: a webhook pointed at `http://127.0.0.1:<port>/api/…` reaches
+that service and reports its real answer, while `169.254.x` and a closed local port both answer
+`fetch failed` — the request having been made rather than refused. That is a judgement call, not an
+oversight: a panel on a home network reasonably alerts a service on the same LAN, and a blanket
+private-range block would break exactly that case. It is not an escalation, though:
 the `config` scope this needs is implied by `admin`, and an admin token can already create a command
 entry and run arbitrary commands (see [SECURITY.md](./SECURITY.md)). So treat a webhook like the shell
 access it is: a URL comes from someone who could run anything anyway. **Do not paste a URL you did not

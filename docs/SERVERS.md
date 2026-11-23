@@ -227,12 +227,11 @@ asks for a program of that name, because `command` is spawned with no shell.
 
 ### Secret environment
 
-A service's secrets usually live in an `envFile` beside its code. That file is **not** in a backup
-(a backup captures the config, the declared `backupPaths` and the workspace's secrets — not every file
-next to the program), so moving to a new machine silently loses them and nothing on the panel says so.
-
-`secretEnv` fixes that by putting the **names** in the config and the **values** in the workspace's
-`.secrets.json` (0600, written atomically), which the secrets part of a backup carries:
+A service's secrets usually live in an `envFile` beside its code, and that file is **not** in a
+backup (which captures the config, the declared `backupPaths` and the workspace's secrets) — so moving
+to a new machine silently loses them. `secretEnv` puts the **names** in the config and the **values**
+in the workspace's `.secrets.json` (0600, written atomically), which the secrets part of a backup
+carries:
 
 ```json
 { "id": "app", "command": "node", "args": ["server.js"], "secretEnv": ["DATABASE_URL", "SESSION_KEY"] }
@@ -253,12 +252,10 @@ statement you can make about one variable, and it is the layer stored where a ba
 that lost to a stale `envFile` line would silently not work.
 
 **Only declared names are passed.** A value stored for a name the entry does not declare never reaches
-the child, which is what makes a removed entry's leftovers harmless.
-
-Values never appear in the config, in `GET /api/state`, in a log line, in history or in an error: the
-API's `PUT /api/servers/:id/secrets` is write-only, and the view reports `secretEnvSet` — the names
-that have a value — instead. Changing `secretEnv` needs a restart, and the view says so through
-`restartRequired`.
+the child, which is what makes a removed entry's leftovers harmless. Values never appear in the
+config, a log line, history or an error; the enforcement is in
+[SECURITY.md](./SECURITY.md#a-servers-secret-environment-never-enters-its-config). Changing
+`secretEnv` needs a restart, and the view says so through `restartRequired`.
 
 ### Placeholders
 
@@ -601,21 +598,19 @@ It installs into `%ProgramData%\home-hosted`, not `%LOCALAPPDATA%`: a boot-start
 in session 0, where the per-user path differs and the library would be invisible. Installing there may
 ask for elevation.
 
-**It needs administrator rights for CPU temperature.** LibreHardwareMonitor reads `Tctl`/`Package` from
-an MSR, its own README says "some sensors require administrator privileges to access the data", and a
-non-elevated caller gets `0` from a sensor that exists rather than an error. So the **panel** has to be
-started from an elevated (Administrator) shell; the setup cannot grant that from the WSL side. The
-helper exits `3` for exactly this case, and the panel reports it as "the sensor read 0 °C —
-LibreHardwareMonitor needs administrator rights", not as a broken installation.
+**It needs administrator rights for CPU temperature.** LibreHardwareMonitor reads `Tctl`/`Package`
+from an MSR, and a non-elevated caller gets `0` from a sensor that exists rather than an error — so the
+**panel** has to be started from an elevated (Administrator) shell, which the setup cannot grant from
+the WSL side. The helper exits `3` for this case, and the panel reports "the sensor read 0 °C —
+LibreHardwareMonitor needs administrator rights", not a broken installation.
 
 The PowerShell call costs a few hundred milliseconds per sample, so raise `host.intervalMs` to 15–30 s.
-The value is the host's CPU, which the guest shares — measured 63.9 °C idle and 75.2 °C under load on a
-NucBox EVO-X1, where every built-in path returned a constant 20 °C.
+The value is the host's CPU, which the guest shares.
 
-A helper that an **earlier** setup wrote can be owned by another Windows account, and `%ProgramData%`
-on a 9p mount maps that to an ACL the panel cannot write or delete through. Both routes say so and name
-the fix (`Remove-Item -LiteralPath '…' -Force` from an elevated PowerShell) rather than a bare
-`permission denied`, and `--clear` no longer reports "deleted" over a file that survived.
+A helper an **earlier** setup wrote can be owned by another Windows account, and `%ProgramData%` on a
+9p mount maps that to an ACL the panel cannot write or delete through. Both routes name the fix
+(`Remove-Item -LiteralPath '…' -Force` from an elevated PowerShell) rather than a bare `permission
+denied`, and `--clear` never reports a delete over a file that survived.
 
 > [!NOTE]
 > Where the panel *can* read a sensor, leave `Temperature command` empty — it overrides the probe.

@@ -156,41 +156,33 @@ rows and the DDNS accounts to the workspaces it names. Give a monitor an account
 workspaces whose hostnames it is allowed to know.
 
 **A `read` account is refused `403 TOKEN_SCOPE` on every non-GET**, and one limited to `default`
-cannot act on `staging`. **Leaving `?workspace=` out is not a way around that limit:** an omitted key
-resolves to the panel's default workspace, so a request that names none is checked against the
-default. An account limited to `staging` is therefore refused `GET /api/servers` (which would have
-read `default`) exactly as it is refused `?workspace=default`. **Nor is naming the workspace in the
-path:** `PATCH`/`DELETE /api/workspaces/:id` act on the workspace in the URL, so the limit is checked
-against that id too — a limited account may rename and remove only the workspaces it names, while
-creating one and listing the registry stay open. **The live feed is filtered too:** the stream carries
-a `log` frame for every workspace, so a limited account sees only its own workspaces' frames (and
-naming one it does not hold is the same `403`), rather than reading a workspace it may not poll. Its
-**snapshot** frames are narrowed rather than dropped: `hello` and every later `state` frame carry the
-whole panel, so a limited account's copy holds only its own workspaces' subtrees — otherwise the
-opening frame handed it every server id, command, pid and status, which is the data the polling route
-refuses. **So is the metrics scrape:** `GET /api/metrics` is panel-wide in its *query* but every
-sample carries a `workspace` label, so a limited account's scrape holds only its own workspaces'
-series — it would otherwise read another workspace's server ids, status, crash counts, restarts,
-uptime, response time, RSS and CPU, which is the same data `GET /api/servers?workspace=…` refuses it.
-**And so are the two panel-wide snapshots:** `GET /api/state` and `GET /api/workspaces` name no
-workspace, but each answers `workspaces[].servers[]` — the very `ServerView` the polling route
-refuses — plus each workspace's `configPath` and `logsDir`. A limited account's copy of either holds
-only the workspaces it names. **And the reverse proxy:** `GET /api/proxy` flattens every workspace's
-DDNS accounts into one list (a route names an account as `<workspace>/<account>`) and answers a route
-table whose rows name the entry they forward to (a route names one as `<workspace>/<server>`), so a
-limited account's copy holds only its own rows and its own accounts — otherwise it read another
-workspace's account id, provider and zones *and* its route id, public hostname and target entry.
-**The write side follows the same limit, and is the dangerous half:** a `PATCH` sends a route list,
-and a list is replaced whole, so a limited account that sent its own one row used to delete every
-other workspace's and could point a public hostname at an entry it may not act on. A row naming a
-workspace outside the limit is `403 TOKEN_SCOPE`, and the rows it may not touch are carried over so
-the replacement cannot drop them. The engine's own knobs (`enabled`, ports, `dns01`, certificates)
-name no workspace, so a limit does not reach them — they are the panel's, like `PATCH /api/settings`.
-An account with no limit reads and writes the whole panel as before,
-so a person's overview, selector and proxy form are unchanged. The requirement is declared **once**, per route, in
-`src/middleware/token-scope.ts`; a test walks every `/api` route in the published spec and fails on
-one that has no declaration, so a new route cannot ship without a scope. A route with no declaration
-is refused rather than allowed — the one somebody forgot must not be the one every token can use.
+cannot act on `staging`. Three ways round it are closed:
+
+- **Leaving `?workspace=` out** is not one: an omitted key resolves to the panel's default, so a
+  request naming none is checked against the default. An account limited to `staging` is refused
+  `GET /api/servers` exactly as it is refused `?workspace=default`.
+- **Naming the workspace in the path** is not one either: `PATCH`/`DELETE /api/workspaces/:id` act on
+  the id in the URL, so the limit is checked against it too (creating a workspace and listing the
+  registry stay open).
+- **A panel-wide route whose answer is per-workspace data** is not one: everything below is narrowed
+  to the workspaces the account names, or refused.
+
+| Surface | A limited account's copy holds |
+| --- | --- |
+| `GET /api/events` | its own workspaces' `log` frames (naming one it does not hold is the same `403`), and `hello`/`state` snapshots carrying only their subtrees — never every server id, command, pid and status |
+| `GET /api/metrics` | only its own workspaces' series; the scrape is panel-wide in its *query*, but every sample carries a `workspace` label |
+| `GET /api/state`, `GET /api/workspaces` | only the workspaces it names — otherwise each would answer the `workspaces[].servers[]` the polling route refuses, plus every `configPath` and `logsDir` |
+| `GET /api/proxy` | its own rows and its own DDNS accounts (routes name `<workspace>/<server>` and `<workspace>/<account>`) |
+| `GET`/`PATCH /api/proxy` **writes** | the dangerous half: a `PATCH` sends a route list and a list is replaced whole, so a row naming a workspace outside the limit is `403 TOKEN_SCOPE` and the rows it may not touch are carried over, or a limited account would delete every other workspace's |
+
+The proxy engine's own knobs (`enabled`, ports, `dns01`, certificates) name no workspace, so a limit
+does not reach them — they are the panel's, like `PATCH /api/settings`. An account with no limit
+reads and writes the whole panel as before.
+
+The requirement is declared **once**, per route, in `src/middleware/token-scope.ts`; a test walks
+every `/api` route in the published spec and fails on one with no declaration. A route with no
+declaration is refused rather than allowed — the one somebody forgot must not be the one every token
+can use.
 
 Sessions and this machine are unaffected: scopes are about **tokens**.
 
@@ -200,15 +192,12 @@ hashes, DDNS credentials, Telegram tokens, every server's secret environment val
 to a monitor credential would walk around every rule that keeps a secret *value* off a route. `read`
 is the readings; an account that may take an archive (`POST /api/backups`) may fetch it.
 
-**A workspace limit refuses the archive routes outright.** An archive reaches every workspace at once,
-and it names no `?workspace=`, so there is nothing for the limit to narrow: an account limited to
-`staging` used to take a backup that carried `default`'s `secrets.json`, restore one over `default`'s
-`servers.config.json`, and delete an archive the owner had made. Every backup route (`GET
-/api/backups`, `POST /api/backups`, `GET …/:name/download`, `POST …/restore`, `DELETE …/:name`) is
-declared `workspaceScoped: 'all'` — the inverse of panel-wide-with-nothing-to-narrow — so an account
-with **no** workspace limit keeps them and one with a limit gets `403 TOKEN_SCOPE`. Narrowing them
-instead would need an archive format that names the workspaces a selection covers, and a restore that
-checks each one; refusing is the honest answer until something does.
+**A workspace limit refuses the archive routes outright.** An archive reaches every workspace at once
+and names no `?workspace=`, so there is nothing to narrow. Every backup route (`GET /api/backups`,
+`POST /api/backups`, `GET …/:name/download`, `POST …/restore`, `DELETE …/:name`) is declared
+`workspaceScoped: 'all'` — the inverse of panel-wide-with-nothing-to-narrow — so an account with **no**
+limit keeps them and one with a limit gets `403 TOKEN_SCOPE`. Narrowing them would need an archive
+format that names the workspaces a selection covers and a restore that checks each one.
 
 Only a hash is stored, compared in constant time against every token (an early return would make the
 timing depend on which token was presented). The single pre-0.14 token migrates to one named

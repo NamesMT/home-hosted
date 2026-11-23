@@ -405,15 +405,15 @@ own config problem is `configError` on that workspace.
 
 Query: `?workspace=<id>` narrows `server`/`log` frames to one workspace, `&serverId=<id>` to one
 server of it — of the **default** workspace when `workspace` is omitted, since ids repeat across
-workspaces — and `?logs=0` (or `logs=false`) drops log frames. **Naming a workspace or a server that does not exist is a
-`404` before the stream opens** (`UNKNOWN_WORKSPACE` / `UNKNOWN_SERVER`), like every other route: a
-stream that opened and published nothing reads as "nothing is happening". A **workspace limit is
-answered first**, so asking for a server in a workspace the credential may not watch is `403
-TOKEN_SCOPE` whether or not that id exists — the pair is not an existence oracle over the other
-workspace. A slow client never makes
-the panel buffer without bound: queued `state` and `server` frames are replaced by newer ones, and log
-frames are dropped once too many are waiting — so treat every snapshot as complete, and logs as
-best-effort (the log routes have the full history).
+workspaces — and `?logs=0` (or `logs=false`) drops log frames. **Naming a workspace or a server that
+does not exist is a `404` before the stream opens** (`UNKNOWN_WORKSPACE` / `UNKNOWN_SERVER`), like
+every other route: a stream that opened and published nothing reads as "nothing is happening". A
+**workspace limit is answered first**, so asking for a server in a workspace the credential may not
+watch is `403 TOKEN_SCOPE` whether or not that id exists — the pair is not an existence oracle
+over the other workspace. A slow
+client never makes the panel buffer without bound: queued `state` and `server` frames are replaced by
+newer ones, and log frames are dropped once too many are waiting — so treat every snapshot as
+complete, and logs as best-effort (the log routes have the full history).
 
 ## Metrics
 
@@ -441,8 +441,7 @@ throughout reads `1`, not `0.0069`.
 ## The TypeScript client
 
 `home-hosted/client` ships in the package: a **~3.5 kB** gzipped runtime over `hono/client`, typed from
-the panel's own route table — every path, parameter, body and response — plus the event stream. (Measured:
-8 671 bytes, 3 615 gzipped with `gzip -9`; the figure said "~2 KB" and was stale.)
+the panel's own route table — every path, parameter, body and response — plus the event stream.
 
 ```ts
 import { createClient, HomeHostedError } from 'home-hosted/client'

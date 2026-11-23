@@ -232,28 +232,16 @@ These are the ones that prevent real defects. Break one only with a reason in th
   channel (someone must act), a fix is a patch. Never hand-edit the version in `package.json`.
 - **Concise.** A comment explains non-obvious intent in a line or two; the argument for a change goes
   in the commit message, not the code.
-- **`src/shared/contracts.ts` splits leaf-first, and its core does not split at all.**
-  The clusters that moved cleanly — frames, logs, ddns, proxy, backups, accounts — reference only
-  themselves. The entry groups (restart, health, stop, deploy, bootstrap, the backup hooks) do **not**:
-  they are the substrate `serverSchema` is built from, and moving them out collapses its inference into
-  `{ [x: string]: any }`, which still compiles.
-
-  `serverSchema`'s own dependency closure is **32 declarations spanning lines 19–1050 with 16 gaps** — it
-  reaches `bindSchema`, `notificationsSchema`, `editableFields`, the patch groups and the notification
-  destinations. That is a third of the file, so "take `serverSchema` with its helpers" is a rewrite of
-  the core, not a module extraction.
-
-  **The tail does not split either.** Taking everything after the request schemas — lines 1059–2149, the
-  112 response and view shapes — looks like a clean 1,100-line run, and it fails the same way from the
-  other direction: those shapes import `serverSchema`, `backupsViewSchema`, `hostSchema` and 17 more back
-  from the barrel, and the round trip collapses every inferred type into `any` (130 implicit-`any` errors,
-  all of which compile as `any` once a stray annotation hides them). **`contracts.ts` is one module by
-  construction**, because a schema graph that references itself in both directions cannot be cut. Leave
-  it whole.
+- **`src/shared/contracts.ts` splits leaf-first, and its core does not split at all.** The clusters that
+  moved cleanly — frames, logs, ddns, proxy, backups, accounts — reference only themselves. The entry
+  groups (restart, health, stop, deploy, bootstrap, the backup hooks) are the substrate `serverSchema`
+  is built from: moving them out collapses its inference into `{ [x: string]: any }`, which still
+  compiles. The tail does not split either — the response and view shapes import `serverSchema`,
+  `backupsViewSchema` and `hostSchema` back through the barrel, and the round trip collapses every
+  inferred type into `any`. **Leave it whole:** a schema graph that references itself in both directions
+  cannot be cut.
 - **A fact a doc states that also lives in code is compared by a test, not trusted.** Four pairs are
   guarded: every `home-hosted <command>` in the docs against `SYNOPSIS`, every dev-server port against
   `dev.mjs`'s constants, every key in the README's entry sample against `serverSchema`, and every error
-  code in `docs/API.md` against the source. Each was written after the doc had already drifted — a
-  deleted command, `:6000` where the script bound `:6600`, and three codes that had left the catalogue.
-  When you add a doc that restates something the code decides, add the comparison in the same change:
-  **read the value from the code, never restate it in the guard**, or the guard just agrees with itself.
+  code in `docs/API.md` against the source. Each was written after the doc had drifted. **Read the value
+  from the code, never restate it in the guard**, or the guard just agrees with itself.
