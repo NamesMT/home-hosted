@@ -119,6 +119,19 @@ pnpm run smoke                 # built panel + both UIs in Chromium, two viewpor
 persists, a credential that is refused, a lifecycle that reaches the state it promised. `smoke` is the
 one that needs a browser and the only one that sees layout.
 
+**One security rule is worth driving by hand**, because it is the one whose failure is silent: start the
+built panel on a LAN bind with a secret shorter than 12 characters and confirm it **refuses**, naming the
+fix:
+
+```sh
+HHOSTED_HOME=/tmp/exp node dist/cli.js up --port 6968 --host lan
+# error refusing to start: can't listen on lan with a secret shorter than 12 characters …
+```
+
+Then repeat with a 12+ character secret and confirm it starts. `checkExposure()` is asserted in tests, but
+the value of re-running it against the built binary is that it exercises the startup guard rather than
+the function.
+
 **Then verify the release machinery itself**, which fails at dispatch time rather than in the gate:
 
 ```sh
