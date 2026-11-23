@@ -154,7 +154,6 @@ arrives with.
 | `SERVER_BUSY` | 409 | a stop, or the same action, is already in flight |
 | `PORT_IN_USE` | 409 | the entry's port is held and could not be freed |
 | `DEPENDENCY_FAILED` | 409 | an entry in `dependsOn` could not be started |
-| `JOB_RUNNING` | 409 | a run of this job is already in flight |
 | `JOB_FAILED` | 409 | the run happened and failed; its exit code is the outcome and its log says why |
 | `ACTION_FAILED` | 409 | a lifecycle refusal none of the more specific codes describes |
 | `UNKNOWN_ORPHAN` | 404 | no orphaned process is running under that id |
@@ -321,11 +320,10 @@ rather than hardcoding anything about a particular install.
   secret only for a token migrated from before `0.14`, whose name was never recorded. Neither is
   enough to use one. `actor` is the same credential as a history event names it (`user`, `agent`).
 - **`refused`** lists the actions this credential may **not** take, and is **empty** for a session
-  and for `local`. An API token gets: `password.clear`, `password.first`, `auth.disable`,
-  `token.generate`, `token.revoke`, `ui.install`, `restore.credentials` — each refused because it is a
-  way for a stolen token to *replace the person who owns the panel* rather than merely drive it. **An
-  API token is otherwise full admin** (it can run commands through entries); read this list as "the
-  moves that would take the panel over", never as reduced authority.
+  and for `local`. Each entry on a token's list is a way for a stolen token to *replace the person who
+  owns the panel* rather than merely drive it. **An API token is otherwise full admin** (it can run
+  commands through entries); read this list as "the moves that would take the panel over", never as
+  reduced authority.
 - **`features`** reports whether each optional subsystem is switched on **right now** (`proxy` from
   the panel's settings, `ddns` if any workspace has it enabled, `temperature` if a temp command is
   configured). It is derived per request, so it follows a settings change immediately — do not cache it

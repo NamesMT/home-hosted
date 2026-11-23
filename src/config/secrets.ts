@@ -108,20 +108,17 @@ export interface NamedApiTokenRecord extends ApiTokenRecord {
 /**
  * One **account**: a credential that signs in to the panel *and* authenticates the API.
  *
- * The password and the API token were two credentials with one authority each, so every panel needed
- * both, every script needed one of them copied somewhere, and there was exactly one human. An account
- * is the union: an `id` a person types (like a username) plus a `secret`, which opens a session cookie
- * for the browser and works as `Authorization: Bearer <id>:<secret>` for a script.
+ * It is the union of the password and the API token, which were two credentials with one authority
+ * each: an `id` a person types (like a username) plus a `secret` that opens a session cookie in a
+ * browser and works as `Authorization: Bearer <id>:<secret>` for a script.
  *
- * **Two hash algorithms, on purpose.** A secret a person chooses is stretched with scrypt, because it
- * may be guessable and an attacker with the file would otherwise brute-force it offline; a secret the
- * panel *generates* is 256 bits of randomness, so scrypt would only add cost to every request for a
- * search space that cannot be walked. The record says which it is, and verification reads that field —
- * so an account created by `account create` (generated) and one whose secret a person set are both
- * handled without guessing.
+ * **Two hash algorithms, on purpose.** A secret a person chooses is scrypt-stretched, because it may
+ * be guessable and an attacker with the file would otherwise brute-force it offline; a generated
+ * secret is 256 bits of randomness, so scrypt would only add cost to every request for a search space
+ * that cannot be walked. The record says which it is, and verification reads that field.
  *
- * `id` is the salt-adjacent half: it is not secret, it is what makes a stolen file's hashes worthless
- * to replay without the matching id, and it is what a login attempt is rate-limited on.
+ * `id` is the salt-adjacent half: not secret, but what makes a stolen file's hashes worthless to
+ * replay without the matching id, and what a login attempt is rate-limited on.
  */
 export interface AccountRecord {
   /** Stable, typable, unique. Lowercase letters, digits and dashes. */
@@ -245,10 +242,7 @@ export interface SecretsFile {
    *
    * A separate map from `serverEnv`, and that separation is the point: a server and a job are two
    * different entries that may share an id, and one key space meant a job's value reached the server
-   * of the same id — and the server's view reported it. Measured on a real panel: `PUT
-   * /api/jobs/nightly/secrets` stored under `nightly`, a server declared later as `nightly` declaring
-   * the same name reported `secretEnvSet: ["DB_PASS"]` and received the job's value in its own
-   * process. Two domains, two maps.
+   * of the same id — and that server's own view reported it. Two domains, two maps.
    */
   jobEnv: Record<string, Record<string, string>>
   /** Top-level keys this release does not know, carried through a write so a newer release keeps them. */
@@ -327,10 +321,10 @@ export function verifyPassword(password: string, record: PasswordRecord): boolea
  * One throwaway scrypt, so "no such account" costs what "wrong secret" costs.
  *
  * `verifyAccountSecret` answers `false` early for an unknown, disabled or half-written record, which
- * is right for the answer and wrong for the timing: the measured gap was ~1 ms against ~37 ms, and a
- * 30× difference is a working account-enumeration oracle — the one thing `docs/SECURITY.md` promises
- * the login form is not. The salt is derived from the secret rather than random so this is a pure
- * cost with no per-call allocation to vary, and the result is deliberately discarded.
+ * is right for the answer and wrong for the timing: a ~1 ms answer against ~37 ms is a working
+ * account-enumeration oracle, the one thing `docs/SECURITY.md` promises the login form is not. The
+ * salt is derived from the secret rather than random so this is a pure cost with no per-call
+ * allocation to vary, and the result is deliberately discarded.
  *
  * Kept next to `verifyPassword` because it has to stay in step with it: a change to `COST` or
  * `KEYLEN` that this did not follow would reopen the gap it closes.
