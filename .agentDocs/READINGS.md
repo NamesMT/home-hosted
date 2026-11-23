@@ -48,12 +48,10 @@ that predates the field still parses), and a band predicate reads it:
   handed in, not in the rule. Four surfaces deciding a band for themselves is the mistake it replaced.
 - `hostReadings` puts a `band` on **each disk**, not one beside the frame: the reading is per path.
 - `hostCpuBand` — the host's CPU share has no configurable alert, so the band is a fixed constant.
-  It was written twice (70/90 and 80/95), and two copies of a *fixed* number cannot be caught by
-  raising a config.
+  Two copies of a *fixed* number cannot be caught by raising a config.
 - `probeBand` — the same shape for a health probe's latency. `healthSchema` has no latency field, so
-  `300`/`1000` is fixed too. Painted three ways (the tile's `toneClass`, a `probeColor()` holding its
-  own copy, the row's `>= 1000`), a `1500 ms` reading was `danger` in the pane and `warn` in the row,
-  and a probe that never ran was `--ok` because the sparkline read `responseMs ?? 0`.
+  `300`/`1000` is fixed too. Painted three ways before it had one owner, so a `1500 ms` reading was
+  `danger` in the pane and `warn` in the row; an absent reading is its own `unknown` band, never `ok`.
 
 `0` disables an alert in `sampleHost`, so nothing can breach it and the band is `ok`. A panel that
 sends no threshold gets `HOST_ALERT_DEFAULTS`, which is what the older panel alerted on —

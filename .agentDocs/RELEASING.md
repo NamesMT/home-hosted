@@ -80,8 +80,7 @@ hour later is not a fast fix: it hands someone the broken version first, and `la
 install.
 
 The trap is judging a finding "too big for this change". That is never a reason to ship it. It is a
-reason to say so and let the scope be decided. Measured once, the hard way: 0.9.0 went out with two
-known majors from its own review and was patched as 0.9.1 ninety minutes later.
+reason to say so and let the scope be decided.
 
 So the pre-dispatch check is: read the review's findings list top to bottom and account for every
 line. "Addressed in a follow-up" is only true if the user chose the follow-up.
