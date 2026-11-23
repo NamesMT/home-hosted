@@ -89,6 +89,7 @@ pnpm run build:uis             # every UI, zipped into uis/dist/
 pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated catalogs
 pnpm run smoke                 # boot the BUILT panel and walk every route in Chromium
 pnpm run verify:actions        # boot the BUILT panel and walk every MUTATING action over the API
+pnpm run audit:auth            # against a running panel: no write route is open, and a session reaches it
 ```
 
 - **`pnpm run smoke` drives the built panel and both UIs in Chromium at two viewports

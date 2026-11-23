@@ -101,6 +101,7 @@
     "check:fast": "pnpm run quickcheck && vitest run --sinceLastRun",
     "knip": "knip",
     "verify:actions": "node scripts/verify-actions.mjs",
+    "audit:auth": "node scripts/audit-auth.mjs",
     "prepare": "node scripts/prepare.mjs",
     "build:locales": "node scripts/build-locales.mjs",
     "prepack": "pnpm run build",
