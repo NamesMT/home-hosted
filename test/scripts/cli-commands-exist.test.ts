@@ -220,3 +220,51 @@ describe('the docs name the dev ports the script really binds', () => {
     expect(named.some(port => port === panel || port === ui), 'neither wrong port is a real dev port').toBe(false)
   })
 })
+
+/**
+ * A sample entry in the docs must use fields the schema really has.
+ *
+ * The README's opening example — `{ "id": "gateway", "command": "node", … }` — is the first thing a person
+ * copies. Every key in it is also a fact that lives in `serverSchema`, and nothing compared the two: a
+ * renamed field would leave the sample describing a file the panel refuses, with `onUndeclaredKey('reject')`
+ * turning it into an error the reader cannot explain.
+ *
+ * This is the third member of one class, after the command names and the dev ports: **a fact a doc states
+ * that also exists in code will drift unless something compares them**.
+ */
+describe('a documented sample entry uses fields the schema has', () => {
+  /** Field names `serverSchema` declares, read from the shared module. */
+  function entryFields(): Set<string> {
+    const source = fs.readFileSync(path.join(root, 'src', 'shared', 'contracts.ts'), 'utf8')
+    const start = source.indexOf('export const serverSchema = lazy(')
+    expect(start, 'serverSchema must be readable, or this scan proves nothing').toBeGreaterThan(-1)
+    // Up to the closing of this `lazy(...)` — the next top-level `export` after it.
+    const next = source.indexOf('\nexport ', start + 10)
+    const body = source.slice(start, next === -1 ? undefined : next)
+    const fields = [...body.matchAll(/^\s{2}'?([a-z][A-Za-z]*)'?\??:/gm)].map(match => match[1]!)
+    expect(fields.length, 'the field scan must find the entry schema, not an empty block').toBeGreaterThan(10)
+    return new Set(fields)
+  }
+
+  it('uses only real entry fields in the README example', () => {
+    const known = entryFields()
+    const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8')
+    /**
+     * The fenced `json` block that carries an `"id"` and a `"command"` — the entry sample, found by its
+     * shape rather than by a line number, so an edit above it does not break the scan.
+     */
+    const blocks = [...readme.matchAll(/```json\n([\s\S]*?)```/g)].map(match => match[1] ?? '')
+    const samples = blocks.filter(block => /"id"\s*:/.test(block) && /"command"\s*:/.test(block))
+    expect(samples.length, 'no entry sample found — the README example moved or changed shape').toBeGreaterThan(0)
+
+    const offenders: string[] = []
+    for (const sample of samples) {
+      for (const match of sample.matchAll(/"([a-z]+)"\s*:/gi)) {
+        const key = match[1]!
+        if (!known.has(key))
+          offenders.push(`README.md sample uses "${key}", which serverSchema does not declare`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})
