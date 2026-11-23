@@ -1,5 +1,12 @@
 minimumReleaseAgeExcludePrune: true
 
+# `hono@4.13.20` is the patch for six advisories (`<4.13.16`), and it was younger than pnpm's
+# minimum release age when this was written. The exclusion is the price of the fix: a supply-chain
+# window traded for a known-vulnerable framework. Re-check it on the next dependency pass —
+# `minimumReleaseAgeExcludePrune` drops the entry once the package is old enough.
+minimumReleaseAgeExclude:
+  - hono@4.13.20
+
 trustPolicy: no-downgrade
 # vendored/historic transitives that would block the whole tree under no-downgrade
 trustPolicyExclude:
