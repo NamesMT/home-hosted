@@ -55,6 +55,16 @@ The platform gate is not a per-push job on purpose: it is the expensive half, an
 platform-specific break fail before shipping rather than on someone's machine. Every job carries a
 `timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
 
+**Check it ran on the commit you are shipping, not on one you recognise.** A green platform run is a
+claim about *that sha*. Measured on this branch: smoke passed on four consecutive pushes while the newest
+cross-platform run was **twelve commits behind** — nothing had gone wrong, the job simply had not been
+dispatched, and every report that said "cross-platform green" was true of an older tree.
+
+    gh run list --workflow cross-platform.yml --json headSha,conclusion | grep "$(git rev-parse HEAD)"
+
+If the sha is not there, dispatch it (`gh workflow run cross-platform.yml --ref <branch>`) and wait. That
+is the one gate whose result cannot be inferred from a local run.
+
 **Read the skip count, not just the tick.** Linux has no skips; macOS and Windows report a handful
 (Windows more), all from platform guards. What to watch is the *shape*: a new skip appearing, or a
 clean pass where a guard should have fired. **A test that returns early instead of skipping reports a
