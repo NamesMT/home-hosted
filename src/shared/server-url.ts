@@ -33,12 +33,11 @@ export interface ServerLinkSource {
  * IPv6 spellings of loopback, which a **URL** produces even though a browser rarely shows one.
  *
  * `new URL('http://[::ffff:127.0.0.1]:3999').hostname` is `[::ffff:7f00:1]`, not `127.0.0.1`: `URL`
- * normalises the dotted tail into hextets and keeps the brackets. Leaving that out meant
- * `createClient({ baseUrl: 'http://[::ffff:127.0.0.1]:3999' })` refused a genuinely local panel and told
- * the caller to "use https, a loopback address" — for a loopback address. Measured both before and
- * after. `exposure.ts` has its own `isLoopbackAddress` covering exactly these forms; the two predicates
- * are not shared because that one also treats `0.0.0.0` and `::` as local (a *bind* meaning) and this one
- * must not.
+ * normalises the dotted tail into hextets and keeps the brackets. Missing that made
+ * `createClient({ baseUrl: 'http://[::ffff:127.0.0.1]:3999' })` tell the caller to "use https, a
+ * loopback address" — for a loopback address. `exposure.ts` has its own `isLoopbackAddress` covering
+ * these forms; the two are not shared because that one also treats `0.0.0.0` and `::` as local, a
+ * bind meaning, and this one must not.
  */
 export function isLoopbackHost(host: string): boolean {
   const name = host.trim().toLowerCase()

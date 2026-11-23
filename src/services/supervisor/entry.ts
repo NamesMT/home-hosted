@@ -35,12 +35,11 @@ export interface SupervisorOptions {
    * Drops that id's stored secret values when the entry goes.
    *
    * Every other per-id artifact is reclaimed in `sync()` (log lines, crash history, nanny state,
-   * transport files), and a `serverEnv` map keyed by the id is one more: measured on a scratch panel,
-   * an entry with a value set was removed and re-created under the same id, and the new entry's view
-   * answered `secretEnvSet: ['STALE_KEY']` with the **old** value already in place — the file still
-   * held `{"leaky":{"STALE_KEY":"OLD-TENANT-VALUE"}}`, and the next spawn would have handed it to the
-   * new child. The declared-name consent rule stops a name the entry does not declare, which is why
-   * this is not exploitable by itself; it is still a value outliving the entry that owned it.
+   * transport files), and a `serverEnv` map keyed by the id is one more: without this, an entry
+   * removed and re-created under the same id inherits the **old** values — its view answers
+   * `secretEnvSet: ['STALE_KEY']` and the next spawn hands the previous tenant's value to the new
+   * child. The declared-name consent rule stops a name the entry does not declare, which is why this
+   * is not exploitable by itself; it is still a value outliving the entry that owned it.
    */
   forgetServerEnv?: (serverId: string) => void
   /**

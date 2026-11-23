@@ -231,13 +231,12 @@ export class NotificationService {
   /**
    * Gives back the window a **failed** send took.
    *
-   * The window exists to collapse a flapping server into one message, so it is armed before the
-   * send rather than after: two events already in flight must not both go out. But a send that
-   * never arrived has told nobody anything — measured on the built panel, a crash alert sent while
-   * the receiver was down recorded `fetch failed`, and the next two crashes inside the 5-minute
-   * window were silenced by it, so the one alert that would have reached a working receiver was
-   * the one the outage took. Undo only the deadline this send set: a concurrent dispatch may have
-   * armed a later one, and clearing that would reopen the flood the window is for.
+   * The window collapses a flapping server into one message, so it is armed before the send rather
+   * than after: two events already in flight must not both go out. But a send that never arrived has
+   * told nobody anything, and leaving the window armed silences the next alerts of the same kind —
+   * the one that would have reached a working receiver is the one the outage takes. Undo only the
+   * deadline this send set: a concurrent dispatch may have armed a later one, and clearing that would
+   * reopen the flood the window is for.
    */
   private releaseCooldown(target: NotificationTarget, event: NotificationEvent, armed: number): void {
     const key = this.cooldownKey(target, event)

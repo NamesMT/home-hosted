@@ -6,8 +6,7 @@ import { isRecord } from './shape'
  * `structuredClone(toRaw(value))` looks detached and is not: reading a reactive array hands back
  * proxies for its members, so a list a form rebuilt (`domains = domains.filter(...)`) stores
  * proxies **inside** the raw array. `toRaw` on the parent then unwraps nothing below it, and the
- * clone throws `DataCloneError: #<Object> could not be cloned` — measured on the DDNS form, where
- * removing one hostname left every later edit unable to publish a patch.
+ * clone throws `DataCloneError: #<Object> could not be cloned`.
  *
  * Rebuilding every object is what removes the proxies, so no `toRaw` is needed here and this module
  * stays Vue-free. Config data is JSON: a `Date` is copied, and any other non-plain value is handed

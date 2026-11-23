@@ -206,15 +206,12 @@ export function createLogsRoute(deps: AppDeps) {
 
         const file = path.join(runtime.logFiles.directory, requested)
         /**
-         * Streamed, not read into memory. This is the same class the archive download answers, and the
-         * logs are the *bigger* case in practice: `logs.maxBytes` bounds one rotation at up to 100 MB and
-         * `keep` keeps 10 of them, and a person downloads exactly when a log is large.
+         * Streamed, not read into memory. `logs.maxBytes` bounds one rotation at up to 100 MB and
+         * `keep` holds 10 of them, so a person downloads exactly when a log is large: `readFileSync`
+         * cost **+199 MB RSS** for one download of a real 100 MB rotation, **+402 MB** for four
+         * together, and `/healthz` went from 4 ms to p95 859 ms.
          *
-         * Measured on the built panel with a real 100 MB rotation: `readFileSync` cost **+199 MB RSS**
-         * for one download and **+402 MB** for four arriving together, `/healthz` went from 4 ms to
-         * p95 859 ms / max 898 ms, and the headers only arrived after the whole read (TTFB 272 ms). The
-         * archive route with the same four downloads grew **+2 MB** and answered `/healthz` in p50 17 ms.
-         * `stat` gives the same `Content-Length` a client needs for a progress bar without the buffer.
+         * `stat` gives the same `Content-Length` a progress bar needs without the buffer.
          */
         const stats = await fs.promises.stat(file)
         return c.body(Readable.toWeb(createReadStream(file)) as ReadableStream, 200, {

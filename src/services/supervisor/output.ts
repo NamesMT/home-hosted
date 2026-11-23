@@ -76,7 +76,7 @@ export interface OpenedOutput {
  * The emptying is `truncateSync` **by path**, not `ftruncateSync` on the descriptor: on Windows a
  * descriptor opened with `O_APPEND` cannot be truncated — `ftruncateSync` fails there and the old
  * bytes stay, which is exactly the "a dead run's output served as this run's" case this exists to
- * prevent. (Measured: the same call succeeds on Linux and macOS, so only the CI matrix sees it.)
+ * prevent.
  *
  * `'a'` is still load-bearing, not style — an `O_APPEND` descriptor is what makes the *runtime*
  * truncation in `truncate()` land the child's next write at position 0 instead of at a stale offset,

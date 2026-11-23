@@ -820,20 +820,11 @@ export class PanelService {
 }
 
 /**
- * A change key over the **whole frame**.
+ * A change key over the **whole frame**: the frame serialised.
  *
- * Every field of `AppState` is something a UI draws from, so the signature is simply the frame
- * serialised — no list to keep in step, and no way to forget the next field somebody adds.
- *
- * It was a hand-written list of the fields someone believed mattered, and that belief was wrong four
- * times over (`apiTokenSet`/`passwordSet`/`allowedHosts`, the host view's `enabled`, `backups`'
- * policy, the proxy's `certificates`), and the `ui` status signed three of `meta`'s eight fields. Each
- * fix widened the list and left the next field to be found the same way: by somebody noticing a stale
- * page in another tab.
- *
- * Cost: `JSON.stringify` of an eight-workspace, six-server frame is **0.009 ms**, at most once per
- * publish — the frame is already serialised to every SSE client, so signing it is not the expensive
- * half.
+ * Never a hand-written field list — every field of `AppState` is something a UI draws from, so a
+ * list goes stale the moment someone adds a field, and the symptom is a stale page in another tab.
+ * Signing costs ~0.01 ms, at most once per publish, against a frame already serialised per client.
  */
 function stateSignature(state: AppState): string {
   return JSON.stringify(state)

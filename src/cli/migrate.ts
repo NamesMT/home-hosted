@@ -50,12 +50,8 @@ function targets(): Target[] {
   const registry = new WorkspaceRegistry()
   /**
    * `{ write: false }`, because `migrate` — and especially `migrate --dry-run` — must not create the
-   * state it is inspecting.
-   *
-   * Measured: `migrate --dry-run` on an empty home answered *"no home-hosted state to migrate — nothing
-   * at /tmp/…/settings.json"* **after** writing `.hh/workspaces.json`, so it reported an empty home and
-   * had already changed it. A dry run saying "nothing was written" is a promise; `AGENTS.md` states the
-   * rule this broke: *"a caller that only reads a store loads it with `{ write: false }`"*.
+   * state it is inspecting: a bare `load()` seeds every missing file, so a dry run would report an
+   * empty home *after* writing `.hh/workspaces.json` into it. `AGENTS.md` states the rule.
    */
   registry.load({ write: false })
   if (registry.configError !== null)
@@ -226,11 +222,9 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
   /**
    * A **job move asks the same question**, because it is the same consent.
    *
-   * The write used to sit in a block gated on `consented` alone, while the question below was gated on
-   * `lifts.length > 0`. A home whose only pending work was a `kind: "job"` entry therefore had **nothing
-   * to answer**: no question was asked, `applyJobMove` never ran, and the summary still counted the move
-   * from the *plan* — so it printed "1 job(s) moved", wrote nothing, and a re-run then said "nothing to
-   * migrate". The job was gone and the command would not offer again.
+   * The write must not be gated on `consented` alone while the question is gated on the pending
+   * work: a home whose only pending work is a `kind: "job"` entry would ask nothing, move nothing,
+   * and still print "1 job(s) moved" from the plan.
    */
   if ((lifts.length > 0 || jobCount > 0) && !consented) {
     const steps = lifts.reduce((sum, entry) => sum + entry.plan.steps.length, 0)

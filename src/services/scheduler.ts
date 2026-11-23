@@ -68,9 +68,8 @@ interface JobClock {
    *
    * The boot catch-up rule ("a panel that was down across 03:00 owes one run") is about a panel that
    * was down, and only a job that existed before the panel started can have been missed by it. A job
-   * declared *while the panel is up* has no missed occurrence at all, and treating its first
-   * appearance as a boot made creating a nightly backup run it immediately — measured: declaring
-   * `0 3 * * *` at 09:44 fired it at 09:44:37, with `nextRunAt` already tomorrow.
+   * declared *while the panel is up* has no missed occurrence, so treating its first appearance as a
+   * boot runs it immediately: declaring `0 3 * * *` at 09:44 fired it at 09:44:37.
    */
   seenAtBoot: boolean
 }
@@ -145,14 +144,12 @@ export class JobScheduler {
 
     /**
      * The due-minute memo: the answer cannot change within a minute and the tick runs at 1 Hz, so a
-     * rare expression would otherwise pay for the same look-back scan sixty times over (measured
-     * ~80 ms for `0 0 31 4 *` before the day-skip, still tens of ms after).
+     * rare expression would otherwise pay for the same look-back scan sixty times over (~80 ms for
+     * `0 0 31 4 *`).
      *
-     * **Keyed by expression, in a map, for the current minute only.** A single slot was not enough:
-     * with two jobs on *different* rare expressions each overwrote the other's entry, so neither ever
-     * hit and both paid the full scan every tick (measured 390 ms/tick for two distinct impossible
-     * schedules on the reviewer's machine, 18 ms on mine). "A handful of schedules" — the argument the
-     * single slot rested on — is exactly the case that breaks it. Editing a schedule misses naturally.
+     * **Keyed by expression, in a map, for the current minute only.** A single slot is not enough:
+     * two jobs on *different* rare expressions each overwrite the other's entry, so neither hits and
+     * both pay the full scan every tick. Editing a schedule misses naturally.
      */
     const minute = Math.floor(now / 60_000)
     if (this.dueMinute !== minute) {

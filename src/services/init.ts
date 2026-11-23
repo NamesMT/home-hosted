@@ -146,11 +146,10 @@ export interface NextStep {
 /**
  * What `init` hands the person once the project is written.
  *
- * Built here rather than printed inline for two reasons, both measured. The install step was
- * missing under `--no-install`, so the scripts it went on to name answered `home-hosted: command
- * not found` (npm exits 127) — the one sequence the scaffold exists to hand over, broken at step
- * one. And the password hint named a page the UI does not have: the sidebar entry is **Global
- * settings**, and "Settings → Authentication" names nothing a person can click.
+ * Built here rather than printed inline for two reasons. The install step was missing under
+ * `--no-install`, so the scripts it went on to name answered `home-hosted: command not found` — the
+ * one sequence the scaffold exists to hand over, broken at step one. And the password hint named a
+ * page the UI does not have: the sidebar entry is **Global settings**.
  */
 export function nextSteps(pm: PackageManager, install: boolean, cd: string): NextStep[] {
   // The block is a sequence a person walks down, so `cd` belongs on the first command only: the

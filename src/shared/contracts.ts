@@ -360,13 +360,10 @@ export function entryHasJobFields(entry: Record<string, unknown>, command?: stri
   /**
    * The command is **the caller's to add**, not this module's.
    *
-   * `src/shared` may not import `cli/io`, so it cannot call `invocation()` — and the literal it used to
-   * return, `run \`home-hosted migrate\``, told someone whose panel lives at `--home /tmp/x` to run against
-   * the *default* home and create `~/.home-hosted` beside the state they meant. Measured on a panel started
-   * with `HHOSTED_HOME=/tmp/hh-mg`: the refusal said `run home-hosted migrate` with no `--home`.
-   *
-   * So the message names the fix and leaves the invocation to the layer that can build it; `migrate` is
-   * passed in by `config/parse.ts` and `config/store.ts`, both of which may import `cli/io`.
+   * `src/shared` may not import `cli/io`, so it cannot call `invocation()`, and a literal here names
+   * the *default* home — someone whose panel lives at `--home /tmp/x` would be sent to create
+   * `~/.home-hosted` beside the state they meant. `migrate` is passed in by `config/parse.ts` and
+   * `config/store.ts`, both of which may import `cli/io`.
    */
   const migrate = command === undefined ? 'the migrate command' : `\`${command} migrate\``
   if (entry.kind === 'job') {

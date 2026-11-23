@@ -8,8 +8,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
  * At most `MAX_EVENTS` events are retained, of which up to `MAX_PINS` are pinned one-`job-run`-per-
  * server, because the scheduler's boot catch-up reads that to decide whether an occurrence is owed.
  * The pin budget is reserved *out of* the window (`MAX_EVENTS - pinned.size`), so pins displace
- * ordinary events rather than sitting beside them — measured: 200 pins + 6000 noise events still
- * retains 5000.
+ * ordinary events rather than sitting beside them.
  */
 const MAX_EVENTS = 5000
 /**

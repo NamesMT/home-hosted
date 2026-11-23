@@ -286,15 +286,13 @@ const SEARCH_LIMIT_MS = 8 * 366 * 24 * 60 * 60 * 1000
 /**
  * How far back `previousCronRun` scans minute by minute.
  *
- * A **year**, not the forward search's eight, and the difference is deliberate. This answers "which
- * occurrence is due now", and every schedule that repeats at all repeats within a year — so a year is
- * enough to find the most recent one. Reaching eight years meant walking four million minutes to
- * answer "not found", measured at 313 ms for `0 0 31 4 *`, on a loop that also drives health probes
- * and takes a one-second tick.
+ * A **year**, not the forward search's eight, and the difference is deliberate: this answers "which
+ * occurrence is due now", and every schedule that repeats at all repeats within a year. Eight years
+ * meant walking four million minutes to answer "not found" (~313 ms for `0 0 31 4 *`) on the loop
+ * that also drives health probes.
  *
- * The two searches can therefore disagree about a leap-day expression: `nextCronRun` can say 2028
- * (four years out) while this answers `null`. That is reported as "no recent occurrence", not "never",
- * and the scheduler treats it as the standing problem it is — see the message it logs.
+ * The two searches can therefore disagree about a leap-day expression: `nextCronRun` says 2028 while
+ * this answers `null`. That is reported as "no recent occurrence", not "never".
  */
 const LOOK_BACK_MS = 366 * 24 * 60 * 60 * 1000
 
@@ -362,17 +360,10 @@ export function previousCronRun(spec: CronSpec, at: Date = new Date()): number |
       // reporting the second instant is what made the scheduler start the same job twice.
       return firstInstantOfMinute(candidate)
 
-    // One **real** minute back, which is the only step that cannot skip a match.
-    //
-    // This replaced a search that jumped by local field arithmetic — set the day to 1, set the hour
-    // to 0 — and it is a rewrite rather than a patch because those jumps are not monotonic: on the
-    // autumn DST change a wall clock reads an hour twice, so "one minute earlier on the wall clock"
-    // can be an hour later in real time. Measured under `TZ=America/New_York` across the 2026
-    // fall-back, the old code answered *yesterday's* 01:30 when asked at 01:00 EST, discarding the
-    // occurrence it had just found, and the scheduler started the job a second time.
-    //
-    // It is affordable because the look-back is bounded (see `LOOK_BACK_MS`): the panel asks this
-    // once per tick, and the answer it wants — "which occurrence is due now" — is always close.
+    // One **real** minute back, which is the only step that cannot skip a match. A jump by local
+    // field arithmetic is not monotonic: on the autumn DST change a wall clock reads an hour twice,
+    // so "one minute earlier on the wall clock" can be an hour later in real time. Affordable
+    // because the look-back is bounded (`LOOK_BACK_MS`) and the answer wanted is always close.
     candidate = new Date(candidate.getTime() - 60_000)
   }
   return null

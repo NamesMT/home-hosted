@@ -1,11 +1,6 @@
 /**
- * An account: a credential that signs in to the panel *and* authenticates the API.
- *
- * Two hash algorithms on purpose — a secret a person chooses is scrypt-stretched (it may be guessable,
- * and an attacker holding the file would walk it offline), a secret the panel *generates* is 256 bits of
- * randomness where scrypt would only add cost to every request. The record says which, and verification
- * reads that field. Measured cost, and which to use: `docs/SECURITY.md`. The store is in `secrets.ts`;
- * this is the identity and hashing layer it calls.
+ * An account's identity and hashing layer: the record itself, its migrations and the secret shapes
+ * are in `secrets.ts`, which owns the two hash algorithms and why there are two.
  */
 import type { ApiTokenScope } from '#src/shared/api-scopes'
 import type { AccountRecord, SecretsFile } from './secrets'
@@ -37,8 +32,8 @@ export function generateAccountSecret(): string {
 }
 
 /**
- * The hash fields for a secret: **scrypt when a person chose it, sha256 when the panel generated it**,
- * so guessing stays expensive and a generated secret costs nothing per request. `algo` records which.
+ * The hash fields for a secret: **scrypt when a person chose it, sha256 when the panel generated it**.
+ * `algo` records which. Why two: `secrets.ts`.
  */
 export function credentialFields(secret: string, generated: boolean): Pick<AccountRecord, 'algo' | 'hash' | 'salt' | 'keylen' | 'cost' | 'short'> {
   if (generated) {

@@ -497,16 +497,12 @@ export class AuthService {
     }
 
     /**
-     * A wrong id and a wrong secret take the same path: both land here, and the answer never says
-     * which half was wrong, because that would confirm an id exists.
+     * A wrong id and a wrong secret take the same path: the answer never says which half was wrong,
+     * because that would confirm an id exists.
      *
      * **`verifyAccountSecret` runs unconditionally**, and its result is combined rather than
-     * short-circuited past. It was `account === null || !verify(…)`, so an unknown id never hashed at
-     * all: measured through the login route, median 1.2 ms for an unknown id against 36.9 ms for a
-     * wrong secret on a known one — a 30× difference that names which ids exist, which is precisely
-     * what `docs/SECURITY.md` promises the login form does not do. The store now spends one scrypt on
-     * an unknown record too, so the two answers cost the same; what is left for this call site is to
-     * actually reach it.
+     * short-circuited past: skipping the hash for an unknown id answers in ~1 ms where a wrong
+     * secret takes ~37 ms, and that timing names which ids exist. See `docs/SECURITY.md`.
      */
     const account = this.secrets.account(id)
     const verified = this.secrets.verifyAccountSecret(id, secret)

@@ -57,14 +57,13 @@ function withoutTrailingBlank(lines: string[]): string[] {
 /**
  * The last `lines` lines across the whole rotation, oldest first.
  *
- * A panel console log keeps one rotation (`.1`), but a **server's** log is rotated by the panel to
- * `.log.<keep>`, three deep by default, and the two used to share this one implementation — so it
- * printed the newest third of a server's log while the Logs page served all of it. `readRotated`
- * walks the directory instead, which covers one file, two, or eleven.
+ * A panel console log keeps one rotation (`.1`), but a **server's** log is rotated to `.log.<keep>`,
+ * three deep by default, and the two once shared this implementation — so it printed the newest third
+ * of a server's log while the Logs page served all of it. `readRotated` walks the directory instead.
  *
- * Reads only the tail it needs when it can. The log is capped at 5 MB per file *by rotation*, so a
- * panel that has been up a while keeps a large current file, and reading it in full to print fifty
- * lines costs the *default* invocation of a diagnostic command most of a tail nobody looks at.
+ * Reads only the tail it needs when it can: the log is capped at 5 MB per file *by rotation*, so the
+ * current file is large and reading it in full to print fifty lines costs a diagnostic command more
+ * than the tail anyone reads.
  */
 export function readLog(file: string, lines: number): string[] {
   return readRotated(file, lines)

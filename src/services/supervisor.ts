@@ -716,8 +716,7 @@ export class Supervisor {
     if (entry.child === null && entry.pid === null) {
       // Nothing of ours runs, but a compose entry's server is its containers, which may still be up.
       const stack = await stopComposeStack(this.ctx, entry)
-      // Cleared after the await, for the same reason as the tail below: a start accepted during the
-      // teardown must be refused by `start()`, not overwritten by this branch's verdict.
+      // Cleared after the await, like the tail below.
       entry.stopping = false
       if (refuseLingeringStack(this.ctx, entry, stack))
         return { ok: false, error: entry.lastError! }
@@ -839,15 +838,13 @@ export class Supervisor {
       if (!config) {
         this.entries.delete(id)
         this.persistent.forget(id)
-        // Reclaim everything keyed by the id, so a re-added id does not inherit the old server's log
-        // lines, crash history or spent retry budget. Safe: a config that fails to parse keeps the
-        // last trusted server list, so a bad edit does not read as "every server was removed".
+        // Reclaim everything keyed by the id, so a re-added id inherits none of the old server's log
+        // lines, crash history, spent retry budget, transport files or secret values. Safe: a config
+        // that fails to parse keeps the last trusted server list, so a bad edit does not read as
+        // "every server was removed".
         this.options.logFiles.clear(id)
-        // The transport files are this id's too: a re-added id must not inherit a dead run's output.
         removeOutputFiles(outputFiles(this.options.nannyDir, id))
         this.options.history.forget(id)
-        // Its secret values are this id's too, and the only per-id store that is not a reading: a
-        // re-added id must not inherit a dead entry's credentials. See `forgetServerEnv`.
         this.options.forgetServerEnv?.(id)
         clearEntryState(entryStatePath(this.options.nannyDir, id))
         // Flagged so the stop below cannot write them back; clearing *after* it would race a re-add.
@@ -949,14 +946,11 @@ export class Supervisor {
 
     this.log(entry, 'system', `start: ${command} ${loggedArgs.join(' ')}`)
 
-    /**
-     * The child's output goes to a file it owns, not down a pipe this process holds.
-     *
-     * With a pipe the panel is the read end, so the pipe closing when the panel is killed `EPIPE`s
-     * the child on its next write — and a chatty server dies with the panel it should outlive. An
-     * inherited descriptor takes the panel out of that chain; `EntryOutput` reads it back. The files
-     * live under `.state/` (see `outputFiles`), so `logFiles` never serves or prunes them.
-     */
+    // The child's output goes to a file it owns, not down a pipe this process holds: with a pipe the
+    // panel is the read end, so the pipe closing when the panel is killed `EPIPE`s the child on its
+    // next write — and a chatty server dies with the panel it should outlive. An inherited descriptor
+    // takes the panel out of that chain; `EntryOutput` reads it back. The files live under `.state/`
+    // (see `outputFiles`), so `logFiles` never serves or prunes them.
     const files = outputFiles(this.options.nannyDir, entry.config.id)
     let opened: OpenedOutput
     try {

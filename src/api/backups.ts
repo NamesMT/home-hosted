@@ -81,14 +81,12 @@ export function createBackupsRoute(deps: AppDeps) {
           throw new DetailedError('unknown backup', { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
 
         // Streamed, not read into memory. An archive has **no size ceiling** — it carries whatever the
-        // declared data paths hold — so `readFileSync` blocked the event loop for the whole read and
-        // held it: measured at 82 ms for 100 MB, 841 ms for 500 MB and 1.3 s for 1 GB, with every
-        // state frame and health probe waiting.
+        // declared data paths hold — and `readFileSync` blocked the event loop for the whole read
+        // (82 ms for 100 MB, 1.3 s for 1 GB), holding every state frame and health probe behind it.
         //
         // `createReadStream`, not `FileHandle.readableWebStream`: consuming the latter to the end
-        // leaves the handle **open** (measured — a `stat()` on it still succeeds), so every download
-        // would leak a descriptor. `createReadStream` destroys itself on end *and* on a client that
-        // disconnects (measured `destroyed: true`).
+        // leaves the handle **open**, so every download would leak a descriptor. `createReadStream`
+        // destroys itself on end *and* on a client that disconnects.
         const stats = await fs.promises.stat(file)
         return c.body(Readable.toWeb(createReadStream(file)) as ReadableStream, 200, {
           'Content-Type': 'application/zip',

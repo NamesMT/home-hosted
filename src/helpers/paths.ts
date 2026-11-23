@@ -59,12 +59,12 @@ export function ensureStateDir(dir: string = hhDir, mode?: number): void {
     fs.mkdirSync(hhDir, { recursive: true, mode: 0o700 })
   /**
    * `mode` is for the directories whose own contents are secret — the proxy's `bin/`, its engine data
-   * and the `.proxy/state` holding `admin.json` and `challenge.json`. They used to call
-   * `fs.mkdirSync(..., { mode: 0o700 })` directly, which is **not** the same thing: a bare
-   * `mkdirSync` with `recursive: true` creates every missing parent at the umask default, so `.hh` came
-   * out `0755` — world-readable — whenever the proxy got there before `up` did. Measured: the bare call
-   * leaves `.hh` `755`, and `ensureStateDir` leaves it `700`. This argument keeps the child's `0700`
-   * too, so neither half is traded for the other.
+   * and the `.proxy/state` holding `admin.json` and `challenge.json`.
+   *
+   * A bare `mkdirSync(..., { mode: 0o700 })` is **not** the same thing: with `recursive: true` it
+   * creates every missing parent at the umask default, so `.hh` came out `0755` — world-readable —
+   * whenever the proxy got there before `up` did. This keeps the child's `0700` too, so neither half
+   * is traded for the other.
    */
   fs.mkdirSync(dir, mode === undefined ? { recursive: true } : { recursive: true, mode })
 }

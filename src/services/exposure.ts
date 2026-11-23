@@ -288,15 +288,15 @@ export function dialsPanel(upstream: string, panelPorts: readonly number[]): boo
 /**
  * A warning for the combination that makes the login lockout advisory.
  *
- * `trustProxy: true` tells srvx to trust `x-forwarded-*` from **any** peer, and it resolves the client
- * address from the leftmost entry of `x-forwarded-for` — a value the caller controls. Login failures are
- * keyed on that address, so a client that rotates the header never accumulates them: measured, 30 wrong
- * passwords from 30 forged addresses produced **zero** 429s, against 27 from a fixed address.
+ * `trustProxy: true` trusts `x-forwarded-*` from **any** peer, and srvx resolves the client address
+ * from the leftmost `x-forwarded-for` — a value the caller controls. Login failures are keyed on that
+ * address, so rotating the header never accumulates them: 30 wrong passwords from 30 forged
+ * addresses produced **zero** 429s, against 27 from a fixed address.
  *
- * This is a warning rather than a refusal because `true` has legitimate uses — a proxy on another host —
- * and, once the header is trusted, the real peer is not reachable through srvx (`#remoteAddress` is
- * private), so the panel cannot re-key the lockout on it. Prefer `host: local` with the proxy on this
- * machine, or leave `trustProxy` off and reach the panel directly.
+ * A warning rather than a refusal because `true` has legitimate uses (a proxy on another host), and
+ * because once the header is trusted the real peer is not reachable through srvx
+ * (`#remoteAddress` is private), so the panel cannot re-key the lockout on it. Prefer
+ * `host: local` with the proxy on this machine, or leave `trustProxy` off.
  */
 export function proxyTrustWarning(control: ControlConfig): string | null {
   // `'loopback'` is not the dangerous case: it trusts `x-forwarded-*` only when the peer *is* loopback,
