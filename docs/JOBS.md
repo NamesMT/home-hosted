@@ -146,6 +146,11 @@ all work. Sunday is both `0` and `7`. When **both** day fields are restricted, a
   `home-hosted job run`) when you want one immediately.
 - **A schedule that can never come due is reported once.** A mistyped expression (`0 0 31 4 *` for
   31 April) is logged when it appears and again only if it changes — never every second.
+- **Across a clock change, a job runs once per wall-clock time.** On the autumn change the wall clock
+  reaches 01:30 twice — once on daylight time and once on standard — and `30 1 * * *` runs **once**,
+  at the first. On the spring change, a time the clock skips (`02:30`) does not exist that day, so that
+  day's run does not happen; the next one does. The rule is derived from the clock, not from how often
+  the scheduler ticks, so an hour of real time passing twice cannot start two runs.
 
 ## Where a run's result goes
 

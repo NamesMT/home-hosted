@@ -17,6 +17,19 @@ version ships: its text lives on in that GitHub release's body.
 A servers file that still declares a job is **refused** rather than read as a service, so the schedule
 cannot silently stop firing. If you run nothing else in this list, run this.
 
+**Check any job whose day-of-month or day-of-week field starts with `*`.** Two cron corrections land in
+this release, and both change when a job fires:
+
+- a star-leading day field such as `0 0 */10 * *` had stopped filtering and was running **every day**
+  instead of the 1st, 11th, 21st and 31st. Cron's rule is that the star chooses the *branch* (both day
+  fields are tested, or either), never whether a field selects — that is restored.
+- a job scheduled inside the autumn clock change ran **twice** for one wall-clock time. It now runs once,
+  at the first. Nothing to edit, but a job that has been double-firing on that date will stop.
+
+No file changes for either. If you have a schedule you believe was misfiring and preferred it that way,
+re-check the expressions in `jobs.config.json` — `home-hosted job ls` needs a running panel, and the
+file is the same content.
+
 **Replace `home-hosted set-password` with `home-hosted account secret <id>`**, and `set-token` with
 `account create`. A password and an API token are one thing now — an account, with an `id` you type and
 a `secret` only you hold. Your existing credentials migrate on first read: the old password becomes
