@@ -70,11 +70,8 @@ can be tried before it is saved; `DELETE /api/notifications/destinations/alerts/
 | a [job](./JOBS.md) run failed | `onCrash` | ✅ |
 
 **A failed deploy and a failed job both ride `onCrash`**, because to a reader they are the same news
-as a crash: the service is still on the old version, or last night's backup did not run. Nobody asks
-"tell me only about processes". A job run that a person **stopped** is not a failure and sends
-nothing — its record is marked cancelled, so its non-zero status is not reported as an error. A job
-that succeeds sends nothing either: silence is the expected outcome, and a message per successful
-nightly backup is noise that hides the one that failed.
+as a crash. A job a person **stopped**, or one that succeeded, sends nothing: silence is the expected
+outcome, and a message per successful nightly backup hides the one that failed.
 
 A **forced restart** is two messages, not one: the restart is announced, and then its outcome is —
 the entry is serving again, or it did not come back (in which case its crash is the second message).
@@ -128,16 +125,11 @@ destination that can never send.
 **Send a test** on a destination tries the values *in the form*, so an unsaved URL and header block
 are what gets exercised.
 
-**The panel will POST to any address you give it, including one on your own network.** There is no
-allow-list and no private-range refusal: a webhook pointed at `http://127.0.0.1:<port>/api/…` reaches
-that service and reports its real answer, while `169.254.x` and a closed local port both answer
-`fetch failed` — the request having been made rather than refused. That is a judgement call, not an
-oversight: a panel on a home network reasonably alerts a service on the same LAN, and a blanket
-private-range block would break exactly that case. It is not an escalation, though:
-the `config` scope this needs is implied by `admin`, and an admin token can already create a command
-entry and run arbitrary commands (see [SECURITY.md](./SECURITY.md)). So treat a webhook like the shell
-access it is: a URL comes from someone who could run anything anyway. **Do not paste a URL you did not
-write yourself**, and if a token can reach this route, it can reach your whole network.
+**The panel will POST to any address you give it, including one on your own network** — no allow-list,
+no private-range refusal, because a panel on a home network reasonably alerts a service on the same
+LAN. It is not an escalation: the `config` scope this needs is implied by `admin`, and an admin token
+can already create a command entry and run arbitrary commands (see [SECURITY.md](./SECURITY.md)). Treat
+a webhook like the shell access it is — **do not paste a URL you did not write yourself.**
 
 ## Where the token lives
 
