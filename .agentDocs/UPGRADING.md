@@ -102,8 +102,8 @@ silence 8 errors, they can go.
 
 **Check a saved entry that changed a restart-read field**: a server view now carries an optional
 `restartRequired`, true when the running process predates a change to `command`, `args`, `cwd`, `env`,
-`envFile`, `dataEnvs`, `port`, `bind`, `persistent` or `stop`. It is absent when false, so an existing
-reader is unaffected — but "saved" alone no longer tells the whole story.
+`envFile`, `secretEnv`, `dataEnvs`, `port`, `bind`, `persistent` or `stop`. It is absent when false,
+so an existing reader is unaffected — but "saved" alone no longer tells the whole story.
 
 **Read the optional `warnings` list on a create and on `GET /api/servers`** — a `command` holding a whole
 command line is reported there instead of failing at spawn after every retry. The create still

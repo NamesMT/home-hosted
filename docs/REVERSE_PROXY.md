@@ -244,18 +244,16 @@ Dynamic DNS entry, because its credentials differ (API user, key and a whitelist
 client IP) and it rewrites the whole zone per write. Namecheap's Dynamic DNS password
 cannot write a TXT record at all, so that account is refused with the reason.
 
-The engine holds no DNS credentials. It asks the panel over the ACMEProxy protocol on
-loopback, with credentials the panel generated for it (so DNS-01 needs the panel bound to `local`
-or `lan`: a panel bound to one specific address is dialled there, and the endpoint refuses a
-caller that is not loopback), and the panel writes the
-`_acme-challenge` record through that account. `resolvers` overrides the nameservers
-the engine checks the record against, which is what split-horizon DNS needs.
+The engine holds no DNS credentials. It asks the panel over the ACMEProxy protocol on loopback,
+with credentials the panel generated (so DNS-01 needs the panel bound to `local` or `lan`; a panel
+bound to one address is dialled there, and the endpoint refuses a non-loopback caller), and the
+panel writes the `_acme-challenge` record through that account. `resolvers` overrides the
+nameservers the engine checks the record against — what split-horizon DNS needs.
 
-Setting it up needs no inbound port, but the record has to be **published** before the
-CA looks: the panel writes it, the CA reads it, and the panel removes it again. A
-provider that can only write a whole record set — Namecheap's XML API is the one —
-is read-modify-write, so the panel rewrites records it did not create, and refuses
-rather than adding a 151st record to a zone already at the limit.
+No inbound port is needed, but the record must be **published** before the CA looks: the panel
+writes it, the CA reads it, the panel removes it. A provider that can only write a whole record set
+(Namecheap's XML API) is read-modify-write, so the panel rewrites records it did not create and
+refuses rather than adding a 151st record to a zone at the limit.
 
 ## The engine
 
@@ -271,8 +269,8 @@ rather than adding a 151st record to a zone already at the limit.
 | Reloaded by | `POST /load` — atomic, and the revision that applied is kept on disk so a change can be reverted in one click (the first one has nothing to go back to). A revert passes the same gates as an apply — the exposure rule and the port preflight — and keeps the engine on its current admin endpoint. A reload onto a port a stranger holds is refused before the engine is touched, naming the pid when the OS will tell it and saying so when it will not, and the panel keeps reporting the ports the engine is really on. |
 | Stops with | **Stop** in the page, switching the proxy off (in the page, by editing `settings.json`, or by a restore — at the next boot if the panel was down), or `POST /api/proxy/stop`. It never stops itself, and `down` leaves it serving — the socket facing the internet is not something a panel restart should drop. It is never restarted automatically either: a configuration the engine refuses needs a person, not a retry loop. |
 
-Because it runs under a nanny, a panel restart does not drop the socket that faces the
-internet: the engine keeps serving, and the panel reattaches to it on the next boot.
+It runs under a nanny, so a panel restart does not drop the socket facing the internet: the engine
+keeps serving and the panel reattaches on the next boot.
 
 ## API
 

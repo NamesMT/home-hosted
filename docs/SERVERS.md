@@ -92,20 +92,17 @@ entry's, not the panel's.</sub>
 A file never slows a writer down the way a pipe does, so a server can write faster than the panel
 reads. It is bounded, and the bounds are worth knowing before you see them:
 
-- **An 8 MB file is emptied once it has been fully read.** Nothing is lost — every byte was already
-  delivered to the log before the file is truncated, and a half-written line continues into the
-  child's next write. This is invisible in normal use.
+- **An 8 MB file is emptied once it has been fully read.** Nothing is lost — every byte was delivered
+  before the truncate, and a half-written line continues into the child's next write.
 - **A writer faster than the reader can drain is throttled by dropping.** Past a backlog of
-  `max(8 MB, 256 KiB)` the oldest unread bytes go, the cut is moved forward to the next **line
-  boundary** so the gap is whole lines rather than a torn one, and the entry's own log says so: `the
-  server wrote faster than the panel could read it — N KiB of its output was dropped`. That line is
-  the point — a silent drop is the failure this exists to avoid — but it does mean a genuinely
-  firehose-level server can show those lines in its log instead of every line it wrote. A line the
-  server had not finished writing when the gap began is discarded rather than completed, so a
-  fragment is never spliced onto the first surviving line.
-- **One rare write window.** A byte written in the instant between the panel measuring the file and
-  emptying it is lost unread. It is one small window per 8 MB of output, and only for a child writing
-  at that exact moment.
+  `max(8 MB, 256 KiB)` the oldest unread bytes go, the cut moving forward to the next **line
+  boundary** so the gap is whole lines rather than a torn one, and the entry's log says so: `the
+  server wrote faster than the panel could read it — N KiB of its output was dropped`. The line is
+  the point — a silent drop is the failure this exists to avoid — but a firehose-level server does
+  show it instead of every line it wrote. A half-written line at the gap is discarded, never spliced
+  onto the first surviving line.
+- **One rare write window.** A byte written between the panel measuring the file and emptying it is
+  lost unread — one small window per 8 MB of output.
 
 The panel reads at most 256 KiB per stream per pass, four times a second — roughly 1 MB/s each for
 stdout and stderr — while the drop path needs an 8 MB backlog, so a server has to sustain output near
@@ -645,12 +642,11 @@ restart needed:
   newly expose the panel without a password, is not applied: the panel logs why and keeps the
   settings it was running.
 
-A save from the panel never overwrites an edit it has not read yet: if the file changed on disk since
-the panel last loaded it, the save is refused (`409 CONFIG_CHANGED_ON_DISK`), the panel reloads the
-file, and saving again applies your change on top of the edit. While the file on disk is one the
-panel could not use — it does not parse, fails the schema, or was refused for exposing the panel —
-every save from the panel is refused the same way, naming the problem, so your edit is never
-replaced: fix or revert it, and the next save builds on it.
+A save from the panel never overwrites an edit it has not read yet: if the file changed on disk
+since the panel last loaded it, the save is refused (`409 CONFIG_CHANGED_ON_DISK`), the panel reloads,
+and saving again applies your change on top. While the file is one the panel could not use — it does
+not parse, fails the schema, or would expose the panel — every save is refused the same way, naming
+the problem: fix or revert it, and the next save builds on it.
 
 Whatever encoding your editor puts on the file is fine. A UTF-8 **byte-order mark** (Notepad's
 "UTF-8 with BOM", PowerShell 5.1's `Set-Content -Encoding UTF8`) and the **UTF-16LE** that

@@ -252,10 +252,11 @@ defaults fill the rest. Sending a default explicitly freezes it against later de
 
 **A create or `PUT` writes config; the running process keeps what it was started with.** The server
 view's optional `restartRequired` is `true` when the running process predates a change to a field a
-restart re-reads — `command`, `args`, `cwd`, `env`, `envFile`, `dataEnvs`, `port`, `bind`,
-`persistent` and `stop`. A change to anything else (`label`, `enabled`, `health`, `restart`,
-`resources`, `dependsOn`, log retention, backup paths, the port-conflict policy) takes effect live and
-does **not** set it. A stopped entry never sets it.
+restart re-reads — `command`, `args`, `cwd`, `env`, `envFile`, `secretEnv`, `dataEnvs`, `port`,
+`bind`, `persistent` and `stop` (`RestartRelevant` in
+`src/services/supervisor/restart-required.ts`). A change to anything else (`label`, `enabled`,
+`health`, `restart`, `resources`, `dependsOn`, log retention, backup paths, the port-conflict policy)
+takes effect live and does **not** set it. A stopped entry never sets it.
 
 ## The local channel: `/_hh`
 
