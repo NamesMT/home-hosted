@@ -1,25 +1,10 @@
 /**
  * An account: a credential that signs in to the panel *and* authenticates the API.
  *
- * Two hash algorithms on purpose — a secret a person chooses is stretched with scrypt, because it may be
- * guessable and an attacker holding the file would otherwise walk it offline; a secret the panel
- * generates* is 256 bits of randomness, where scrypt would only add cost to every request. The record
- * says which, and verification reads that field.
- *
- * **The cost is not rounding error, and it is per request.** Measured on a built panel, 40 requests an
- * endpoint after a warm-up:
- *
- *     generated (sha256)   /healthz 2.6 ms   /api/servers 2.3 ms   /api/settings 2.3 ms
- *     chosen    (scrypt)   /healthz 40 ms    /api/servers 69 ms    /api/settings 69 ms
- *
- * A token is presented on **every** call, so a chosen secret pays `scryptSync` at N=16384 each time, and
- * a wrong token pays it too — the work happens before the comparison, which is what keeps the timing
- * signal out. That is the right trade for a login form (`POST /api/auth/login` runs it once, and the
- * delay is the defence) and the wrong one for a client polling `/api/servers` once a second.
- *
- * So: **generated secrets are the API path, chosen secrets are the login path.** A token made with
- * `account create <id>` and no `HHOSTED_SECRET` is sha256 — that is the one to script against. This is
- * not a reason to weaken scrypt; it is a reason to know which you are holding.
+ * Two hash algorithms on purpose — a secret a person chooses is scrypt-stretched (it may be guessable,
+ * and an attacker holding the file would walk it offline), a secret the panel *generates* is 256 bits of
+ * randomness where scrypt would only add cost to every request. The record says which, and verification
+ * reads that field. Measured cost, and which to use: `docs/SECURITY.md`.
  *
  * The store lives in `secrets.ts` beside the other secrets; this is the identity and hashing layer it
  * calls.
@@ -54,12 +39,8 @@ export function generateAccountSecret(): string {
 }
 
 /**
- * The hash fields for a secret: **scrypt when a person chose it, sha256 when the panel generated it.**
- *
- * The distinction is real, not stylistic. A typed secret may be guessable, so an attacker holding the
- * file would walk a small space offline — scrypt makes each guess cost. A generated secret is 256 bits
- * of randomness, where the space is far too large to walk and the only thing scrypt would add is cost
- * to every authenticated request. `algo` records which, and verification reads it.
+ * The hash fields for a secret: **scrypt when a person chose it, sha256 when the panel generated it**,
+ * so guessing stays expensive and a generated secret costs nothing per request. `algo` records which.
  */
 export function credentialFields(secret: string, generated: boolean): Pick<AccountRecord, 'algo' | 'hash' | 'salt' | 'keylen' | 'cost' | 'short'> {
   if (generated) {
@@ -81,20 +62,8 @@ export function credentialFields(secret: string, generated: boolean): Pick<Accou
 }
 
 /**
- * The accounts, read tolerantly — and **the migration** from both earlier credential models.
- *
- * A file written by 0.13 has `password`; one by 0.14 has `password` plus `apiTokens`. Both become
- * one account with id `default`, carrying **the union of the authorities they had**, so an upgrade
- * cannot remove access it never announced:
- *
- * - the password becomes the account's scrypt record, so the same typed secret still signs in;
- * - a token with the id `default` *is* that account (a token is a secret the panel generated, so it
- *   becomes a `sha256` account — verification reads `algo`, so either works);
- * - any other token becomes its own account with the same id and scopes, and its value keeps working
- *   as `Bearer <id>:<secret>`.
- *
- * Ids must be unique, so a collision on the id keeps the stored account and drops the legacy one: the
- * file on disk is the more recent statement of intent.
+ * The accounts, read tolerantly. A record with no scopes means `read`, an absent `enabled` means
+ * enabled (a pre-0.15 account could not be disabled), and a duplicate id keeps the first.
  */
 export function readAccounts(value: unknown): AccountRecord[] {
   if (!Array.isArray(value))
@@ -141,11 +110,10 @@ export function readAccounts(value: unknown): AccountRecord[] {
 }
 
 /**
- * The accounts a pre-0.15 file implies.
- *
- * Ids are unique, so `default` is the one that carries the password; a token already named `default`
- * is* that account rather than a second one. Everything else becomes its own account with the same id
- * and scopes, so a script's value keeps working — `Bearer <id>:<secret>` — without anyone re-issuing it.
+ * The accounts a pre-0.15 file implies — the union of the authorities it held, so an upgrade cannot
+ * remove access it never announced. `default` carries the password; a token already named `default`
+ * is that same account, and every other token becomes its own account with the same id and scopes so
+ * its value keeps working as `Bearer <id>:<secret>`.
  */
 export function migrateLegacyAccounts(contents: SecretsFile): AccountRecord[] {
   const accounts: AccountRecord[] = []

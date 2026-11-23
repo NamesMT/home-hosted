@@ -77,26 +77,16 @@ export function createRootApp(deps: AppDeps) {
     })
 
     /**
-     * Compress a response when the client asked for it.
+     * Compress a response when the client asked for it — `GET /openapi/spec.json` is ~440 kB of JSON
+     * and compresses roughly tenfold.
      *
-     * Measured before this was added: `GET /openapi/spec.json` answered **437 kB** and took **23 ms** on a
-     * warm process — four times the 8 ms every other route costs — and a client sending
-     * `accept-encoding: gzip` received all 447 kB of it. JSON compresses roughly tenfold, so the cost was
-     * almost entirely bytes on the wire.
-     *
-     * Hono's `compress()` is used rather than a hand-rolled wrapper, and its defaults are the reason:
-     *
-     *  - `COMPRESSIBLE_CONTENT_TYPE_REGEX` **excludes `text/event-stream`** (`text\/(?!event-stream…)`).
-     *    That is load-bearing: `/api/events` is a live SSE stream, and a `CompressionStream` in its path
-     *    would buffer frames behind the compressor — the panel would appear frozen while the charts went
-     *    quiet. Verified in `hono/dist/utils/compress.js` rather than assumed.
-     *  - it skips `206`, `HEAD`, anything already encoded or chunked, and anything under 1 kB;
-     *  - it honours `Cache-Control: no-transform`, which the immutable-asset route sets;
-     *  - it sets `Vary: Accept-Encoding` and weakens the `ETag`, so a cache cannot serve a gzipped body
-     *    to a client that did not ask for one.
-     *
-     * Mounted before the routes and after the logger, so the timing it logs is the work and not the
-     * transfer.
+     * Hono's `compress()` rather than a hand-rolled wrapper, because its
+     * `COMPRESSIBLE_CONTENT_TYPE_REGEX` **excludes `text/event-stream`**. That is load-bearing:
+     * `/api/events` is a live SSE stream, and a `CompressionStream` in its path buffers frames behind
+     * the compressor — the panel looks frozen while the charts go quiet. (Verified in
+     * `hono/dist/utils/compress.js`.) It also skips `206`/`HEAD`/already-encoded/chunked and anything
+     * under 1 kB, honours `Cache-Control: no-transform`, and sets `Vary: Accept-Encoding` and a
+     * weakened `ETag` so a cache cannot serve gzip to a client that did not ask.
      */
     .use('*', compress())
 
@@ -105,9 +95,9 @@ export function createRootApp(deps: AppDeps) {
     // Before anything else: a rebound public name must not reach a single route.
     .use('*', createHostGuard(() => [...deps.panel.settings.control.allowedHosts, ...deps.proxy.panelHosts()]))
 
-    // Outside `/api`, so a local `down` needs no session — but it needs the token
-    // from `run.json` and a loopback peer. Behind the host guard like every route; a local
-    // caller reaches it by IP, which the guard always allows.
+    // Outside `/api`, so a local `down` needs no session — but it needs the token from `run.json`
+    // and a loopback peer. Behind the host guard like every route; a local caller reaches it by IP,
+    // which the guard always allows.
     .route('/_hh', createControlRoute(deps))
 
     // The engine's DNS-01 channel: outside `/api` too, loopback-only, and behind
@@ -119,8 +109,7 @@ export function createRootApp(deps: AppDeps) {
     // declaration in `src/middleware/token-scope.ts`, and a session or a local caller passes through.
     .use('/api/*', createTokenScopeGuard({ defaultWorkspaceId: () => deps.panel.defaultId() }))
     // After the guards, so an anonymous caller is refused on identity rather than on a size it never
-    // sent. A body large enough to blow up the state frame is refused here rather than written to a
-    // config file — see `createBodyLimitGuard` for the measurement.
+    // sent. See `createBodyLimitGuard` for the bound.
     .use('/api/*', createBodyLimitGuard())
 
     .route('/api', createAuthRoute(deps))

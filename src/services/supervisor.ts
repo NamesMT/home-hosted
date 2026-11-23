@@ -59,11 +59,9 @@ const TICK_INTERVAL_MS = 1000
 /**
  * How large one entry's transport file may grow before it is emptied.
  *
- * A pipe throttles the child that fills it; a file never does, so this is the only thing bounding it
- * — and it only ever applies once the reader has drained the file, so emptying it cannot lose a line
- * the panel had not seen. 8 MB is generous on purpose: `logs.maxBytes` caps a *served* log at 2 MB by
- * default, and this is not that log, so a burst costs a few MB of disk rather than truncating often
- * enough for the documented race to matter.
+ * A pipe throttles the child that fills it; a file never does, so this is the only bound. It is only
+ * applied once the reader has drained the file, so emptying it cannot lose an unseen line. 8 MB is
+ * generous on purpose: `logs.maxBytes` caps a *served* log, and this is not that log.
  */
 const OUTPUT_CAP_BYTES = 8 * 1024 * 1024
 
@@ -213,25 +211,15 @@ export class Supervisor {
    * Reports every non-persistent child that was running when a previous panel died and is gone now.
    *
    * An entry-state file with a `lastPid` exists only because that entry was running when its panel
-   * died, so a record whose process is gone is the end of that run — and at boot, that is a crash
-   * nobody watched. It is reported for **every enabled entry**, not just the ones this boot will
-   * start: an entry with `autostart: false` (or a boot with `--no-autostart`) reached no start at all,
-   * and its card read `stopped` / `lastError: null` — the clean stop this is about. Consuming the
-   * record here also means the start that follows cannot report it a second time.
+   * died, so a record whose process is gone is the end of that run — at boot, a crash nobody watched.
+   * It covers **every enabled entry**, not just the ones this boot starts: an entry with
+   * `autostart: false` reached no start and its card read `stopped` / `lastError: null`. Consuming
+   * the record here also stops the following start reporting it twice.
    *
-   * Runs on every `startAll()`, boot's and a user's `start-all` alike: both mean "bring this workspace
-   * up", and both would otherwise answer nothing about an entry that died with the panel. The single
-   * entry's Start stays silent about it (`reportAway: entry.actor === 'boot'` below), because there
-   * the person's own action is the news — the rule `persistent.resume({ reportAway })` already keeps.
-   *
-   * A persistent entry is skipped: its nanny's state file is its record, and `persistent.resume()`
-   * already answers "exited while the panel was away".
-   *
-   * **Call this at boot whether or not `autostart` is on.** It used to be reachable only from
-   * `startAll()`, which boot runs inside `if (options.autostart)` — so `up --no-autostart` never
-   * swept, and its entries kept the very `stopped` / `lastError: null` card this exists to end. A
-   * Start afterwards consumed the record and reported nothing (its actor is not `boot`), which lost
-   * the crash entirely rather than merely delaying it.
+   * **Call it at boot whether or not `autostart` is on** — `up --no-autostart` must sweep too, and a
+   * later Start consumes the record without reporting it (its actor is not `boot`). A persistent
+   * entry is skipped: its nanny's state file is its record, and `persistent.resume()` already answers
+   * "exited while the panel was away".
    */
   async reportAwayChildren(): Promise<void> {
     for (const entry of [...this.entries.values()]) {
@@ -432,12 +420,9 @@ export class Supervisor {
    * Runs this entry's `deploy` steps, then restarts it if it is running and `restart` is not off.
    *
    * **One at a time per entry**: a second call answers `409 DEPLOY_RUNNING` rather than stacking two
-   * sequences that would install each other's half. A stop during a deploy cancels it — the step's
-   * whole process group is killed, and the sequence does not carry on.
-   *
-   * A failed step leaves the running process **alone**: half-deployed is the state this exists to
-   * avoid, and the old process is the thing a person still has. The failure is recorded in history,
-   * notified (a failed deploy is the same news as a crash to a reader) and returned.
+   * sequences that install each other's half. A stop cancels it and kills the step's whole process
+   * group. A failed step leaves the running process **alone** — half-deployed is the state this
+   * exists to avoid — and records, notifies and returns the failure.
    */
   async deploy(id: string): Promise<{ ok: boolean, error?: string, code?: 'UNKNOWN_SERVER' | 'NO_DEPLOY' | 'DEPLOY_RUNNING' }> {
     const entry = this.entries.get(id)
@@ -503,12 +488,10 @@ export class Supervisor {
 
       this.log(entry, 'system', 'deploy finished')
       /**
-       * The steps are on disk, so the history record says `ok` — and the restart is a **separate**
-       * action whose failure must not re-label the deploy.
-       *
-       * `deploying` stays true across the restart: a second `POST /deploy` arriving while the entry
-       * is coming back used to be accepted — the flag was cleared first — and started a second
-       * sequence over a service that was still starting. The `finally` clears it.
+       * The steps are on disk, so history says `ok`; the restart is a **separate** action whose
+       * failure must not re-label the deploy. `deploying` stays true across it, or a second
+       * `POST /deploy` arriving mid-restart starts a sequence over a service still starting. The
+       * `finally` clears it.
        */
       if (deploy.restart !== false && (entry.status === 'running' || entry.status === 'starting')) {
         this.publishServer(entry)
@@ -574,14 +557,10 @@ export class Supervisor {
   /**
    * Starts whatever this server depends on and waits until it is ready.
    *
-   * Returns the id of a dependency that **cannot** start at all (disabled, its port is taken, its own
-   * dependency failed), or `null`. A dependency that is up but unhealthy is not that: it is running
-   * and may recover, so the dependent is released with a logged `starting anyway` rather than being
-   * blocked forever on a transient probe failure.
-   *
-   * The id was thrown away before (`void this.start(…)`, `.catch(log)`), so a dependent whose
-   * dependency was disabled started anyway and answered `ok: true` — a serving entry reported against
-   * a dependency that never existed, with nothing for a caller to branch on.
+   * Returns the id of a dependency that **cannot** start at all (disabled, its port taken, its own
+   * dependency failed), or `null` — the caller must branch on it. A dependency that is up but
+   * unhealthy is *not* that: it may recover, so the dependent is released with a logged `starting
+   * anyway` rather than blocked on a transient probe failure.
    */
   private async startDependencies(entry: Entry, current: () => boolean): Promise<string | null> {
     if (entry.config.dependsOn.length === 0)
@@ -670,15 +649,11 @@ export class Supervisor {
     /**
      * Two stops on one entry are **one** stop, not two racing tails.
      *
-     * `stopping` is a bare boolean with no owner, so it cannot express "a teardown is still running
-     * even though some stop has finished". Two overlapping calls each cleared it at their own tail:
-     * the first finisher dropped the flag while the second was still parked in `stopComposeStack`,
-     * `start()` saw a stopped-looking entry and spawned for real, and the second tail then cleared
-     * the readings, dropped that pid and published `stopped` over a live child. Joining the in-flight
-     * stop removes the second tail entirely.
-     *
-     * Reached by a double-click on Stop, `stop-all` racing a per-entry stop, and `sync()` stopping a
-     * disabled entry while a stop is already running.
+     * `stopping` is a bare boolean with no owner, so it cannot say "a teardown is still running though
+     * a stop has finished": two overlapping calls each cleared it at their own tail, so a `start()`
+     * could spawn for real and the second tail then published `stopped` over a live child. Joining
+     * the in-flight stop removes the second tail. (Double-click on Stop, `stop-all` racing a
+     * per-entry stop, `sync()` stopping a disabled entry.)
      */
     if (entry.stopTask !== null)
       return entry.stopTask
@@ -710,11 +685,9 @@ export class Supervisor {
     /**
      * A deploy in flight is ended too, and its step's **whole process group** with it.
      *
-     * Without this, `deployChild` was assigned and never killed: a `pnpm install` or a `docker build`
-     * kept writing to the tree for its full timeout after someone stopped the entry, and the stop
-     * appeared to hang for minutes because `runDeploy` waited for the child's exit before it ever
-     * re-checked `cancelled()`. Measured before the fix: cancelling 200 ms into a 30-second step
-     * returned after 30,011 ms with the child exiting 0.
+     * Otherwise a `pnpm install` or `docker build` keeps writing to the tree for its full timeout
+     * after a stop, and the stop appears to hang: `runDeploy` waits for the child's exit before it
+     * re-checks `cancelled()`. (`deployChild` is the handle; `killDeployStep` kills the group.)
      */
     if (entry.deployChild !== null) {
       this.log(entry, 'system', 'stopping the deploy step in flight')
@@ -988,11 +961,10 @@ export class Supervisor {
     /**
      * The child's output goes to a file it owns, not down a pipe this process holds.
      *
-     * With `stdio: ['ignore','pipe','pipe']` the panel is the read end, so the pipe closing when the
-     * panel is killed `EPIPE`s the child on its next write — and a chatty server dies with the panel
-     * it was supposed to outlive. A descriptor the child inherits takes the panel out of that chain
-     * entirely; `EntryOutput` reads the bytes back afterwards. The files live under the workspace's
-     * `.state/` (see `outputFiles`), so `logFiles` never serves them and retention never prunes them.
+     * With a pipe the panel is the read end, so the pipe closing when the panel is killed `EPIPE`s
+     * the child on its next write — and a chatty server dies with the panel it should outlive. An
+     * inherited descriptor takes the panel out of that chain; `EntryOutput` reads it back. The files
+     * live under `.state/` (see `outputFiles`), so `logFiles` never serves or prunes them.
      */
     const files = outputFiles(this.options.nannyDir, entry.config.id)
     let opened: OpenedOutput
