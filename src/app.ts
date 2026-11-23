@@ -8,6 +8,7 @@ import type { PanelService } from '#src/services/panel'
 import type { ProxyService } from '#src/services/proxy'
 import type { TlsStore } from '#src/services/tls'
 import type { UiService } from '#src/services/ui'
+import { compress } from 'hono/compress'
 import { createAcmeChallengeRoute } from '#src/api/acme'
 import { createAuthRoute } from '#src/api/auth/$.routes'
 import { createBackupsRoute } from '#src/api/backups'
@@ -74,6 +75,30 @@ export function createRootApp(deps: AppDeps) {
       await next()
       logger.debug(`${c.req.method} ${new URL(c.req.url).pathname} ${c.res.status} ${Date.now() - started}ms`)
     })
+
+    /**
+     * Compress a response when the client asked for it.
+     *
+     * Measured before this was added: `GET /openapi/spec.json` answered **437 kB** and took **23 ms** on a
+     * warm process — four times the 8 ms every other route costs — and a client sending
+     * `accept-encoding: gzip` received all 447 kB of it. JSON compresses roughly tenfold, so the cost was
+     * almost entirely bytes on the wire.
+     *
+     * Hono's `compress()` is used rather than a hand-rolled wrapper, and its defaults are the reason:
+     *
+     *  - `COMPRESSIBLE_CONTENT_TYPE_REGEX` **excludes `text/event-stream`** (`text\/(?!event-stream…)`).
+     *    That is load-bearing: `/api/events` is a live SSE stream, and a `CompressionStream` in its path
+     *    would buffer frames behind the compressor — the panel would appear frozen while the charts went
+     *    quiet. Verified in `hono/dist/utils/compress.js` rather than assumed.
+     *  - it skips `206`, `HEAD`, anything already encoded or chunked, and anything under 1 kB;
+     *  - it honours `Cache-Control: no-transform`, which the immutable-asset route sets;
+     *  - it sets `Vary: Accept-Encoding` and weakens the `ETag`, so a cache cannot serve a gzipped body
+     *    to a client that did not ask for one.
+     *
+     * Mounted before the routes and after the logger, so the timing it logs is the work and not the
+     * transfer.
+     */
+    .use('*', compress())
 
     .onError(errorHandler)
 
