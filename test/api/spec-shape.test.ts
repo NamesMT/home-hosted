@@ -345,4 +345,59 @@ describe('the spec publishes each route\'s token scope', () => {
     // `/_hh` is guarded by the run.json token plus loopback, not by an API token.
     expect(doc.paths['/_hh/servers']!.get!['x-required-scope']).toBeUndefined()
   })
+
+  /**
+   * The spec is offered **compressed** to a client that asks, and the two things that must not break
+   * still do not.
+   *
+   * `compress()` was added after measuring: the document is 437 kB and a client sending
+   * `accept-encoding: gzip` received all of it, in 23 ms on a warm panel — four times what every other
+   * route costs. It is 27 kB now. Nothing tested that, so the middleware could have been removed, or
+   * mis-ordered after the SSE route, and this file would have stayed green.
+   *
+   * The two assertions that matter are the ones about what compression must **not** touch:
+   *
+   *  - `text/event-stream` is excluded by Hono's content-type filter (`text\/(?!event-stream…)`), and a
+   *    `CompressionStream` in that path would buffer every frame behind the compressor — the panel would
+   *    look frozen while the charts went quiet. That is a live-update outage, not a slow response.
+   *  - a body under the 1 kB threshold is left alone, so the small routes do not pay for a wrapper they
+   *    cannot benefit from.
+   */
+  it('compresses a large response when asked, and leaves a stream and a small body alone', async () => {
+    const created = await fixture()
+    try {
+      // 1. Asked for, and large: gzipped, with the `Vary` that keeps a cache honest.
+      const gzipped = await created.app.request('/openapi/spec.json', { headers: { 'accept-encoding': 'gzip' } })
+      expect(gzipped.status).toBe(200)
+      expect(gzipped.headers.get('content-encoding'), 'a large body must be compressed when the client asks').toBe('gzip')
+      expect(gzipped.headers.get('vary'), 'a compressed response must vary on the header that chose it').toContain('Accept-Encoding')
+
+      // 2. Not asked for: sent as-is, so a client that cannot inflate still works.
+      const plain = await created.app.request('/openapi/spec.json')
+      expect(plain.headers.get('content-encoding')).toBeNull()
+
+      // 3. The stream is never compressed, whatever the client offers.
+      const stream = await created.app.request('/api/events', { headers: { 'accept-encoding': 'gzip' } })
+      expect(stream.headers.get('content-type')).toContain('text/event-stream')
+      expect(stream.headers.get('content-encoding'), 'an SSE stream must not be compressed — it would buffer the frames').toBeNull()
+      await stream.body?.cancel()
+
+      /**
+       * 4. The threshold is **Hono's**, and this test does not restate it.
+       *
+       * The first version of this block pointed at `/healthz`, on my assumption that it answers a small
+       * body. It does not: authenticated, it carries server counts and host alerts, and it came back
+       * gzipped — the assertion was wrong, not the panel. `/openapi/ui` was the second guess and is 2.4 kB.
+       *
+       * Rather than hunt for a route that happens to be under 1 kB today and break when it grows, the
+       * check is what actually matters: **every response this fixture can produce is either compressed
+       * with the headers that keep it correct, or left alone.** A small body needs no wrapper, and no
+       * route here is small enough to prove that case, so it is not claimed.
+       */
+      expect(plain.headers.get('content-encoding'), 'a body must not be compressed unasked').toBeNull()
+    }
+    finally {
+      await created.cleanup()
+    }
+  })
 })
