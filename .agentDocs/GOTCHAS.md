@@ -175,15 +175,16 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **Narrowing what a route *reads* is half a limit when a write replaces the same list**. (`src/api/proxy.ts`, `src/services/state.ts`)
 - **A `read` route that spawns a process is a spawn amplifier** — `GET /api/host/temperature` runs a helper per request. (`src/api/wsl-temperature.ts`; `test/api/routes.test.ts`)
 - **A legacy `.control-secrets.json` fixture must use base64 for `salt` and `hash`**, and the salt is per-file.
+
+## Testing and building
+
+
 - **A source scan that reads a file by path stops covering whatever moves out of it, and keeps passing** — read the directory instead, and assert a count floor so a split cannot shrink the scan silently. (`contractsSource`, `test/support/uis.ts`; `test/shared/contracts.test.ts`)
 - **"A mount cannot check this" is a claim to verify, not to trust** — a source scan's docblock named a live control plane the component no longer used, while its props already made the behaviour mountable. (`uis/noc-console/test/restart-required-chip.test.ts`)
 - **Time the route, not the fixture** — 29 s of `token-scopes.test.ts` was `POST /api/proxy/engine` (an engine download), not its `makeFixture` calls. Ask a route a body the schema refuses: the guard runs, the work does not. (`test/middleware/token-scopes.test.ts`)
 - **`supervisor-health` (53 s), `supervisor` (39 s) and `supervisor-persistent` (38 s) are slow for a reason to keep** — they spawn real children and time real probes and restarts, so no guard can skip that work. Do not "optimise" them into stubs. (`test/services/`)
 - **A bulk probe can destroy the credential it walks with** — sorted, its route list reaches `POST /api/auth/logout` early, so every later write answers `401`. When a probe and a single request disagree, believe the single request and find what the loop *does*. (`scripts/audit-auth.mjs`)
 - **`Set-Cookie` is a header, not a `cookie` value** — the whole line (`hh_session=<v>; Path=/; Max-Age=…; HttpOnly; SameSite=Strict`) is not what a browser sends back; split on `;` and send the first part. Node's `fetch` keeps no jar.
-- **Measure a bundle you just built, or you are measuring last night's** — `check` tests `src/`, a probe against `dist/cli.js` runs whatever was last bundled. `pnpm run build:server` first. (`dist/cli.js`)
+- **`check` tests `src/`, but a probe measures the last build** — `dist/cli.js` and `uis/stock/dist` are whatever bundled last, so a change can "do nothing" or a fix can "not appear" while the source is right. Build first (`pnpm run build`); a stale `dist/` is the first thing to rule out.
 - **The panel's floor is ~200 MB of loaded code, and that is normal** — bare node 42 MB, a booted panel 239 MB, 303 MB after a spec generation (the 437 kB document becomes a cached JSON object). Re-measure only if boot passes 250 MB: a growing baseline is the leak signal, a steady one is not.
-- **Before writing "nothing tests this", grep the test that does** — `test/services/backups.test.ts` covers the restore guarantees (a BOM or a crashed atomic write is not a way past the plaintext-password filter). A coverage claim needs a grep, not an impression. (`test/services/backups.test.ts`)
-- **The stock UI ships from `uis/stock/dist`, so a source edit is invisible until `build:ui` runs** — `check` and the UI's own tests read `src/`; the panel serves the bundle. Build before believing a UI change is visible, and check timestamps when a fix "does not appear". (`scripts/build-uis.mjs`)
-- **A shared `<ScrollX>` component would cost more than the guard it replaces** — the class goes *on* the scroller, so a component adds a DOM node to every table to remove a class from twelve lines, and the source scan already fails on any scroller that forgets it. (`uis/stock/src/styles.css`)
 - **`^`-anchored patterns are CRLF-safe; a literal `\n` in the pattern is not** — a fence-matching `/```json\n/` finds nothing on a `core.autocrlf` checkout; `/^\s{2}(\w+): (.*)$/gm` matches identically on LF and CRLF (`m` anchors after `\n`, `$` stops before `\r?\n`). Do not normalise everything.
