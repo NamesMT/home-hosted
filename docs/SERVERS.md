@@ -481,8 +481,8 @@ the server card does the same thing on demand.
 
 Because a detached successor is not something the panel supervises, `kill` ends up doing what
 `reclaim` does for your own restarted process — stops it and starts a supervised child — without ever
-asking whether it was yours. Only `follow` ever adopts, and only `reclaim` will refuse to act on a
-holder it cannot prove is yours.
+asking whether it was yours. Only `follow` ever adopts, and `reclaim` still refuses a holder it
+cannot prove is yours (`src/services/supervisor/port-preflight.ts:281`).
 
 ## Persistent entries
 
@@ -509,9 +509,10 @@ What that changes:
 - **`down --with-persistent` (and `restart --with-persistent`) stop them as well.** That is the
   flag's whole job, and it works in both situations: with the panel up the stop goes through it, so
   the entry gets its log line, history and health recorded like a click in the UI; with the panel
-  already gone each nanny is signalled directly from its `.state` record, which is what makes the
-  flag usable after a crash. `restart --with-persistent` starts them back afterwards, including
-  entries marked `autostart: false` that `up` alone would leave stopped.
+  already gone each nanny is signalled by pid from its `.state` record, which is what makes the flag
+  usable after a crash. `restart --with-persistent` starts them back afterwards, including entries
+  marked `autostart: false` that `up` alone would leave stopped — and it stops them for real,
+  because `up` reattaches to a nanny that is still alive.
 - **It is reattached, not restarted.** `--no-autostart` still starts nothing, but a persistent entry
   that is already running is adopted, because leaving it unmanaged would make the panel treat its own
   server as a stranger on the port.
@@ -545,10 +546,7 @@ normal process, so it is still subject to:
 
 `down` forces the panel only once it has outlived the slowest configured stop (its `stop.graceMs`, plus
 a compose stack's `docker stop`, plus a margin; between 20s and 10 minutes), and even then it ends the
-panel's own pid alone, on Windows too — a persistent entry survives the forced path.
-`--with-persistent` stops each nanny by pid, so it ends them on either path — and
-`restart --with-persistent` has to stop them for real, because `up` reattaches to a nanny that is
-still alive.
+panel's own pid alone, on Windows too — so a persistent entry survives the forced path.
 
 ## CPU temperature where the OS exposes none
 
