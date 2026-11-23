@@ -248,7 +248,15 @@ describe('a documented sample entry uses fields the schema has', () => {
 
   it('uses only real entry fields in the README example', () => {
     const known = entryFields()
-    const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8')
+    /**
+     * Normalise line endings **before** matching, and match the fence on `\r?\n`.
+     *
+     * A `core.autocrlf` checkout gives CRLF, and `/```json\n/` then finds nothing: this test passed on
+     * Linux and failed on Windows with *"no entry sample found — the README example moved"*, blaming the
+     * README for the checkout's line endings. `scripts/release-notes.mjs` carries the same trap in its own
+     * comments; it splits on `/\r\n|\r|\n/` for exactly this reason.
+     */
+    const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').split(/\r\n|\r|\n/).join('\n')
     /**
      * The fenced `json` block that carries an `"id"` and a `"command"` — the entry sample, found by its
      * shape rather than by a line number, so an edit above it does not break the scan.
