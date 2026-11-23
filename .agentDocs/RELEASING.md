@@ -47,18 +47,15 @@ Five workflows, and the split is deliberate:
 | `release.yml` | dispatched with a version | the platform gate, the browser pass, then tag, publish, release assets |
 
 **The browser pass runs before anything is published, in the release workflow as well as on a push.**
-That ordering is the point: Chromium used to be installed only for the optional media regeneration,
-which runs *after* `npm publish`, so a defect it could have caught was reported on a release that had
-already shipped.
+Chromium installed only for the optional media regeneration runs *after* `npm publish`, so a defect it
+could have caught is reported on a release that already shipped.
 
 The platform gate is not a per-push job on purpose: it is the expensive half, and it is what makes a
 platform-specific break fail before shipping rather than on someone's machine. Every job carries a
 `timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
 
 **Check it ran on the commit you are shipping, not on one you recognise.** A green platform run is a
-claim about *that sha*. Measured on this branch: smoke passed on four consecutive pushes while the newest
-cross-platform run was **twelve commits behind** — nothing had gone wrong, the job simply had not been
-dispatched, and every report that said "cross-platform green" was true of an older tree.
+claim about *that sha*, and one twelve commits behind says nothing about the tree you are releasing.
 
     gh run list --workflow cross-platform.yml --json headSha,conclusion | grep "$(git rev-parse HEAD)"
 
@@ -157,17 +154,10 @@ Write it when the release needs it and skip it when it does not — a version wi
 the changelog alone.
 
 **One release, one section.** The body carries every section up to the released version, oldest
-first, so a version can never go out with an earlier migration missing — but the *authoring* rule is
-one section per release, for the version actually being dispatched.
-
-This branch learned both halves the hard way. It accumulated three releases of breaking work while
-`package.json` stayed at `0.13.0`, with a section staged per version as though each would ship
-separately. One dispatch would have shipped all three changes and printed the migration for one; the
-two dropped were the account model and jobs leaving the server entry, exactly the ones a person must
-act on. The sections are now consolidated into the single `0.16.0` one, opening by saying so.
-
-The rule to carry forward: if the work lands as one release, write one section, however many distinct
-migrations it contains. `test/scripts/release-notes.test.ts` pins the selection behaviour.
+first, so a version cannot go out with an earlier migration missing — but the *authoring* rule is one
+section per release, for the version actually being dispatched. If the work lands as one release,
+write one section however many distinct migrations it contains, or a dispatch ships several changes
+and prints the migration for one. `test/scripts/release-notes.test.ts` pins the selection behaviour.
 
 ## Which version to dispatch
 
@@ -188,12 +178,10 @@ stays visible in the run log rather than looking like a slip.
 `DDNS`, `JOBS`, `NOTIFICATIONS`, `REVERSE_PROXY`, `SECURITY`, `SERVERS`, `UI_CREATION`), the
 `docs/branding` and `docs/demo` assets, and `LICENSE`.
 
-**Every doc a shipped doc links to must itself be in `files`.** `docs/JOBS.md` was missing from the
-list when it was written, and four documents linked to it — `CLI.md` and `NOTIFICATIONS.md` among them,
-both of which do ship — so an npm user following "what a job is" from the CLI reference got a 404. The
-`check-doc-links.mjs` guard reads the working tree, where the file exists, so it cannot see this; the
-`npm pack --dry-run` tarball is the only thing that answers it. A count in this paragraph drifted the
-same way, which is why it now names the files rather than a number. **`AGENTS.md` is not in that list** — the
+**Every doc a shipped doc links to must itself be in `files`.** A doc missing from the list is a 404
+for an npm user following a link from one that shipped, and `check-doc-links.mjs` reads the working
+tree where the file exists, so only the `npm pack --dry-run` tarball answers it. Name the files rather
+than a count, which drifts. **`AGENTS.md` is not in that list** — the
 `files` array omits it, so it is repo-only like `.agentDocs/`, even though it is not gitignored.
 Neither is published: both are for agents working in this repo, so a pointer from `AGENTS.md` into
 `.agentDocs/` is dead in an installed copy, and a reader who installs the package never sees either
@@ -203,9 +191,8 @@ than by reading the `files` array: an entry there can name a directory whose con
 than it looks.
 
 **`--dry-run` proves what is *in* the tarball, not that it *runs*.** Those are different failures and
-only the second one reaches a user. `pnpm pack`, then install the `.tgz` into an empty project
-(`npm install /tmp/pk/home-hosted-<version>.tgz`), and check three things from the installed copy:
-`./node_modules/.bin/home-hosted --version` answers, `up` serves the stock UI at `/`, and
-`/openapi/spec.json` answers `200`. A missing `uis/stock/dist` or a `files` entry that excluded `bin/`
-shows up here and nowhere earlier — `prepack` builds into the working tree, so the repo looks complete either way. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
+only the second reaches a user. `pnpm pack`, then install the `.tgz` into an empty project and check
+that `./node_modules/.bin/home-hosted --version` answers, `up` serves the stock UI at `/`, and
+`/openapi/spec.json` answers `200` — `prepack` builds into the working tree, so the repo looks
+complete either way. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
 devDependencies because the UIs are prebuilt.
