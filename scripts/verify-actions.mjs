@@ -201,6 +201,56 @@ async function main() {
       `count ${(listedBackups.body.files ?? []).length}`,
     )
 
+    /**
+     * **Restore is the one path that overwrites a live host**, and it had no coverage at all.
+     *
+     * The check is deliberately conservative: the entry it restores into is the `verify1` this walk
+     * created moments ago, whose only content is a command line and a label — so a successful restore
+     * puts back exactly what a capture took and touches nothing a person cares about. What it proves is
+     * that the request schema accepts the documented shape, that the archive an earlier step wrote is
+     * readable, and that the answer reports what it did.
+     *
+     * **`include` is omitted, not empty.** Omitting it means every restorable item; `include: []` means
+     * nothing is selected*, and the panel answered exactly that — `applied` empty, `skipped` naming all
+     * seventeen items as `(not selected)`. That is the right behaviour and a good demonstration of an
+     * API that does not guess what an empty list meant.
+     *
+     * `exclude` is sent because the schema's own docblock records the bug where it was rejected: the same
+     * request worked on the `/_hh` channel and answered `exclude must be removed` on `/api`, so a script
+     * could never say "everything except these" on the destructive path.
+     */
+    const restored = await api('/api/backups/restore', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: backup.body.file.name,
+        exclude: ['global:secrets'],
+      }),
+    })
+    record(
+      'restore accepts the documented request shape',
+      restored.status === 200,
+      `status ${restored.status}${restored.status !== 200 ? ` — ${JSON.stringify(restored.body).slice(0, 160)}` : ''}`,
+    )
+    record(
+      'restore reports what it did, naming the items it restored',
+      restored.status === 200 && Array.isArray(restored.body.appliedIds) && restored.body.appliedIds.length > 0,
+      `${restored.body.appliedIds?.length ?? 0} item(s) applied, ${restored.body.skipped?.length ?? 0} skipped`,
+    )
+    record(
+      'the excluded item was skipped rather than restored',
+      (restored.body.skipped ?? []).some(line => /Global secrets/i.test(line)),
+      `skipped ${restored.body.skipped?.length ?? 0}`,
+    )
+
+    // The entry the restore wrote back is still there and still reads as itself.
+    const afterRestore = await api('/api/servers')
+    const survived = (afterRestore.body.servers ?? []).find(s => s.id === 'verify1')
+    record(
+      'the restored entry still reads back',
+      survived !== undefined,
+      `servers ${(afterRestore.body.servers ?? []).length}`,
+    )
+
     // ---- accounts: a SESSION can manage them; a credential cannot ----
     const bearerCreate = await api('/api/auth/accounts', {
       method: 'POST',
@@ -334,6 +384,7 @@ async function main() {
       'PATCH /api/settings',
       'PATCH /api/settings/workspace',
       'POST /api/backups',
+      'POST /api/backups/restore',
       'POST /api/auth/login',
       'POST /api/auth/accounts',
       'PATCH /api/auth/accounts/{id}',
