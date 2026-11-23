@@ -59,9 +59,10 @@ const TICK_INTERVAL_MS = 1000
 /**
  * How large one entry's transport file may grow before it is emptied.
  *
- * A pipe throttles the child that fills it; a file never does, so this is the only bound. It is only
- * applied once the reader has drained the file, so emptying it cannot lose an unseen line. 8 MB is
- * generous on purpose: `logs.maxBytes` caps a *served* log, and this is not that log.
+ * A pipe throttles the child that fills it; a file never does, so this is the only bound. It is applied
+ * only once the reader has drained the file, so emptying it cannot lose an unseen line. 8 MB is
+ * generous on purpose: `logs.maxBytes` caps a *served* log, and this is not that log. Bounds and the
+ * drop path: `docs/SERVERS.md` → A server that outruns the reader.
  */
 const OUTPUT_CAP_BYTES = 8 * 1024 * 1024
 
@@ -210,16 +211,13 @@ export class Supervisor {
   /**
    * Reports every non-persistent child that was running when a previous panel died and is gone now.
    *
-   * An entry-state file with a `lastPid` exists only because that entry was running when its panel
-   * died, so a record whose process is gone is the end of that run — at boot, a crash nobody watched.
-   * It covers **every enabled entry**, not just the ones this boot starts: an entry with
-   * `autostart: false` reached no start and its card read `stopped` / `lastError: null`. Consuming
+   * A state file with a `lastPid` exists only because the entry was running when its panel died, so a
+   * record whose process is gone is the end of that run — at boot, a crash nobody watched. Consuming
    * the record here also stops the following start reporting it twice.
    *
-   * **Call it at boot whether or not `autostart` is on** — `up --no-autostart` must sweep too, and a
-   * later Start consumes the record without reporting it (its actor is not `boot`). A persistent
-   * entry is skipped: its nanny's state file is its record, and `persistent.resume()` already answers
-   * "exited while the panel was away".
+   * **Call it at boot whether or not `autostart` is on** — `up --no-autostart` must sweep too. It
+   * covers every enabled entry, not just the ones this boot starts. A persistent entry is skipped: its
+   * nanny's state file is its record, and `persistent.resume()` already answers "exited while away".
    */
   async reportAwayChildren(): Promise<void> {
     for (const entry of [...this.entries.values()]) {
@@ -419,10 +417,8 @@ export class Supervisor {
   /**
    * Runs this entry's `deploy` steps, then restarts it if it is running and `restart` is not off.
    *
-   * **One at a time per entry**: a second call answers `409 DEPLOY_RUNNING` rather than stacking two
-   * sequences that install each other's half. A stop cancels it and kills the step's whole process
-   * group. A failed step leaves the running process **alone** — half-deployed is the state this
-   * exists to avoid — and records, notifies and returns the failure.
+   * One sequence per entry (`409 DEPLOY_RUNNING`), and a failed step leaves the running process alone.
+   * The rules, and why: `docs/SERVERS.md` → Deploying.
    */
   async deploy(id: string): Promise<{ ok: boolean, error?: string, code?: 'UNKNOWN_SERVER' | 'NO_DEPLOY' | 'DEPLOY_RUNNING' }> {
     const entry = this.entries.get(id)
@@ -647,13 +643,10 @@ export class Supervisor {
 
   private async stopEntry(entry: Entry, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
     /**
-     * Two stops on one entry are **one** stop, not two racing tails.
-     *
-     * `stopping` is a bare boolean with no owner, so it cannot say "a teardown is still running though
-     * a stop has finished": two overlapping calls each cleared it at their own tail, so a `start()`
-     * could spawn for real and the second tail then published `stopped` over a live child. Joining
-     * the in-flight stop removes the second tail. (Double-click on Stop, `stop-all` racing a
-     * per-entry stop, `sync()` stopping a disabled entry.)
+     * Two stops on one entry are one stop, joined. `stopping` is a bare boolean with no owner, so it
+     * cannot say "a teardown is still running though a stop has finished": two overlapping calls each
+     * cleared it at their own tail, so a `start()` could spawn for real and the second tail then
+     * published `stopped` over a live child.
      */
     if (entry.stopTask !== null)
       return entry.stopTask
@@ -683,11 +676,9 @@ export class Supervisor {
     entry.runToken += 1
     killBootstrap(entry)
     /**
-     * A deploy in flight is ended too, and its step's **whole process group** with it.
-     *
-     * Otherwise a `pnpm install` or `docker build` keeps writing to the tree for its full timeout
-     * after a stop, and the stop appears to hang: `runDeploy` waits for the child's exit before it
-     * re-checks `cancelled()`. (`deployChild` is the handle; `killDeployStep` kills the group.)
+     * A deploy in flight is ended too, with its step's whole process group. Otherwise a `pnpm install`
+     * or `docker build` keeps writing to the tree for its full timeout after a stop, and the stop
+     * appears to hang: `runDeploy` waits for the child's exit before it re-checks `cancelled()`.
      */
     if (entry.deployChild !== null) {
       this.log(entry, 'system', 'stopping the deploy step in flight')

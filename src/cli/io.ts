@@ -31,13 +31,10 @@ export const style = { bold, dim, green }
  * fails with `command not found`. A package-manager cache path means npx/dlx; `cli.ts` means a
  * source checkout. A string to print, not a parser. `HHOSTED_INVOCATION` overrides it.
  *
- * **The state directory travels with it.** A command that was told `--home` (or inherited
- * `HHOSTED_HOME`) prints hints about *that* home, and a hint without the flag reaches the default
- * one instead: measured, `pnpm run cli backup list` — the documented way to try anything in this
- * repo — printed "`pnpm exec tsx src/cli.ts backup create --all` takes one", and running that
- * verbatim created `~/.home-hosted` beside the `.dev-state/` it was asked about. The same shape hits
- * every project `init` scaffolds, because its scripts all pass `--home ./state`. So the flag is part
- * of the invocation whenever a state directory was chosen, quoted for the shell that will run it.
+ * **The state directory travels with it.** A hint without the `--home` a command was given reaches the
+ * default state instead, and running it verbatim creates `~/.home-hosted` beside the `.dev-state/` it
+ * was asked about. So the flag is part of the invocation whenever a state directory was chosen, quoted
+ * for the shell that will run it.
  *
  * `HHOSTED_INVOCATION` overrides the *program*, never the state: a wrapper that sets it still wants
  * its hints pointed at the home it is driving.

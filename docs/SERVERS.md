@@ -234,19 +234,15 @@ carries:
 { "id": "app", "command": "node", "args": ["server.js"], "secretEnv": ["DATABASE_URL", "SESSION_KEY"] }
 ```
 
-```bash
-home-hosted secret set app DATABASE_URL --stdin   # prompt without echo, or pipe one line in
-home-hosted secret ls app                         # the names, and which have a value
-home-hosted secret unset app SESSION_KEY
-```
+Then `home-hosted secret set app DATABASE_URL` — commands in
+[CLI.md](./CLI.md#secret-environment), which a job id also takes.
 
 A name is a letter or underscore followed by letters, digits or underscores (`^[A-Za-z_][A-Za-z0-9_]*$`),
 it may not repeat, and the panel refuses anything else — a name no shell can read is a variable the
 process cannot see.
 
-**Precedence is `env` < `envFile` < `dataEnvs` < `secretEnv`.** The secret is the most specific
-statement you can make about one variable, and it is the layer stored where a backup carries it — one
-that lost to a stale `envFile` line would silently not work.
+**The secret is the most specific statement about one variable**, and it is the layer stored where a
+backup carries it — one that lost to a stale `envFile` line would silently not work.
 
 **Only declared names are passed.** A value stored for a name the entry does not declare never reaches
 the child, which is what makes a removed entry's leftovers harmless. Values never appear in the
@@ -271,8 +267,8 @@ Unknown placeholders stay visible instead of silently becoming empty, and `${VAR
 environment (including `envFile`). Every supervised process also gets `HHOSTED_SERVER_ID` and
 `HHOSTED_CONTROL_PORT`, so a service can tell which entry it is and how to reach the panel.
 
-`dataEnvs` is the one that pays for itself twice: the value is exported to the process *and* the path
-is picked up by Backups, so a data directory is declared once.
+`dataEnvs` pays for itself twice: the value is exported to the process *and* the path is picked up by
+Backups, so a data directory is declared once.
 
 ### Dumping a database for backups
 

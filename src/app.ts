@@ -83,10 +83,7 @@ export function createRootApp(deps: AppDeps) {
      * Hono's `compress()` rather than a hand-rolled wrapper, because its
      * `COMPRESSIBLE_CONTENT_TYPE_REGEX` **excludes `text/event-stream`**. That is load-bearing:
      * `/api/events` is a live SSE stream, and a `CompressionStream` in its path buffers frames behind
-     * the compressor — the panel looks frozen while the charts go quiet. (Verified in
-     * `hono/dist/utils/compress.js`.) It also skips `206`/`HEAD`/already-encoded/chunked and anything
-     * under 1 kB, honours `Cache-Control: no-transform`, and sets `Vary: Accept-Encoding` and a
-     * weakened `ETag` so a cache cannot serve gzip to a client that did not ask.
+     * the compressor — the panel looks frozen while the charts go quiet.
      */
     .use('*', compress())
 

@@ -97,7 +97,6 @@ browser, at 1280x800 and at ~390px:
 - **One non-English language**, chosen in Global settings — it is per-browser, not a panel setting.
 - **Logs out, then in again**, and confirm a revoked session stops working.
 - `/openapi/spec.json` and `/openapi/ui` load.
-- `pnpm run smoke` against the panel it is meant to check.
 
 Not reachable on a laptop, so say so rather than implying otherwise: compose/Docker lifecycle (needs a
 daemon), full ACME issuance (needs a public name), and CPU temperature in a WSL2 guest (needs the
@@ -112,9 +111,9 @@ pnpm run audit:auth            # against a running panel: no write route open, a
 pnpm run smoke                 # built panel + both UIs in Chromium, two viewports
 ```
 
-`verify:actions` and `audit:auth` cover between them what the manual walk above describes — a save that
-persists, a credential that is refused, a lifecycle that reaches the state it promised. `smoke` is the
-one that needs a browser and the only one that sees layout.
+`verify:actions` and `audit:auth` cover what the manual walk describes — a save that persists, a
+credential that is refused, a lifecycle that reaches the state it promised. `smoke` is the only one that
+needs a browser, and the only one that sees layout.
 
 **One security rule is worth driving by hand**, because it is the one whose failure is silent: start the
 built panel on a LAN bind with a secret shorter than 12 characters and confirm it **refuses**, naming the

@@ -4,10 +4,8 @@
  * Two hash algorithms on purpose — a secret a person chooses is scrypt-stretched (it may be guessable,
  * and an attacker holding the file would walk it offline), a secret the panel *generates* is 256 bits of
  * randomness where scrypt would only add cost to every request. The record says which, and verification
- * reads that field. Measured cost, and which to use: `docs/SECURITY.md`.
- *
- * The store lives in `secrets.ts` beside the other secrets; this is the identity and hashing layer it
- * calls.
+ * reads that field. Measured cost, and which to use: `docs/SECURITY.md`. The store is in `secrets.ts`;
+ * this is the identity and hashing layer it calls.
  */
 import type { ApiTokenScope } from '#src/shared/api-scopes'
 import type { AccountRecord, SecretsFile } from './secrets'
