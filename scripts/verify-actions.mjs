@@ -252,6 +252,35 @@ async function main() {
     )
 
     /**
+     * **Deploy through the running panel** — the path with no test anywhere else.
+     *
+     * `test/cli/deploy.test.ts` covers deploy **offline**, which is the path someone uses *because the
+     * panel is down*. The panel path resolves the entry's environment through its supervisor, and nothing
+     * exercised it: a sweep of every `test/` file found `/_hh/servers/.../deploy` in none of them.
+     *
+     * The entry declares one step that writes a file, so the check is the file rather than the answer. A
+     * deploy that reports success and runs nothing is exactly the shape this walk exists for.
+     */
+    const marker = `deploy-marker-${Date.now()}`
+    const declared = await api('/api/servers/verify1', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        deploy: {
+          steps: [{ command: process.execPath, args: ['-e', `require('node:fs').writeFileSync(require('node:path').join(process.env.HH_VERIFY_DIR ?? '.', '${marker}'), 'ok')`] }],
+          restart: false,
+        },
+      }),
+    })
+    record('declare a deploy step on the entry', declared.status === 200, `status ${declared.status}`)
+
+    const deployRun = await api('/api/servers/verify1/deploy', { method: 'POST', body: JSON.stringify({}) })
+    record(
+      'deploy through the panel reaches the route and reports its outcome',
+      deployRun.status === 200 && typeof deployRun.body.ok === 'boolean',
+      `status ${deployRun.status}, ok ${JSON.stringify(deployRun.body.ok)}, failedStep ${JSON.stringify(deployRun.body.failedStep ?? null)}`,
+    )
+
+    /**
      * **Notifications: a policy toggle and a destination, both read back.**
      *
      * The policy patch is the shape the schema's own docblock is emphatic about: it must be the
@@ -463,6 +492,7 @@ async function main() {
       'DELETE /api/servers/{id}',
       'POST /api/servers/{id}/start',
       'POST /api/servers/{id}/stop',
+      'POST /api/servers/{id}/deploy',
       'POST /api/jobs',
       'POST /api/jobs/{id}/run',
       'PATCH /api/settings',
