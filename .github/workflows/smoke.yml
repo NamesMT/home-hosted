@@ -112,6 +112,23 @@ jobs:
       - name: Walk every mutating action over the API
         run: pnpm run verify:actions
 
+      # The guard, asked of a running panel rather than of `src/app.ts`: no write route is reachable
+      # without a credential, and a valid session reaches all of them. Both halves, because either alone
+      # proves nothing — the first passes if every route 401s to everyone, the second if nothing is
+      # guarded. It needs a panel with a known account, which is the three lines below.
+      #
+      # The account **must hold `admin`**: the audit's session pass creates and patches an account, and a
+      # read-only one would report `TOKEN_SCOPE` on those routes — correctly, and uselessly.
+      - name: Audit the auth guard against a live panel
+        run: |
+          export HHOSTED_HOME="$RUNNER_TEMP/hh-auth"
+          export HHOSTED_SECRET=audit-secret-123456
+          pnpm exec -- node dist/cli.js account create audit --scope read,lifecycle,config,proxy,admin
+          pnpm exec -- node dist/cli.js up --port 6982 > /dev/null 2>&1 &
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:6982/healthz > /dev/null 2>&1 && break; sleep 1; done
+          pnpm run audit:auth
+          pnpm exec -- node dist/cli.js down || true
+
       - name: Keep the state directory on a failure
         if: failure()
         uses: actions/upload-artifact@v5
