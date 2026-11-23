@@ -48,9 +48,8 @@ export function persistEntryState(nannyDir: string, entry: Entry): void {
  *
  * A record whose process is **gone** is reported, not silently dropped. The file exists only because
  * this entry was running when its panel died, so its absence is the end of that run — and a run that
- * ended while nobody was watching is a crash. Returning `{ kind: 'none' }` made it a clean stop:
- * `status: stopped`, `lastError: null`, no `crash` event, `degraded: false`, and the restart budget
- * untouched, so a child that dies with the panel was invisible for ever.
+ * ended while nobody was watching is a crash. Returning `{ kind: 'none' }` made it a clean stop, so a
+ * child that dies with the panel was invisible for ever.
  */
 export async function resolveRecordedChild(ctx: SupervisorContext, entry: Entry): Promise<RecordedChild> {
   const recorded = entry.lastChild

@@ -30,10 +30,10 @@ export function addServerEntry(store: WorkspaceStore, input: Record<string, unkn
  * What is wrong with an entry that will only show up when it fails to start.
  *
  * `command` is a **program**, spawned with no shell, so `"node server.js"` asks for a program of that
- * name. The entry was accepted with `201` and failed at spawn — then retried `restart.maxRetries`
- * times with the same `ENOENT` before the card said "gave up after 3 retries", having told the person
- * it was created. A warning cannot refuse the entry (it may be valid on the machine it targets, and
- * the panel does not execute anything to find out), so it is reported beside the success.
+ * name. The entry was accepted with `201` and then failed at spawn, retried `restart.maxRetries`
+ * times with the same `ENOENT` before the card said it gave up — having told the person it was
+ * created. A warning cannot refuse the entry (it may be valid on the machine it targets, and the
+ * panel does not execute anything to find out), so it is reported beside the success.
  *
  * The advice names the **config keys** (`command`, `args`), which is what a person editing
  * `servers.config.json` or an API body can act on — the UI labels `Command`/`Arguments` appear
