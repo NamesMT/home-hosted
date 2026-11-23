@@ -252,53 +252,6 @@ export function createControlRoute(deps: AppDeps) {
     )
 
     /**
-     * Run a job now, over the local channel — `home-hosted job run <id>` while the panel is up.
-     *
-     * A **server** entry has its own `/servers/:id/run` beside this one; a scheduled job lives in
-     * `jobs.config.json` and is run through `job run`, which is why this comment named a `run` command
-     * this release does not have.
-     *
-     * The same `supervisor.runJob` the schedule calls, and it **waits**: the exit code is the outcome,
-     * and the CLI prints it. A failure answers the body a script needs (`exitCode`, `durationMs`) under
-     * the `JOB_FAILED` code, so `home-hosted job run nightly || alert` works on the answer rather than
-     * on English.
-     */
-    .post(
-      '/servers/:id/run',
-      describeRoute({
-        tags: ['panel'],
-        summary: 'Run a job now and wait for its outcome (local token required)',
-        responses: {
-          200: { description: 'The run finished and succeeded', content: jsonBody(jobRunResultSchema) },
-          400: ERROR_RESPONSES[400],
-          403: { description: 'Bad token, or not a local caller' },
-          404: ERROR_RESPONSES[404],
-          409: ERROR_RESPONSES[409],
-        },
-      }),
-      validate('query', workspaceQuerySchema),
-      validate('param', idParam),
-      async (c) => {
-        assertLocalCall(c, 'run a job')
-        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const { id } = c.req.valid('param')
-        if (runtime.jobs.get(id) === null)
-          throw new DetailedError(`no job with the id "${id}"`, { statusCode: 404, code: 'UNKNOWN_JOB' })
-        const record = await runtime.jobs.run(id)
-        if (record === null)
-          throw new DetailedError(`job "${id}" is already running`, { statusCode: 409, code: 'JOB_RUNNING' })
-        // The exit code is the outcome, so a failed run is still an answered run.
-        return c.json({
-          ok: record.exitCode === 0 && !record.cancelled,
-          exitCode: record.exitCode,
-          signal: record.signal,
-          durationMs: record.endedAt === null ? 0 : record.endedAt - record.startedAt,
-          cancelled: record.cancelled,
-        })
-      },
-    )
-
-    /**
      * A server's secret environment, over the local channel — `home-hosted secret` while the panel
      * runs.
      *

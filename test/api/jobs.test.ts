@@ -92,6 +92,39 @@ describe('the jobs API', () => {
     await created.cleanup()
   })
 
+  /**
+   * Stopping a run is a separate act from removing the job.
+   *
+   * A person watching a backup go wrong wants to end *this run*; a job mid-write is not one to delete out
+   * from under its process. It was the only write route **no test in the repository named** — found by
+   * mapping all 73 against the corpus — which is how it could have been registered with the wrong method
+   * or wired to the wrong store without anything noticing.
+   *
+   * Nothing running is an answered question, not an error: the route answers `{ ok: true }` either way,
+   * because a caller that raced the run's own end should not have to tell that race from a failure.
+   */
+  it('stops a run that is not running, and answers 404 for a job that does not exist', async () => {
+    const created = await makeFixture()
+    await created.app.request('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'stoppable', command: 'true', schedule: '0 3 * * *' }),
+    })
+
+    const stopped = await created.app.request('/api/jobs/stoppable/stop', { method: 'POST' })
+    expect(stopped.status).toBe(200)
+    expect(await stopped.json()).toEqual({ ok: true })
+
+    // Still there: stopping a run is not deleting the job.
+    expect((await created.app.request('/api/jobs')).status).toBe(200)
+
+    const unknown = await created.app.request('/api/jobs/nosuchjob/stop', { method: 'POST' })
+    expect(unknown.status).toBe(404)
+    expect(await unknown.json()).toMatchObject({ code: 'UNKNOWN_JOB' })
+
+    await created.cleanup()
+  })
+
   it('refuses a duplicate id with 409, naming why', async () => {
     const created = await makeFixture()
     const body = JSON.stringify({ id: 'twice', command: 'true', schedule: '0 3 * * *' })
