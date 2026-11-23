@@ -30,6 +30,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # **A vulnerable shipped dependency is a release-stopper, and nothing checked for one.**
+      #
+      # Measured on this branch before this step existed: 10 advisories, 2 of them HIGH — six in `hono`
+      # (`<4.13.16`: a `mount()` middleware bypass, a router that skips wildcard middleware, `csrf()`
+      # missing `text/ping`) and two in `happy-dom`. Both are fixed; the finding is that **nothing would
+      # have told anyone**, because `pnpm run check` runs eslint, tsc, vue-tsc, doc links and the suite,
+      # and not one of them reads the dependency tree.
+      #
+      # `--prod` scopes it to what a person actually installs. The dev toolchain carries advisories of
+      # its own from time to time (at the time of writing: `eslint`'s `minimatch`, `@vue/test-utils`'
+      # `glob`, `@antfu/eslint-config`'s `katex`), and failing a release on a lint rule's transitive
+      # dependency teaches people to bypass the check.
+      #
+      # `--audit-level=high` rather than `moderate`: a high or critical advisory in a *shipped* package is
+      # not a judgement call, while a moderate one sometimes is (a bypass that needs a configuration this
+      # panel never offers). Raise it when the tree is clean enough to hold that line.
+      - name: Audit shipped dependencies
+        run: pnpm audit --prod --audit-level=high
+
       - name: Run quickcheck (lint + types)
         run: pnpm run quickcheck
 
