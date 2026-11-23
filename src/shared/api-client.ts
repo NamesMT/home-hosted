@@ -11,9 +11,9 @@
  *
  * **The workspace-scoped half lives here too** (see "Workspace-scoped calls" at the foot of this
  * file). It used to be a hand-maintained copy in each UI's `lib/api.ts`, on the theory that each
- * spells the workspace differently. They did not: 387 and 386 lines, 61% identical, 31 of 35 shared
- * names, and three drifts. The only genuine difference was *where the workspace comes from*, which
- * is now one injected resolver — see `useWorkspaceResolver`.
+ * spells the workspace differently; they did not, and the copies had already drifted. The only
+ * genuine difference was *where the workspace comes from*, which is now one injected resolver — see
+ * `useWorkspaceResolver`.
  */
 import type { AppState, BackupSelection, DdnsConfig, DdnsView, FreePortResult, JobLogView, JobRunResultBody, LogHistoryView, LogServerView, ProxyPatch, ProxyView, RestorePlan, ServerCreate, ServerPatch, ServerView, SessionView, SettingsPatch, SettingsSaved, SettingsView, UiStatus, WorkspaceCreate, WorkspaceSettingsPatch, WorkspaceSettingsView, WorkspaceView, WslTemperatureStatus } from './contracts'
 import { type } from 'arktype'
@@ -459,9 +459,9 @@ export async function uploadUi(file: File): Promise<{ ok: boolean, meta: UiStatu
  *
  * Every server, log, DDNS, notification and workspace-settings route takes a `?workspace=<id>`,
  * and omitting it means "the panel's own default". These 35 calls were a copy in each UI until the
- * copies were measured: 61% identical lines, 31 of 35 shared names, and three drifts (the backups
- * payload validated in one UI and cast in the other; the log-history query built two ways; a
- * `scoped()` that one copy made `?`-aware and the other did not).
+ * copies were measured; the drifts they had already accumulated were three (the backups payload
+ * validated in one UI and cast in the other; the log-history query built two ways; a `scoped()` that
+ * one copy made `?`-aware and the other did not).
  *
  * The one real difference was where the workspace came from, so that is the one seam: a resolver
  * the UI installs once. Everything else — the URL shape, the validation, the error envelope — is
@@ -526,12 +526,8 @@ function boundary<T>(schema: (value: unknown) => T | type.errors, payload: unkno
  *
  * `boundary` is for a *response*: "contract mismatch" is the right words when the server sent a shape this
  * build does not understand. Reusing it for an outgoing patch told someone who typed `0` into a field with
- * a floor of 50:
- *
- *     workspace settings patch contract mismatch: defaults.logBufferLines must be at least 50 (was 0)
- *
- * which reads as a bug in the panel rather than as advice about the field. Measured in Chromium against a
- * built panel, on `/w/default/settings`.
+ * a floor of 50 that the workspace settings patch "contract mismatch"ed — which reads as a bug in the
+ * panel rather than as advice about the field.
  *
  * The same schema, a sentence written for the person who filled the form in. The summary already names the
  * field and the bound, which is the part worth keeping.

@@ -1913,10 +1913,9 @@ export const telegramTokenSchema = lazy(() => type({
  * The single error envelope every route answers failures with.
  *
  * `detail` is **optional**: `toErrorBody()` omits the key when the error carries none, which is the
- * common case — measured, `/api/logs/ghost`, `/api/servers/ghost` and `/api/settings/ui` all answer
- * `{ message, code }` and nothing else. Requiring it here told every OpenAPI client to expect a field
- * that is usually absent, and disagreed with `ApiErrorBody` in `helpers/error.ts`, which has it
- * optional because that is what it actually serialises.
+ * common case — most refusals answer `{ message, code }` and nothing else. Requiring it here told
+ * every OpenAPI client to expect a field that is usually absent, and disagreed with `ApiErrorBody`
+ * in `helpers/error.ts`, which has it optional because that is what it serialises.
  */
 export const apiErrorSchema = lazy(() => type({
   'message': 'string',
