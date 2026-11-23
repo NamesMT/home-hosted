@@ -242,6 +242,71 @@ async function main() {
     record('the OpenAPI spec loads', spec.status === 200 && typeof spec.body === 'object', `status ${spec.status}`)
 
     /**
+     * A workspace is a whole store and an ownership boundary, created and removed through the API.
+     *
+     * Worth its own checks because the id is **derived from the label** when omitted, and a workspace id
+     * keys everything downstream — SSE, buffers, routes. Creating one and then reading a resource through
+     * its id is what proves the derivation and the ownership wiring agree.
+     */
+    const wsCreated = await api('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'Verify Workspace' }),
+    })
+    record('create a workspace', wsCreated.status === 200 || wsCreated.status === 201, `status ${wsCreated.status}`)
+    const wsId = wsCreated.body.workspace?.id
+    record('the id is derived from the label', typeof wsId === 'string' && wsId.length > 0, `id ${JSON.stringify(wsId)}`)
+
+    const wsListed = await api('/api/workspaces')
+    record('the workspace is listed', (wsListed.body.workspaces ?? []).some(w => w.id === wsId), `count ${(wsListed.body.workspaces ?? []).length}`)
+
+    const wsRenamed = await api(`/api/workspaces/${wsId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ label: 'Verify Renamed' }),
+    })
+    record('rename the workspace', wsRenamed.status === 200, `status ${wsRenamed.status}`)
+    const wsRenamedRead = await api('/api/workspaces')
+    const renamed = (wsRenamedRead.body.workspaces ?? []).find(w => w.id === wsId)
+    record('the new label reads back', renamed?.label === 'Verify Renamed', `got ${JSON.stringify(renamed?.label)}`)
+
+    const wsRemoved = await api(`/api/workspaces/${wsId}`, { method: 'DELETE' })
+    record('remove the workspace', wsRemoved.status === 200, `status ${wsRemoved.status}`)
+    const wsAfterRemove = await api('/api/workspaces')
+    record('the workspace is gone', !(wsAfterRemove.body.workspaces ?? []).some(w => w.id === wsId))
+
+    /**
+     * The server lifecycle: start, stop, restart.
+     *
+     * Each answers `200` and the state frame then reports the status the action promised — an action that
+     * returns `ok` and leaves the entry `stopped` is exactly the "reports success, did nothing" shape this
+     * walk exists to catch. The entry runs `node -e 'setInterval(...)'`, so it really is startable here.
+     */
+    const started = await api('/api/servers/verify1/start', { method: 'POST', body: JSON.stringify({}) })
+    record('start a server', started.status === 200, `status ${started.status}`)
+
+    const running = await api('/api/servers')
+    const startedEntry = (running.body.servers ?? []).find(s => s.id === 'verify1')
+    record(
+      'the server reports running, or a refusal that says why',
+      ['running', 'starting'].includes(startedEntry?.status) || typeof startedEntry?.lastError === 'string',
+      `status ${JSON.stringify(startedEntry?.status)}, lastError ${JSON.stringify(startedEntry?.lastError)}`,
+    )
+
+    const stopped = await api('/api/servers/verify1/stop', { method: 'POST', body: JSON.stringify({}) })
+    record('stop a server', stopped.status === 200, `status ${stopped.status}`)
+    const afterStop = await api('/api/servers')
+    const stoppedEntry = (afterStop.body.servers ?? []).find(s => s.id === 'verify1')
+    record('the server reports stopped', ['stopped', 'stopping'].includes(stoppedEntry?.status), `status ${JSON.stringify(stoppedEntry?.status)}`)
+
+    // ---- jobs: run one, and read the run's outcome ----
+    const ran = await api('/api/jobs/verifyjob/run', { method: 'POST', body: JSON.stringify({}) })
+    record('run a job', ran.status === 200, `status ${ran.status}`)
+    record(
+      'the run reports its exit code',
+      typeof ran.body.exitCode === 'number' || typeof ran.body.exitCode === 'object',
+      `exitCode ${JSON.stringify(ran.body.exitCode)}`,
+    )
+
+    /**
      * How much of the write surface this walk actually touches.
      *
      * It exercises nine routes of the **73** the spec publishes as `POST`/`PATCH`/`PUT`/`DELETE`. Reporting
@@ -262,13 +327,19 @@ async function main() {
       'PATCH /api/servers/{id}',
       'PUT /api/servers/{id}/secrets',
       'DELETE /api/servers/{id}',
+      'POST /api/servers/{id}/start',
+      'POST /api/servers/{id}/stop',
       'POST /api/jobs',
+      'POST /api/jobs/{id}/run',
       'PATCH /api/settings',
       'PATCH /api/settings/workspace',
       'POST /api/backups',
       'POST /api/auth/login',
       'POST /api/auth/accounts',
       'PATCH /api/auth/accounts/{id}',
+      'POST /api/workspaces',
+      'PATCH /api/workspaces/{id}',
+      'DELETE /api/workspaces/{id}',
     ]
     const missing = exercised.filter(route => !writeRoutes.includes(route))
     record(
