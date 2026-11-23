@@ -43,20 +43,17 @@ moment someone changes it. Each threshold travels on the frame as `<x>Alert` (op
 that predates the field still parses), and a band predicate reads it:
 
 - `thresholdBand` — **the one rule**: `danger` at the threshold, `warn` at 70% of it, `ok` under
-  that. It bands the per-cpu load, memory, swap, temperature and each disk; they differ only in what
-  the number means, and the mistake it replaced was four surfaces each deciding a band for itself. The
-  load's threshold is a per-cpu count (`loadAlertPerCpu`) and the rest are percentages, which is a
-  difference in the *value* handed in, not in the rule.
+  that. It bands the per-cpu load, memory, swap, temperature and each disk. The load's threshold is a
+  per-cpu count (`loadAlertPerCpu`) and the rest are percentages, which is a difference in the *value*
+  handed in, not in the rule. Four surfaces deciding a band for themselves is the mistake it replaced.
 - `hostReadings` puts a `band` on **each disk**, not one beside the frame: the reading is per path.
 - `hostCpuBand` — the host's CPU share has no configurable alert, so the band is a fixed constant.
   It was written twice (70/90 and 80/95), and two copies of a *fixed* number cannot be caught by
   raising a config.
-- `probeBand` — the same shape for a health probe's latency. `healthSchema` has no latency field,
-  so `300`/`1000` is fixed too, and it was painted three ways: the detail tile's number via
-  `toneClass(responseMs, 300, 1000)`, the sparkline under it via a `probeColor()` holding its own
-  copy of the same pair, and the list row's `>= 1000` alone. A `1500 ms` reading was `danger` in the
-  pane and `warn` in the row; a probe that never ran was `--ok`, because the sparkline read
-  `responseMs ?? 0`.
+- `probeBand` — the same shape for a health probe's latency. `healthSchema` has no latency field, so
+  `300`/`1000` is fixed too. Painted three ways (the tile's `toneClass`, a `probeColor()` holding its
+  own copy, the row's `>= 1000`), a `1500 ms` reading was `danger` in the pane and `warn` in the row,
+  and a probe that never ran was `--ok` because the sparkline read `responseMs ?? 0`.
 
 `0` disables an alert in `sampleHost`, so nothing can breach it and the band is `ok`. A panel that
 sends no threshold gets `HOST_ALERT_DEFAULTS`, which is what the older panel alerted on —
