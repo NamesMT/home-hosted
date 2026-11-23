@@ -115,6 +115,52 @@ async function main() {
     const found = (readBack.body.servers ?? []).find(s => s.id === 'verify1')
     record('a patched label reads back', found?.config?.label === 'Verified Label', `got ${JSON.stringify(found?.config?.label)}`)
 
+    /**
+     * A secret written through the API is **reported as set, never read back**.
+     *
+     * Two steps, and the order is the API's rule rather than a convenience: the entry's `secretEnv` is the
+     * **consent**, so a name it does not declare is refused before any value is touched. Only then does
+     * `PUT …/secrets` take `{ set }` — not the field name I first guessed — and answer `ok` with no echo.
+     *
+     * This is the one write whose failure would be worst and whose success is invisible: the value must
+     * reach the 0600 store and must never come back over the wire. So the check is the pair — `secretEnvSet`
+     * names it, and no response anywhere carries the value.
+     */
+    const secretValue = 'sk-verify-should-never-be-returned'
+    const declare = await api('/api/servers/verify1', {
+      method: 'PATCH',
+      body: JSON.stringify({ secretEnv: ['VERIFY_TOKEN_NAME'] }),
+    })
+    record('declare a secret name on the entry', declare.status === 200, `status ${declare.status}`)
+
+    const setSecret = await api('/api/servers/verify1/secrets', {
+      method: 'PUT',
+      body: JSON.stringify({ set: { VERIFY_TOKEN_NAME: secretValue } }),
+    })
+    record('write the secret value', setSecret.status === 200, `status ${setSecret.status}`)
+
+    const afterSecret = await api('/api/servers')
+    const withSecret = (afterSecret.body.servers ?? []).find(s => s.id === 'verify1')
+    record(
+      'the secret name is reported as set',
+      (withSecret?.secretEnvSet ?? []).includes('VERIFY_TOKEN_NAME'),
+      `secretEnvSet ${JSON.stringify(withSecret?.secretEnvSet)}`,
+    )
+    record(
+      'the secret VALUE never comes back over the wire',
+      !JSON.stringify(afterSecret.body).includes(secretValue),
+      'the response carries no plaintext secret',
+    )
+
+    // ---- workspace settings: write, read back (a different store from the panel's) ----
+    const wsPatch = await api('/api/settings/workspace', {
+      method: 'PATCH',
+      body: JSON.stringify({ logs: { keep: 7 } }),
+    })
+    record('patch workspace settings', wsPatch.status === 200, `status ${wsPatch.status}`)
+    const wsRead = await api('/api/settings/workspace')
+    record('the workspace setting reads back', wsRead.body?.logs?.keep === 7, `got ${JSON.stringify(wsRead.body?.logs?.keep)}`)
+
     // ---- jobs: create, read back ----
     const job = await api('/api/jobs', {
       method: 'POST',
@@ -194,6 +240,42 @@ async function main() {
     // ---- openapi ----
     const spec = await api('/openapi/spec.json')
     record('the OpenAPI spec loads', spec.status === 200 && typeof spec.body === 'object', `status ${spec.status}`)
+
+    /**
+     * How much of the write surface this walk actually touches.
+     *
+     * It exercises nine routes of the **73** the spec publishes as `POST`/`PATCH`/`PUT`/`DELETE`. Reporting
+     * that honestly is the point: a walk that covers a tenth of the surface and says "19/19 passed" reads
+     * as coverage it does not have. The number is printed rather than asserted at a floor, because a floor
+     * on a *sample* invites padding the sample; what the walk must keep covering is the paths a save
+     * travels, and those are named in the commit that added each one.
+     */
+    const writeRoutes = []
+    for (const [route, methods] of Object.entries(spec.body.paths ?? {})) {
+      for (const method of Object.keys(methods)) {
+        if (['post', 'patch', 'put', 'delete'].includes(method))
+          writeRoutes.push(`${method.toUpperCase()} ${route}`)
+      }
+    }
+    const exercised = [
+      'POST /api/servers',
+      'PATCH /api/servers/{id}',
+      'PUT /api/servers/{id}/secrets',
+      'DELETE /api/servers/{id}',
+      'POST /api/jobs',
+      'PATCH /api/settings',
+      'PATCH /api/settings/workspace',
+      'POST /api/backups',
+      'POST /api/auth/login',
+      'POST /api/auth/accounts',
+      'PATCH /api/auth/accounts/{id}',
+    ]
+    const missing = exercised.filter(route => !writeRoutes.includes(route))
+    record(
+      'every route this walk believes it exercises is really published',
+      missing.length === 0,
+      missing.length ? `absent from the spec: ${missing.join(', ')}` : `${exercised.length} of ${writeRoutes.length} write routes`,
+    )
 
     // ---- delete the server, confirm removal ----
     const del = await api('/api/servers/verify1', { method: 'DELETE' })
