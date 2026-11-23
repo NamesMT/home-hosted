@@ -162,3 +162,61 @@ describe('no user-facing message names a command this release does not have', ()
     expect(known.has('set-password'), 'set-password is gone, so this hint sends a reader nowhere').toBe(false)
   })
 })
+
+/**
+ * A doc that names the **dev ports** must name the ones `scripts/dev.mjs` really binds.
+ *
+ * `README.md` said "panel :6000 + stock UI dev server :6001" while `dev.mjs` had used **6600/6601** for
+ * long enough that `docs/UI_CREATION.md` was written against the new numbers. Nothing compared a number
+ * in a document to the number in the source, so the one command in the README's working section sent a
+ * person to a port nothing was listening on — the first thing they would try, on a fresh checkout.
+ *
+ * The numbers are read from `dev.mjs` rather than restated, for the same reason the command list is
+ * read from `SYNOPSIS`: a guard that hardcodes the answer agrees with itself.
+ */
+describe('the docs name the dev ports the script really binds', () => {
+  /** The two ports `scripts/dev.mjs` defaults to, from its own constants. */
+  function devPorts(): { panel: string, ui: string } {
+    const source = fs.readFileSync(path.join(root, 'scripts', 'dev.mjs'), 'utf8')
+    const panel = /const DEFAULT_PANEL_PORT = (\d+)/.exec(source)?.[1]
+    const ui = /const DEFAULT_UI_PORT = (\d+)/.exec(source)?.[1]
+    expect(panel, 'DEFAULT_PANEL_PORT must be readable, or this scan proves nothing').toBeDefined()
+    expect(ui, 'DEFAULT_UI_PORT must be readable, or this scan proves nothing').toBeDefined()
+    return { panel: panel!, ui: ui! }
+  }
+
+  it('names the panel and UI dev ports correctly wherever a doc mentions them', () => {
+    const { panel, ui } = devPorts()
+    const offenders: string[] = []
+    const docs = [
+      'README.md',
+      ...fs.readdirSync(path.join(root, 'docs')).filter(name => name.endsWith('.md')).map(name => `docs/${name}`),
+    ]
+    for (const file of docs) {
+      for (const [index, line] of fs.readFileSync(path.join(root, file), 'utf8').split('\n').entries()) {
+        /**
+         * Only a line that is **about the dev server** is checked — it has to mention `dev` and a port.
+         * A bare `:6600` elsewhere (a measured example in prose) is a fact about the past, not an
+         * instruction, and rewriting those would lose the evidence they carry.
+         */
+        if (!/\b(?:pnpm dev|dev server|dev-server)\b/.test(line))
+          continue
+        for (const match of line.matchAll(/:(\d{4})\b/g)) {
+          const port = match[1]
+          if (port !== panel && port !== ui)
+            offenders.push(`${file}:${index + 1} names :${port}, but dev.mjs binds :${panel}/:${ui}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('catches the line it was written for', () => {
+    const { panel, ui } = devPorts()
+    // The line that shipped, with the wrong ports.
+    const shipped = 'pnpm dev            # panel :6000 + stock UI dev server :6001, state in .dev-state/'
+    const named = [...shipped.matchAll(/:(\d{4})\b/g)].map(match => match[1]!)
+    expect(named).toEqual(['6000', '6001'])
+    expect(named.some(port => port === panel || port === ui), 'neither wrong port is a real dev port').toBe(false)
+  })
+})
