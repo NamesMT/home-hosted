@@ -249,3 +249,10 @@ These are the ones that prevent real defects. Break one only with a reason in th
   all of which compile as `any` once a stray annotation hides them). **`contracts.ts` is one module by
   construction**, because a schema graph that references itself in both directions cannot be cut. Leave
   it whole.
+- **A fact a doc states that also lives in code is compared by a test, not trusted.** Four pairs are
+  guarded: every `home-hosted <command>` in the docs against `SYNOPSIS`, every dev-server port against
+  `dev.mjs`'s constants, every key in the README's entry sample against `serverSchema`, and every error
+  code in `docs/API.md` against the source. Each was written after the doc had already drifted — a
+  deleted command, `:6000` where the script bound `:6600`, and three codes that had left the catalogue.
+  When you add a doc that restates something the code decides, add the comparison in the same change:
+  **read the value from the code, never restate it in the guard**, or the guard just agrees with itself.
