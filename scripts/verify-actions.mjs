@@ -251,6 +251,90 @@ async function main() {
       `servers ${(afterRestore.body.servers ?? []).length}`,
     )
 
+    /**
+     * **Notifications: a policy toggle and a destination, both read back.**
+     *
+     * The policy patch is the shape the schema's own docblock is emphatic about: it must be the
+     * hand-written `notificationPolicyPatchShape` and **not** a `.partial()` of the defaults schema,
+     * because ArkType keeps a `= false` / `= 120000` default through `.partial()` — so a body naming one
+     * toggle would validate into all seven keys and overwrite the rest. That is a silent data loss, and
+     * the only way to see it is to set one field and read the others back.
+     *
+     * A destination is **replaced whole as a list**, so adding one is "send the list with it in". Its
+     * credential lives apart from the list (`PUT …/token`), which is why this adds an *enabled* webhook
+     * with no token: the route must accept it and the list must report it, and a test that never sends
+     * a real URL is a test that never makes an outbound call.
+     */
+    const beforePolicy = await api('/api/settings/workspace')
+    const beforeDefaults = beforePolicy.body?.notifications?.defaults ?? {}
+    const policyPatch = await api('/api/settings/workspace', {
+      method: 'PATCH',
+      body: JSON.stringify({ notifications: { defaults: { onHost: true } } }),
+    })
+    record('patch one notification policy toggle', policyPatch.status === 200, `status ${policyPatch.status}`)
+
+    const afterPolicy = await api('/api/settings/workspace')
+    const afterDefaults = afterPolicy.body?.notifications?.defaults ?? {}
+    record(
+      'the toggled field reads back as set',
+      afterDefaults.onHost === true,
+      `onHost ${JSON.stringify(afterDefaults.onHost)}`,
+    )
+    /**
+     * The rest survived. This is the assertion that would have caught the `.partial()` bug: a derived
+     * patch injects the code defaults, so every field it did not name comes back **changed**.
+     */
+    const collateral = Object.keys(beforeDefaults).filter(key =>
+      key !== 'onHost' && JSON.stringify(beforeDefaults[key]) !== JSON.stringify(afterDefaults[key]))
+    record(
+      'no other policy field was overwritten by the patch',
+      collateral.length === 0,
+      collateral.length ? `changed: ${collateral.join(', ')}` : `${Object.keys(afterDefaults).length} field(s) unchanged`,
+    )
+
+    const destination = { kind: 'webhook', id: 'verifyhook', enabled: true, url: 'https://example.invalid/hook' }
+    const addDestination = await api('/api/settings/workspace', {
+      method: 'PATCH',
+      body: JSON.stringify({ notifications: { destinations: [destination] } }),
+    })
+    record('add a notification destination', addDestination.status === 200, `status ${addDestination.status}`)
+
+    const listedDestinations = await api('/api/settings/workspace')
+    const dests = listedDestinations.body?.notifications?.destinations ?? []
+    record(
+      'the destination is listed with its kind and id',
+      dests.some(d => d.id === 'verifyhook' && d.kind === 'webhook'),
+      `${dests.length} destination(s): ${dests.map(d => `${d.kind}/${d.id}`).join(', ') || '(none)'}`,
+    )
+
+    /**
+     * Clearing a destination's credential — `DELETE …/destinations/:id/token`.
+     *
+     * Local and idempotent, so it is walkable. Its sibling `PUT` is **not**: it calls Telegram to verify
+     * the token before storing it, which is a real outbound request to a third party, and a walk that
+     * makes one would be a walk that fails on a runner without egress. The delete has no such dependency
+     * and is the half a person uses to revoke a credential that leaked.
+     */
+    const clearToken = await api('/api/notifications/destinations/verifyhook/token', { method: 'DELETE' })
+    record(
+      'clearing a destination credential is accepted (idempotent when none is set)',
+      clearToken.status === 200,
+      `status ${clearToken.status}`,
+    )
+
+    // Removing it is sending the list without it — a replace, not a merge.
+    const removeDestination = await api('/api/settings/workspace', {
+      method: 'PATCH',
+      body: JSON.stringify({ notifications: { destinations: [] } }),
+    })
+    record('remove the destination by sending an empty list', removeDestination.status === 200, `status ${removeDestination.status}`)
+    const afterRemove = await api('/api/settings/workspace')
+    record(
+      'the destination is gone',
+      (afterRemove.body?.notifications?.destinations ?? []).length === 0,
+      `${(afterRemove.body?.notifications?.destinations ?? []).length} left`,
+    )
+
     // ---- accounts: a SESSION can manage them; a credential cannot ----
     const bearerCreate = await api('/api/auth/accounts', {
       method: 'POST',
@@ -383,6 +467,7 @@ async function main() {
       'POST /api/jobs/{id}/run',
       'PATCH /api/settings',
       'PATCH /api/settings/workspace',
+      'DELETE /api/notifications/destinations/{id}/token',
       'POST /api/backups',
       'POST /api/backups/restore',
       'POST /api/auth/login',
