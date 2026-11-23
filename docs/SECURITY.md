@@ -213,13 +213,11 @@ script only what it needs.
 > `POST /api/jobs` with a `schedule` leaves the scheduler to execute the command on its next
 > occurrence, `PUT`/`PATCH /api/servers/:id` with `autostart` runs the entry at the panel's next
 > boot, and `PATCH /api/settings` sets `host.tempCommand`, which the host monitor executes every
-> sample. Verified on a panel with an account holding `read,config` and **not** `lifecycle`: `POST
-> /api/jobs/:id/run` was refused `403 TOKEN_SCOPE` while the same job's scheduled command produced a
-> shell's `id` output a minute later. Every one of these is `workspaceScoped` where it names a
-> workspace, so a limited account stays inside its own — but inside those workspaces, `config` is
-> execution. Only give it to a deploy pipeline or an operator who is trusted to run commands as the
-> panel's user; that is the same trust `admin` carries, which is why the two differ in *reach*
-> (credentials, the UI, the panel's own secrets), not in `can it run a command`.
+> sample. Each is `workspaceScoped` where it names a workspace, so a limited account stays inside its
+> own — but inside those workspaces, `config` is execution. Only give it to a deploy pipeline or an
+> operator trusted to run commands as the panel's user; that is the same trust `admin` carries, which
+> is why the two differ in *reach* (credentials, the UI, the panel's own secrets), not in *can it run
+> a command*.
 
 ### A server's secret environment never enters its config
 
