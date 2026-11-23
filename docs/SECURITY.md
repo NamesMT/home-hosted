@@ -54,6 +54,22 @@ person possible.
   it may be guessable and an offline attacker with the file would otherwise walk it. A secret the
   panel *generates* is 256 bits of randomness, where scrypt would only tax every request for a space
   nobody can walk. The record says which, and verification reads it.
+
+  **The tax is real and it is per request** — measured on a built panel, 40 warm requests an endpoint:
+
+  | secret | `/healthz` | `/api/servers` |
+  | --- | --- | --- |
+  | generated (`sha256`) | 2.6 ms | 2.3 ms |
+  | chosen (`scrypt`, N=16384) | 40 ms | 69 ms |
+
+  A token is presented on **every** call, so a chosen secret pays `scryptSync` each time — a wrong one
+  pays it too, since the stretch happens before the comparison and that is what removes the timing
+  signal. For a login form that cost is the defence and it is paid once. For a script polling
+  `/api/servers` it is 25× the latency of the request itself.
+
+  So: **let the panel generate the secret for anything that makes API calls**, and keep a chosen
+  password for the human login. `home-hosted account create <id>` without `HHOSTED_SECRET` generates
+  one. This is not a reason to weaken scrypt — it is a reason to know which of the two you are holding.
 - **Only a hash is stored**, and the value is shown exactly once — at creation, or when it is set.
 - **Sessions** live in memory only, and the lifetime is an *idle* timeout: each request slides it. A
   session belongs to **its account**, so rotating one account's secret signs out *that account's*

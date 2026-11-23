@@ -6,6 +6,21 @@
  * generates* is 256 bits of randomness, where scrypt would only add cost to every request. The record
  * says which, and verification reads that field.
  *
+ * **The cost is not rounding error, and it is per request.** Measured on a built panel, 40 requests an
+ * endpoint after a warm-up:
+ *
+ *     generated (sha256)   /healthz 2.6 ms   /api/servers 2.3 ms   /api/settings 2.3 ms
+ *     chosen    (scrypt)   /healthz 40 ms    /api/servers 69 ms    /api/settings 69 ms
+ *
+ * A token is presented on **every** call, so a chosen secret pays `scryptSync` at N=16384 each time, and
+ * a wrong token pays it too — the work happens before the comparison, which is what keeps the timing
+ * signal out. That is the right trade for a login form (`POST /api/auth/login` runs it once, and the
+ * delay is the defence) and the wrong one for a client polling `/api/servers` once a second.
+ *
+ * So: **generated secrets are the API path, chosen secrets are the login path.** A token made with
+ * `account create <id>` and no `HHOSTED_SECRET` is sha256 — that is the one to script against. This is
+ * not a reason to weaken scrypt; it is a reason to know which you are holding.
+ *
  * The store lives in `secrets.ts` beside the other secrets; this is the identity and hashing layer it
  * calls.
  */
