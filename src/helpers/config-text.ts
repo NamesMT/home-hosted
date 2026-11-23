@@ -7,18 +7,17 @@ import fs from 'node:fs'
  * A file the panel invites a person to hand-edit arrives the way their editor saved it, and the
  * editors that write one on Windows prepend a **byte-order mark**: PowerShell's
  * `Set-Content -Encoding UTF8` (5.1) and `Out-File`/`>` (UTF-16LE) both do, and Notepad writes one
- * for a "UTF-8 with BOM" save. For JSON the refusal is a parse error naming an invisible character
- * — `Unexpected token '\uFEFF'` — so the person is told their JSON is broken when it is not. For a
+ * for a "UTF-8 with BOM" save. For JSON the refusal is a parse error naming an invisible character —
+ * `Unexpected token '\uFEFF'` — so the person is told their JSON is broken when it is not. For a
  * `KEY=value` file it is quieter: every key carries a NUL and is dropped, so the process starts
  * without the secrets the file exists to hold.
  *
- * Stripping the mark is not a silent coercion: a BOM is not content, and a file whose real
- * content is unchanged parses to the same object with or without it. UTF-16 is decoded rather
- * than refused because that is what `>` produces on Windows, and it is recognisable from its own
- * prefix — a file in neither encoding still fails loudly in the reader above.
+ * Stripping the mark is not a silent coercion: a BOM is not content, and a file whose real content is
+ * unchanged parses to the same object with or without it. UTF-16 is decoded rather than refused
+ * because that is what `>` produces on Windows, and it is recognisable from its own prefix.
  *
- * Read as a `Buffer`, never with `'utf8'`: a `'utf8'` read of UTF-16LE text has already lost
- * the information this needs to tell them apart.
+ * Read as a `Buffer`, never with `'utf8'`: a `'utf8'` read of UTF-16LE text has already lost the
+ * information this needs to tell them apart.
  */
 export function decodeStateFile(bytes: Buffer): string {
   if (bytes.length >= 2) {

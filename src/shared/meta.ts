@@ -13,19 +13,13 @@ import type { CredentialKind, CredentialView } from './contracts'
  * The actions an **API token** may not take, each because it is a way for a stolen token to end up
  * holding the panel outright rather than merely driving it.
  *
- * Every entry is a refusal that exists in `src/api/`, not a policy written down here first — grep
- * `SESSION_REQUIRED` for each:
- *
- * - `password.clear` — `DELETE /api/auth/password` refuses any credential that is not a cookie
- *   session. Otherwise a token could `DELETE` then `POST` a fresh password needing no current one.
- * - `auth.disable` — `PATCH /api/settings` with `control.auth.enabled === false`, the cheapest route
- *   to an unprotected panel.
- * - `token.generate`, `token.revoke` — `requireSession` in `src/api/auth/$.routes.ts`.
- * - `password.first` — setting the *first* password arms the panel and locks every other credential
- *   out, so it takes this machine (or a session), never a remote token holder.
- * - `ui.install` — a UI is script served on the panel's own origin to every browser that signs in.
- * - `restore.credentials` — a restore whose selection writes `global:secrets` replaces the password
- *   and token hashes of this very panel.
+ * Every entry is a refusal that exists in `src/api/` — grep `SESSION_REQUIRED` for each. A token could
+ * otherwise `DELETE` then `POST` a fresh password needing no current one (`password.clear`), switch
+ * auth off through the cheapest settings patch (`auth.disable`), mint or revoke itself
+ * (`token.generate`, `token.revoke`, both `requireSession` in `src/api/auth/$.routes.ts`), set the
+ * first password and arm the panel (`password.first`), install a script served on the panel's own
+ * origin (`ui.install`), or restore `global:secrets` over the hashes of this very panel
+ * (`restore.credentials`).
  *
  * An **API token is full admin** (AGENTS.md): this list is not "less authority", it is the set of
  * moves that would let the token replace the person who owns the panel. Never describe it as less.

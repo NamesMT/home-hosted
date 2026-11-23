@@ -167,16 +167,15 @@ export function planPm2Apps(apps: readonly Pm2App[]): ImportPlan {
     /**
      * A **secret-looking** pm2 env value must not be written into `servers.config.json`.
      *
-     * `AGENTS.md` is flat about it: *"Secrets never enter a config file; secret files are 0600"*. Importing
-     * an ecosystem file used to carry every `env` entry across verbatim — measured, `API_KEY:
-     * "secret-value"` landed in `servers.config.json` in the clear. `secretEnv` is the mechanism that
-     * exists for this: the **names** stay in the config and the values go to the workspace's
-     * `.secrets.json` (0600).
+     * `AGENTS.md` is flat about it: *"Secrets never enter a config file; secret files are 0600"*. An
+     * import used to carry every `env` entry across verbatim, so `API_KEY: "secret-value"` landed in
+     * `servers.config.json` in the clear. `secretEnv` is the mechanism that exists for this: the
+     * **names** stay in the config and the values go to the workspace's `.secrets.json` (0600).
      *
-     * The detection is by name, deliberately conservative: a key is treated as a secret when it reads as
-     * one (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL`, `PRIVATE`). A false positive costs
-     * nothing — the value still works, it just lives in the 0600 file — while a false negative puts a
-     * credential in the config, which is the outcome worth avoiding.
+     * The detection is by name, deliberately conservative: a key is treated as a secret when it reads
+     * as one (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL`, `PRIVATE`). A false
+     * positive costs nothing — the value still works, it just lives in the 0600 file — while a false
+     * negative puts a credential in the config, which is the outcome worth avoiding.
      */
     const secrets = envOfSecretNames(env)
     const plain = Object.fromEntries(Object.entries(env).filter(([key]) => !secrets.includes(key)))

@@ -105,22 +105,18 @@ async function defaultWorkspace(registryFile: string): Promise<string> {
  * Refuses an id this workspace's `servers.config.json` does not declare, **unless a log for it is
  * on disk** — returns whether it refused, so the caller stops before printing an answer.
  *
- * `logs webx` printed `no output yet — …/webx.log` and exited 0, so a diagnostic session's first
- * command agreed with a typo, and `logs webx | grep -q error` was a silently empty pipeline that
- * reads as "no errors". `start webx`/`stop webx` refuse the same id over the same config, so the
- * two commands now agree.
+ * Accepting a typo made `logs webx | grep -q error` a silently empty pipeline that reads as "no
+ * errors", while `start webx`/`stop webx` refused the same id over the same config.
  *
- * The log's own existence is the exception, on purpose: a file outlives the entry that wrote it,
- * so refusing on the config alone would make the log of a **removed** server unreadable — the one
- * log a person is most likely to want. It is read as before, and a note says the entry is gone.
+ * The log's own existence is the exception, on purpose: a file outlives the entry that wrote it, so
+ * refusing on the config alone would make the log of a **removed** server unreadable — the one log a
+ * person is most likely to want. It is read as before, and a note says the entry is gone.
  *
  * "I cannot tell" (no config, an unparseable one) is not "there is no such entry", so it answers as
  * it did before. So does the panel console, which is not a server at all.
  *
- * `refusal()` plus an exit code rather than `fail()`, the same shape as the unreadable-file branch
- * in `runLogs`: `fail()` ends the process, and a command module that can be called in-process
- * should leave that decision where the answer is decided. One refusal is still one message on one
- * stream.
+ * `refusal()` plus an exit code rather than `fail()`, for the same reason as the unreadable-file
+ * branch in `runLogs`. One refusal is still one message on one stream.
  */
 async function refuseUnknownServer(target: LogTarget, json: boolean): Promise<boolean> {
   const { serverId, workspaceId } = target

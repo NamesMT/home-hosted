@@ -2,16 +2,15 @@
  * The browsable API reference at `/openapi/ui`.
  *
  * It used to be `Scalar()`, whose HTML is a `<script type="module">` importing the reference from
- * `cdn.jsdelivr.net` and nothing else — so with no route to the internet `#app` held 0 children and 0
- * characters. Measured in Chromium with every non-panel request aborted; the same page made 30 off-origin
- * requests and pulled a 754 KB bundle when it could reach them.
+ * `cdn.jsdelivr.net` and nothing else — so with no route to the internet `#app` held 0 children, and
+ * with one the page made 30 off-origin requests and pulled a 754 KB bundle.
  *
- * Scalar itself is not the limitation: its standalone bundle renders fine offline when it is served
- * alongside the panel. It weighs 4.9 MB, and `docs/UI_CREATION.md` point 5 says an offline home server
- * should not need a CDN, so shipping that to every install is a worse trade than rendering the route
- * index from `/openapi/spec.json` — grouped by tag, every operation with its method, path and summary —
- * and offering the interactive browser to whoever can reach it. The index is what renders first and
- * stays if the import fails, so the page is never blank.
+ * Scalar itself is not the limitation: its standalone bundle renders fine offline. It weighs 4.9 MB,
+ * and `docs/UI_CREATION.md` point 5 says an offline home server should not need a CDN, so shipping
+ * that to every install is a worse trade than rendering the route index from `/openapi/spec.json` —
+ * grouped by tag, every operation with its method, path and summary — and offering the interactive
+ * browser to whoever can reach it. The index renders first and stays if the import fails, so the page
+ * is never blank.
  *
  * The spec stays the single source of truth; this file only formats what the routes already declare.
  */

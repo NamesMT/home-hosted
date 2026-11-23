@@ -158,19 +158,17 @@ export type ConfiguredListener
  * `null` when nothing is.
  *
  * Every command that answers "is it running" has to consult this, not the record alone: with
- * `run.json` deleted, `status` printed "home-hosted is not running" while `GET /healthz` on the
- * same port answered `200`, and `down` refuses instead of letting `down && up` start a second panel
- * over a live one. The port comes from the state root's own `settings.json`, because that is the
- * only record left once `run.json` is gone.
+ * `run.json` deleted, `status` printed "not running" while `GET /healthz` on the same port answered
+ * `200`, and `down` would let `down && up` start a second panel over a live one. The port comes from
+ * the state root's own `settings.json`, the only record left once `run.json` is gone.
  *
  * **A listener is only this home's panel when it says so.** Two homes may share a port (one stopped,
- * one running), and treating any listener as "ours" broke `status` and `down` in the stopped one —
- * `down` refused over another home's panel. `/healthz` tells a loopback caller which home it serves
- * (`homeFingerprint`), so anything else — another home, an older panel, a stranger — is `other`.
+ * one running), so `/healthz` tells a loopback caller which home it serves (`homeFingerprint`);
+ * anything else — another home, an older panel, a stranger — is `other`.
  *
- * It **probes, and never signals**: without a record there is no pid this process can prove it
- * owns. A settings file that is missing or does not parse is not evidence either way, so this
- * reports nothing rather than inventing a port to test.
+ * It **probes, and never signals**: without a record there is no pid this process can prove it owns.
+ * A settings file that is missing or does not parse is not evidence either way, so this reports
+ * nothing rather than inventing a port to test.
  */
 export async function configuredPanelAddress(): Promise<ConfiguredListener | null> {
   const { readStateFile } = await import('#src/helpers/config-text')
