@@ -229,16 +229,16 @@ These are the ones that prevent real defects. Break one only with a reason in th
   channel (someone must act), a fix is a patch. Never hand-edit the version in `package.json`.
 - **Concise.** A comment explains non-obvious intent in a line or two; the argument for a change goes
   in the commit message, not the code.
-- **`src/shared/contracts.ts` splits leaf-first, and its core does not split at all.** The clusters that
-  moved cleanly — frames, logs, ddns, proxy, backups, accounts — reference only themselves. The entry
-  groups (restart, health, stop, deploy, bootstrap, the backup hooks) are the substrate `serverSchema`
-  is built from: moving them out collapses its inference into `{ [x: string]: any }`, which still
-  compiles. The tail does not split either — the response and view shapes import `serverSchema`,
-  `backupsViewSchema` and `hostSchema` back through the barrel, and the round trip collapses every
-  inferred type into `any`. **Leave it whole:** a schema graph that references itself in both directions
-  cannot be cut.
-- **A fact a doc states that also lives in code is compared by a test, not trusted.** Four pairs are
-  guarded: every `home-hosted <command>` in the docs against `SYNOPSIS`, every dev-server port against
-  `dev.mjs`'s constants, every key in the README's entry sample against `serverSchema`, and every error
-  code in `docs/API.md` against the source. Each was written after the doc had drifted. **Read the value
-  from the code, never restate it in the guard**, or the guard just agrees with itself.
+
+## Decisions already paid for — do not revisit
+
+- **`contracts.ts` stays one file.** Its leaf clusters (frames, logs, ddns, proxy, backups, accounts)
+  moved out cleanly, but the entry groups are the substrate `serverSchema` is built from and the tail's
+  response shapes import it back through the barrel. Either extraction collapses the inferred types
+  into `{ [x: string]: any }`, which still compiles — measured both ways.
+- **A doc fact that also lives in code is compared by a test.** Four pairs: commands against
+  `SYNOPSIS`, dev ports against `dev.mjs`, README's entry keys against `serverSchema`, `docs/API.md`'s
+  error codes against source. **Read the value from the code, never restate it in the guard**, or the
+  guard just agrees with itself.
+- **`contracts.ts` splitting, `dsh-home-hosted`'s Windows layer, and `.agentDocs/BOOT-AUDIT.md`'s
+  removal are settled.** See [COMPATIBILITY.md](.agentDocs/COMPATIBILITY.md) and the commit history.

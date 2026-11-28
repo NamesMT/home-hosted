@@ -155,15 +155,9 @@ The editor edits steps as one line each (`command arg arg`), and a save keeps a 
 
 ## Scheduled jobs are not here
 
-A job is a **different domain**, with its own file, page, API and command — see
-[JOBS.md](./JOBS.md). It is not a server entry, and a server entry cannot declare one: `kind` and
-`schedule` are refused at every write, because reading a job as a service would silently stop its
-schedule.
-
-The short version: a **service** is something that stays up and is supervised; a **job** starts, runs
-and exits, and **its exit code is the outcome**. That distinction is why this document has no `kind`
-column, no schedule field, and no table of things a job may not declare — the fields simply do not
-exist on a server, which is a better answer than refusing them.
+A **job** is a different domain — its own file, page, API and command — and a server entry cannot
+declare one: `kind` and `schedule` are refused at every write, because reading a job as a service would
+silently stop its schedule. See [JOBS.md](./JOBS.md).
 
 ## Coming from pm2 or compose
 
